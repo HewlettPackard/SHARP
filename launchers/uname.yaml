@@ -1,0 +1,18 @@
+# Configuration excerpt to get some information about the host
+backend_options:
+  uname:
+    reset: ''      # Defaults to '' anyway if not defined
+    run: uname -a; $CMD
+metrics:
+  hostname:
+    description: UNIX hostname
+    extract: 'grep ^Linux | awk ''{ print $2 }'''
+    lower_is_better: false
+    type: string
+    units: NA
+  kernel:
+    description: Linux kernel version
+    extract: 'grep ^Linux | awk ''{ print $3 }'''
+    lower_is_better: false
+    type: string
+    units: NA

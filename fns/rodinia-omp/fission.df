@@ -1,0 +1,33 @@
+FROM python:3.10.4-bullseye
+
+RUN ln -snf /usr/share/zoneinfo/$CONTAINER_TIMEZONE /etc/localtime && echo $CONTAINER_TIMEZONE > /etc/timezone
+# Ubuntu 20.04 only supports getting python3.7, python3.8, python3.9 this way
+RUN apt-get update && \
+    apt-get install gcc libev-dev libffi-dev -y && \
+    apt-get clean
+
+RUN apt-get install -y python3-dev libev-dev
+
+WORKDIR /app
+
+COPY requirements.txt /app
+RUN python3 -m pip install --upgrade pip
+RUN python3 -m pip install -r requirements.txt
+
+## Rodinia installation
+RUN wget http://www.cs.virginia.edu/~skadron/lava/Rodinia/Packages/rodinia_3.1.tar.bz2
+RUN tar -xf rodinia_3.1.tar.bz2
+
+WORKDIR /app/rodinia_3.1/
+RUN sed -i '/openmp\/mummergpu/d' Makefile
+RUN make OMP
+RUN mv bin/linux/omp/lud_omp bin/linux/omp/lud
+RUN mv bin/linux/omp/sc_omp bin/linux/omp/sc
+
+WORKDIR /app
+COPY ../fission_server.py /app
+
+ENV PYTHONUNBUFFERED 1
+ENTRYPOINT ["python3"]
+CMD ["fission_server.py"]
+

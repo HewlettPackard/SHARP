@@ -1,0 +1,19 @@
+---
+id: stage1
+name: Example workflow with loop
+description: A demonstration of a simple workflow with nested loops
+version: '1.0'
+specVersion: '0.8'
+start: toplevel
+annotations:
+- loops
+metadata:
+  verbose: no
+states:
+
+- name: toplevel
+  type: forEach
+  actionMode: parallel
+  actions:
+  - functionRef:
+---

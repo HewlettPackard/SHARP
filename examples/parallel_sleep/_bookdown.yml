@@ -1,0 +1,5 @@
+title: "Parallel sleep -- incremental cost to add function instance"
+output:
+  pdf_book:
+    keep_tex: true
+    toc: false

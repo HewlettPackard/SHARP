@@ -1,0 +1,7 @@
+metrics:
+  inner_time:
+    description: Run time as reported by the function
+    extract: grep '@@@ Time' | awk '{ print $(NF); }'
+    lower_is_better: true
+    type: numeric
+    units: seconds

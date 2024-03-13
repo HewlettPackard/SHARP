@@ -1,0 +1,52 @@
+```{r code=readLines("common.R"), echo=F, message=F, cache=F}
+```
+
+## Parallel sleep
+
+```{r setup-psleep, echo=F, cache=T, message=F}
+df <- read.csv("psleep.csv")
+max_mpl = max(df$concurrency)
+psleep.summary <- compute_summary(df$outer_time, "concurrent parallel sleep run time (s)")
+threshold <- round(min(df$outer_time) * 1.5, 1)
+outlier_count <- df %>%
+  group_by(concurrency) %>%
+  summarize(howmany = sum(outer_time > threshold))
+
+```
+
+### Experiment description
+
+First, a `sleep 1` function was run with a cold start to delete all existing pods.
+Then, the same function was run with increasing levels of parallelism (MPL).
+Since each function only sleeps, there's minimal interference between parallel functions.
+The only increases in run time come from system overhead (primarily, allocating pods
+as necessary and job launch).
+All run times are measured by the launcher from outside the function to capture these overhead.
+
+Run times that cluster near 1s indicate minimal overhead on top of the one-second sleep.
+Higher run times indicate runs with overhead, possibly because a new pod had to be allocated.
+
+### Summary statistics
+
+```{r echo=F, message=F}
+knitr::kable(psleep.summary, booktabs = T)
+```
+
+At each increasing concurrency level, there is an average of
+`r mean(outlier_count$howmany)`
+functions that take longer than `r threshold`s, suggesting they each required a new pod.
+
+
+
+### Run time vs. concurrency
+
+Figure \@ref(fig:psleep-vs-mpl) depicts all run times against the concurrency level, showing the outliers that lie above the runs clustered around 1s.
+
+```{r psleep-vs-mpl, echo=F, cache=T, message=F, warning=F, fig.cap="Scatter plot of run times of 1s-sleep functions at different concurrency levels."}
+df %>%
+  ggplot(aes(x = concurrency, y = outer_time)) +
+    geom_point(alpha = 0.35) +
+    xlab("Concurrency level (parallel sleeps)") +
+    ylab("Total run time from launch to finish (s)") +
+    theme_light()
+```

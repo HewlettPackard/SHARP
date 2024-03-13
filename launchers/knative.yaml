@@ -1,0 +1,17 @@
+# Configuration excerpt to use Knative backend
+backend_options:
+  knative:
+    reset: | 
+      pod_name=$(kubectl get pods | grep -oE "^$FN[a-zA-Z0-9-]+")
+      if [ -n "$pod_name" ]; then
+        kubectl delete pod $pod_name --force --grace-period=0
+      fi
+    run: |
+      if [ -n "$ARGS" ]; then
+        kubectl get ksvc $FN -o jsonpath='{.status.url}' | xargs curl -X POST -H "Content-Type:application/json" -d "$ARGS"
+      else
+        kubectl get ksvc $FN -o jsonpath='{.status.url}' | xargs curl -X POST -H "Content-Type:application/json"
+      fi
+    run_sys_spec: |
+      pod_name=$(kubectl get pods | grep -oE "^$FN[a-zA-Z0-9-]+")
+      kubectl exec -it $pod_name -- $SPEC_COMMAND

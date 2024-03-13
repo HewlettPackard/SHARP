@@ -1,0 +1,92 @@
+annotations:
+- I/O
+- CPU
+- GPU
+description: A demonstration of a simple workflow with dependencies
+functions:
+- metadata:
+    backend: verbatim
+  name: createZeros-10m
+  operation: head -c 10m /dev/zero > /tmp/zeros-10m
+  type: custom
+- metadata:
+    backend: verbatim
+  name: createZeros-100m
+  operation: head -c 100m /dev/zero > /tmp/zeros-100m
+  type: custom
+- metadata:
+    backend: fission
+  name: swapbytes
+  operation: swapbytes
+  type: custom
+- metadata:
+    backend: fission
+  name: inc
+  operation: inc
+  type: custom
+- metadata:
+    backend: fission
+  name: cuda-inc
+  operation: cuda-inc
+  type: custom
+id: demo
+metadata:
+  verbose: 'false'
+name: Example workflow
+specVersion: '0.8'
+start: CreateInputFiles
+states:
+- actionMode: parallel
+  actions:
+  - functionRef:
+      refName: createZeros-10m
+  - functionRef:
+      refName: createZeros-100m
+  name: CreateInputFiles
+  transition: swapbytes-1
+  type: operation
+- actions:
+  - functionRef:
+      arguments:
+        -n: 10
+        args: /tmp/zeros-10m
+      refName: swapbytes
+  name: swapbytes-1
+  timeouts:
+    actionExecTimeout: PT10S
+  transition: inc-both
+  type: operation
+- branches:
+  - actions:
+    - functionRef:
+        arguments:
+          -n: 15
+          args: '100000'
+        refName: inc
+    name: inc
+  - actions:
+    - functionRef:
+        arguments:
+          -n: 5
+          args: '100000'
+        refName: cuda-inc
+    name: cuda-inc
+  completionType: allOf
+  name: inc-both
+  timeouts:
+    branchExecTimeout: PT30S
+  transition: swapbytes-2
+  type: parallel
+- actions:
+  - functionRef:
+      arguments:
+        -n: 10
+        args: /tmp/zeros-100m
+      refName: swapbytes
+  end: true
+  name: swapbytes-2
+  timeouts:
+    actionExecTimeout: PT20S
+  type: operation
+version: '1.0'
+

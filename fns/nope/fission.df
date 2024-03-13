@@ -1,0 +1,3 @@
+FROM fission/python-env-3.10:1.34.0
+RUN pip3 install numpy==1.26.0
+ENV FAAS_ENV fission
