@@ -1,0 +1,17 @@
+# Configuration excerpt to use Knative backend
+backend_options:
+  fission:
+    reset: | 
+      pod_name=$(fission fn pods --name $FN | grep -oE "^poolmgr[a-zA-Z0-9-]+")
+      if [ -n "$pod_name" ]; then
+        kubectl delete pod $pod_name --force --grace-period=0
+      fi
+    run: |
+      if [ -n "$ARGS" ]; then
+        fission fn test --name $FN -b "$ARGS"
+      else
+        fission fn test --name $FN
+      fi
+    run_sys_spec: |
+      pod_name=$(fission fn pods --name $FN | grep -oE "^poolmgr[a-zA-Z0-9-]+")
+      kubectl exec -it $pod_name -- $SPEC_COMMAND

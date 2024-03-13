@@ -1,0 +1,12 @@
+# Configuration excerpt to compute maximum memory consumption
+backend_options:
+  memory:
+    reset: ''      # Defaults to '' anyway if not defined
+    run: /usr/bin/time --verbose $CMD
+metrics:
+  max_rss:
+    description: Maximum resident set size
+    extract: 'sed -nr ''s/Maximum resident set size \(kbytes\): ([0-9]+).*/\1/p'''
+    lower_is_better: true
+    type: numeric
+    units: kbytes

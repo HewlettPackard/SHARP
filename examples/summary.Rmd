@@ -1,0 +1,15 @@
+\newpage
+
+# Complete summary statistics
+
+
+```{r all-stats, echo=F, message=F}
+require(kableExtra)
+
+
+all.summary %>%
+  mutate_if(is.numeric, format, digits = 5) %>%
+  kableExtra::kbl(booktabs = T) %>%
+  kableExtra::kable_styling(latex_options = "hold_position")
+```
+

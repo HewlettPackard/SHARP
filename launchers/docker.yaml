@@ -1,0 +1,13 @@
+# Configuration excerpt to use Knative backend
+backend_options:
+  docker:
+    reset: |
+      docker restart $FN
+    run: |
+      if [ -n '$ARGS' ]; then
+        curl -X POST -H 'Content-Type: application/json' -d '$ARGS' `docker inspect -f '{{.NetworkSettings.IPAddress}}' $FN`:8080
+      else
+        curl -X POST -H 'Content-Type: application/json' `docker inspect -f '{{.NetworkSettings.IPAddress}}' $FN`:8080
+      fi
+    run_sys_spec: |
+      docker exec $FN $SPEC_COMMAND
