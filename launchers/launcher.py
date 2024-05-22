@@ -50,19 +50,19 @@ class Launcher:
     ###################
     def _find_exec(self, func: str) -> str:
         """
-        Find an executable for a given function name `func`.
+        Search an executable for a given function name `func`.
 
-        Algorithm: in the specified `fndir`, search for the first file with the
-        name `func`[.ext] that is executable. The extension part [.ext] is optional.
+        First, try to find the the first file matching the name `func`[.ext] in
+        the specified `fndir`. the [.ext] extension is optional.
+        If none found, return the OS path to the given file, assuming an
+        explicit full-path to a binary was passed.
         """
         fdir: str = os.path.join(self._fndir, self._func)
-        for fn in [os.path.join(fdir, func)] + glob.glob(
-            os.path.join(fdir, f"{func}.*")
-        ):
+        for fn in glob.glob(os.path.join(fdir, f"{func}.*")):
             if os.path.isfile(fn) and os.access(fn, os.X_OK):
                 return fn
 
-        raise RuntimeError(f"Can't find an executable starting with {func} in {fdir}")
+        return os.path.join(fdir, func)
 
     ###################
     def __get_input_fd(self, options: Dict[str, Any]) -> int:
@@ -98,6 +98,9 @@ class Launcher:
             output = fp.read()
             print(output.decode("utf-8"), end="")
 
+        if status == 127:   # bash's "No such file or directory"
+            raise RuntimeError(f"Failed to execute {popen.args}: no such file or directory")
+
         if status != 0:
             warnings.warn(f"executing function return status {status}")
             return None
@@ -131,11 +134,15 @@ class Launcher:
                 or len(result.stderr) > 0
                 or len(result.stdout) == 0
             ):
-                raise Exception(
+                warnings.warn(
                     f"Failed to extract output for metric {name}. Did you include the correct backend and output the metric from your program?\nReturn code {result.returncode}, stderr: {result.stderr}"
                 )
+                metrics[name] = ["NA"]
+            else:
+                metrics[name] = result.stdout.split()
 
-            metrics[name] = result.stdout.split()
+        if len(set(map(len, metrics.values()))) != 1:
+          raise Exception(f"Some metrics have fewer rows than others. Inspect metrics for duplicated/missing rows:\n{metrics}")
 
         ret = []
         for i in range(len(next(iter(metrics.values())))):
@@ -165,7 +172,6 @@ class Launcher:
             popens.append(
                 subprocess.Popen(
                     cmds[i],
-                    stderr=subprocess.STDOUT,
                     stdout=files[-1],
                     stdin=self._input_fd,
                     text=True,
@@ -174,7 +180,7 @@ class Launcher:
             )
 
         t0: float = time.perf_counter()
-        while (time.perf_counter() - t0) < timeout:
+        while (time.perf_counter() - t0) < timeout and len(popens) != 0:
             for i in range(len(popens)):
                 self._wait_for_run(popens[i], files[i], timeout)
                 metrics = self._get_metrics(files[i], self._mopts)
@@ -184,7 +190,7 @@ class Launcher:
                 files.pop(i)
                 break
 
-            return pdata if len(popens) == 0 else None
+        return pdata if len(popens) == 0 else None
 
         print("Warning: task timeout exceeded!")
         return None

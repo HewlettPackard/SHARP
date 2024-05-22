@@ -2,7 +2,7 @@
 backend_options:
   memory:
     reset: ''      # Defaults to '' anyway if not defined
-    run: /usr/bin/time --verbose $CMD
+    run: /usr/bin/time --verbose $CMD $ARGS 2>&1
 metrics:
   max_rss:
     description: Maximum resident set size

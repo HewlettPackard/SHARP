@@ -2,7 +2,7 @@
 backend_options:
   uname:
     reset: ''      # Defaults to '' anyway if not defined
-    run: uname -a; $CMD
+    run: uname -a; $CMD $ARGS
 metrics:
   hostname:
     description: UNIX hostname

@@ -1,16 +1,96 @@
-# Configuration to get metrics from perf
+# Configuration file to get a set of basic CPU metrics from perf
+# If the program is running is too short, some metrics may be missing and will
+# be replace by "NA".
 backend_options:
   perf:
     reset:
     run: |
-      perf stat -e cache-misses $CMD 2>&1
+      perf stat -e cache-misses,context-switches,branch-misses,cpu-migrations,page-faults,dTLB-load-misses,iTLB-load-misses,emulation-faults,L1-icache-load-misses,L1-dcache-load-misses,LLC-load-misses,node-load-misses,cpu-clock $CMD $ARGS 2>&1
     run_sys_spec: |
       $SPEC_COMMAND
 
 metrics:
-  cache-misses:
-    description: cache-misses
-    extract: grep ' cache-misses' | awk '{ print $1; }'
+  perf_time:
+    description: Wall-clock duration as measured by perf
+    extract: grep ' seconds time elapsed' | awk '{ print $1; }'
+    lower_is_better: true
+    type: numeric
+    units: seconds
+  cache_misses:
+    description: overall cache misses
+    extract: grep ' cache-misses' | awk '{ gsub(/,/, ""); print $1; }' | sed 's/<not/NA/'
+    lower_is_better: true
+    type: numeric
+    units: count
+  context_switches:
+    description: context switches
+    extract: grep ' context-switches' | awk '{ gsub(/,/, ""); print $1; }' | sed 's/<not/NA/'
+    lower_is_better: true
+    type: numeric
+    units: count
+  cpu_migrations:
+    description: CPU migrations
+    extract: grep ' cpu-migrations' | awk '{ gsub(/,/, ""); print $1; }' | sed 's/<not/NA/'
+    lower_is_better: true
+    type: numeric
+    units: count
+  page_faults:
+    description: total page faults
+    extract: grep ' page-faults' | awk '{ gsub(/,/, ""); print $1; }' | sed 's/<not/NA/'
+    lower_is_better: true
+    type: numeric
+    units: count
+  dTLB_misses:
+    description: data-TLB misses
+    extract: grep ' dTLB-load-misses' | awk '{ gsub(/,/, ""); print $1; }' | sed 's/<not/NA/'
+    lower_is_better: true
+    type: numeric
+    units: count
+  iTLB_misses:
+    description: instruction-TLB misses
+    extract: grep ' iTLB-load-misses' | awk '{ gsub(/,/, ""); print $1; }' | sed 's/<not/NA/'
+    lower_is_better: true
+    type: numeric
+    units: count
+  emulation_faults:
+    description: emulation faults
+    extract: grep ' emulation-faults' | awk '{ gsub(/,/, ""); print $1; }' | sed 's/<not/NA/'
+    lower_is_better: true
+    type: numeric
+    units: count
+  L1_icache_load_misses:
+    description: Level-1 instruction-cache misses
+    extract: grep ' L1-icache-load-misses' | awk '{ gsub(/,/, ""); print $1; }' | sed 's/<not/NA/'
+    lower_is_better: true
+    type: numeric
+    units: count
+  L1_dcache_load_misses:
+    description: Level-1 data-cache misses
+    extract: grep ' L1-dcache-load-misses' | awk '{ gsub(/,/, ""); print $1; }' | sed 's/<not/NA/'
+    lower_is_better: true
+    type: numeric
+    units: count
+  LLC_misses:
+    description: Last-level cache misses
+    extract: grep ' LLC-load-misses' | awk '{ gsub(/,/, ""); print $1; }' | sed 's/<not/NA/'
+    lower_is_better: true
+    type: numeric
+    units: count
+  branch_misses:
+    description: branch misses
+    extract: grep ' branch-misses' | awk '{ gsub(/,/, ""); print $1; }' | sed 's/<not/NA/'
+    lower_is_better: true
+    type: numeric
+    units: count
+  node_misses:
+    description: node misses
+    extract: grep ' node-load-misses' | awk '{ gsub(/,/, ""); print $1; }' | sed 's/<not/NA/'
+    lower_is_better: true
+    type: numeric
+    units: count
+  cpu_clock:
+    description: CPU clock
+    extract: grep ' node-load-misses' | awk '{ gsub(/,/, ""); print $1; }' | sed 's/<not/NA/'
     lower_is_better: true
     type: numeric
     units: count

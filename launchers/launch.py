@@ -227,7 +227,7 @@ def log_run(
     options: Dict[str, Any],
     sys_specs: Dict[str, Any],
 ) -> None:
-    """Log all results from a single run."""
+    """Log all results from a single run (with possibly multiple copies)."""
     # First, Log data shared across all copies:
     log.add_column(
         "repeat",
@@ -336,6 +336,7 @@ def run_task(
         repeater (Repeater): A Repeater instance to decide when to stop the run
     """
     cmds: List[str] = chain_of_commands(launchers, options["copies"])
+    sys_specs = get_sys_specs(launchers)
 
     # Warmup backend if needed:
     if options["start"] == "warm":
@@ -357,11 +358,9 @@ def run_task(
         if pdata is None:
             raise Exception("Error executing task--aborting!")
 
+        log_run(pdata, log, repeater, options, sys_specs)
         if not repeater(pdata):
             break
-
-    sys_specs = get_sys_specs(launchers)
-    log_run(pdata, log, repeater, options, sys_specs)
 
 
 #################### Main

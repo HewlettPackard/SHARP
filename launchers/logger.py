@@ -128,7 +128,7 @@ The measurements were run on {platform.node()}, starting at {now} (UTC).\n"""
             sys_specs (Dict): Specs of system under test
         """
         self.__save_csv(mode)
-        if mode == "w":
+        if mode == "w" or not os.path.exists(self.__basefn + ".md"):
             self.__save_md(mode, sys_specs)
 
     #################
@@ -142,10 +142,11 @@ The measurements were run on {platform.node()}, starting at {now} (UTC).\n"""
         assert len(self.__rows) > 0, "There's nor row data to save"
         records = [{**self.__columns, **r} for r in self.__rows]
         fnames = list(self.__columns.keys()) + list(self.__rows[0].keys())
+        fn: str = self.__basefn + ".csv"
 
-        with open(self.__basefn + ".csv", mode, encoding="utf-8") as f:
+        with open(fn, mode, encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=fnames)
-            if mode == "w":
+            if mode == "w" or os.path.getsize(fn) == 0:
                 writer.writeheader()
             writer.writerows(records)
 
