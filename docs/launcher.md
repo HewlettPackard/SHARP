@@ -55,6 +55,13 @@ For the complete documentation of options, see "Command-line interface" below.
 
 The primary way to control most major behavior of `launch.py` is via command-line arguments.
 Some configuration choices don't have a command-line option to change them, but you can modify them by providing a configuration file (YAML/JSON) or a JSON string in the command line.
+Launcher handles option sources in a particular priority order, with each subsequent source potentially overriding previous options:
+
+    * Previous .md file with --repro flag
+    * Config file(s) with -f flag
+    * JSON string with -j flag
+    * Remaining-command line flags.
+
 
 To see a summary of the options supported by the command line and their default values, type:
 

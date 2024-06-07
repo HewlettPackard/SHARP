@@ -14,6 +14,7 @@ metadata on the task run, as well as field descriptions for the CSV log.
 
 import csv
 from datetime import datetime, timezone
+import json
 import os
 import platform
 from typing import *
@@ -60,10 +61,8 @@ The measurements were run on {platform.node()}, starting at {now} (UTC).\n"""
         if git.returncode == 0:
             self.__preamble += f"The source code version used was from git hash: {git.stdout.strip()}\n"
 
-        self.__preamble += "\n## Runtime options:\n\n"
-        for key in options.keys():
-            if key not in ["metrics"]:
-                self.__preamble += f"{key}:\t{options[key]}\n"
+        self.__preamble += "\n## Runtime options\n\n"
+        self.__preamble += json.dumps(options, indent=2)
 
     #################
     def clear_rows(self) -> None:
@@ -171,6 +170,6 @@ The measurements were run on {platform.node()}, starting at {now} (UTC).\n"""
                 f.write(self.__metadata[field]["desc"] + ".\n")
 
             if sys_specs:
-                f.write("\n## System configuration:\n\n")
+                f.write("\n## System configuration\n\n")
                 for key in sys_specs:
                     f.write(f"### {key}\n{sys_specs[key]}\n")
