@@ -1,7 +1,7 @@
 """
 Base class for all launchers. Provides the basic Launcher API.
 
-© Copyright 2022--2024 Hewlett Packard Enterprise Development LP
+© Copyright 2022--2025 Hewlett Packard Enterprise Development LP
 """
 
 import glob

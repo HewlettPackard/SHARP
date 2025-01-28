@@ -4,7 +4,7 @@ Main interface to function launcher.
 
 Run this from the command line with --help to list the various options and launching modes.
 
-© Copyright 2022--2024 Hewlett Packard Enterprise Development LP
+© Copyright 2022--2025 Hewlett Packard Enterprise Development LP
 """
 from logger import Logger
 from repeater import *

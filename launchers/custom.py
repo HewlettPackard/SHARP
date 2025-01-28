@@ -4,7 +4,7 @@ An implementation of catch-all launcher.
 
 This launcher can be customized from the options dictionary, with some macro substitutions.
 
-© Copyright 2022--2024 Hewlett Packard Enterprise Development LP
+© Copyright 2022--2025 Hewlett Packard Enterprise Development LP
 """
 
 from launcher import Launcher

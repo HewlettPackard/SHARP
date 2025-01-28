@@ -9,7 +9,7 @@ through flask.
 The complete two-way overhead of sending the request and reading it back can 
 be measured as the roundtrip time from launching the function to completion.
 
-© Copyright 2022--2024 Hewlett Packard Enterprise Development LP
+© Copyright 2022--2025 Hewlett Packard Enterprise Development LP
 """
 
 from flask import request, Flask

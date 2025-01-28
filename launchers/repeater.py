@@ -15,7 +15,7 @@ The rest of the Repeater subclasses try to intelligently apply a stopping
 rule based on statistics of the samples collected so far.
 Look at specific classes for documentation and assumptions.
 
-© Copyright 2022--2024 Hewlett Packard Enterprise Development LP
+© Copyright 2022--2025 Hewlett Packard Enterprise Development LP
 """
 
 

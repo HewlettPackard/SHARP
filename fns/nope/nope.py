@@ -5,7 +5,7 @@ A no-op function.
 nope does nothing, which can be useful for measuring invocation overhead.
 It takes no arguments, and returns a string representing zero run time.
 
-© Copyright 2022--2024 Hewlett Packard Enterprise Development LP
+© Copyright 2022--2025 Hewlett Packard Enterprise Development LP
 """
 
 from flask import Flask

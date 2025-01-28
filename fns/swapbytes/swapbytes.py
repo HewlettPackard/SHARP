@@ -12,7 +12,7 @@ Several example input files of different sizes can be used in the format `zeros-
 The code recreates these files (if not already present), without the need for 
 any external package or initialization.
 
-© Copyright 2022--2024 Hewlett Packard Enterprise Development LP
+© Copyright 2022--2025 Hewlett Packard Enterprise Development LP
 """
 
 from flask import request, Flask

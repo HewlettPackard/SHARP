@@ -7,7 +7,7 @@ as the localhost doing the launching, AND that all the runnable programs (functi
 are in the same path locations on all the remote machines as in the local host.
 See launcher.py for API documentation.
 
-© Copyright 2022--2024 Hewlett Packard Enterprise Development LP
+© Copyright 2022--2025 Hewlett Packard Enterprise Development LP
 """
 
 from launcher import Launcher

@@ -15,7 +15,7 @@ The code uses `numba` and therefore requires a custom-built environment that
 installs it.  The code requires CUDA support and a custom environment and builder.
 See more setup instructions [here](../setup/CUDA.md).
 
-© Copyright 2022--2024 Hewlett Packard Enterprise Development LP
+© Copyright 2022--2025 Hewlett Packard Enterprise Development LP
 """
 from flask import request, Flask
 import numpy as np

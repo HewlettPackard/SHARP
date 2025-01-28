@@ -5,7 +5,7 @@ Validate one or more workflow files in the CNCF workflow format.
 Takes one or more filenames as command-line arguments
 Uses the WorkflowValidator class to ensure they conform to the CNCF format.
 
-© Copyright 2022--2024 Hewlett Packard Enterprise Development LP
+© Copyright 2022--2025 Hewlett Packard Enterprise Development LP
 """
 
 from serverlessworkflow.sdk.workflow import Workflow  # type: ignore

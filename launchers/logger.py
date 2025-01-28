@@ -9,7 +9,7 @@ CSV logs are identified by experiment (directory name) and task (filename)
 In addition to the CSV file, a markdown file is created with additional
 metadata on the task run, as well as field descriptions for the CSV log.
 
-© Copyright 2022--2024 Hewlett Packard Enterprise Development LP
+© Copyright 2022--2025 Hewlett Packard Enterprise Development LP
 """
 
 import csv

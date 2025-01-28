@@ -5,7 +5,7 @@ An implementation of Launcher that runs tasks using MPI.
 Expects an additional 'mpiflags' option.
 See launcher.py for API documentation.
 
-© Copyright 2022--2024 Hewlett Packard Enterprise Development LP
+© Copyright 2022--2025 Hewlett Packard Enterprise Development LP
 """
 from launcher import Launcher
 import shutil

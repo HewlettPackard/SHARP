@@ -25,7 +25,7 @@ More details on the distribution can be found
 
 The parameters are passed either by argv, stdin, or in the body of the HTTP request.
 
-© Copyright 2022--2024 Hewlett Packard Enterprise Development LP
+© Copyright 2022--2025 Hewlett Packard Enterprise Development LP
 """
 
 from numba import jit, cuda  # type: ignore

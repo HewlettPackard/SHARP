@@ -16,7 +16,7 @@ The parameter `N` is passed either by argv[1] or in the body of the HTTP
 request.  The run time is somwhere between O(N<sup>2</sup>) and O(N<sup>3</sup>).
 On a 24-core E5-2680 v3, this yields about 50s for `N`=20000.
 
-© Copyright 2022--2024 Hewlett Packard Enterprise Development LP
+© Copyright 2022--2025 Hewlett Packard Enterprise Development LP
 """
 from flask import request, Flask
 import multiprocessing

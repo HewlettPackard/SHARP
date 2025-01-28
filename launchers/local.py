@@ -4,7 +4,7 @@ An implementation of launcher that runs tasks on the local machine.
 
 See launcher.py for API documentation.
 
-© Copyright 2022--2024 Hewlett Packard Enterprise Development LP
+© Copyright 2022--2025 Hewlett Packard Enterprise Development LP
 """
 from launcher import Launcher
 import os

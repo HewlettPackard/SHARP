@@ -10,7 +10,7 @@ function/container. `N` is a parameter passed to the function.
 The function uses a binary environment with Python3 and OpenMPI installed.
 It then executes `mpirun` in a script.
 
-© Copyright 2022--2024 Hewlett Packard Enterprise Development LP
+© Copyright 2022--2025 Hewlett Packard Enterprise Development LP
 """
 
 from flask import request, Flask

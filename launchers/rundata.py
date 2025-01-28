@@ -1,7 +1,7 @@
 """
 Data structure to store performance data, and algorithms to process and compute statistics on it.
 
-© Copyright 2022--2024 Hewlett Packard Enterprise Development LP
+© Copyright 2022--2025 Hewlett Packard Enterprise Development LP
 """
 
 import re

@@ -26,7 +26,7 @@ The standard is also extended/interpreted in these ways:
 - function metadata, which includes the launcher backend (or 'local' for shell)
 - 'fnargs' dictionary in function arguments, which are passed to the invoked function
 
-© Copyright 2022--2024 Hewlett Packard Enterprise Development LP
+© Copyright 2022--2025 Hewlett Packard Enterprise Development LP
 """
 
 import isodate  # type: ignore
