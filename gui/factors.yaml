@@ -1,0 +1,230 @@
+# Perf metrics
+
+dTLB_misses:
+  description:
+    Counts how many times a data reference needed to be translated from a virtual address to a physical address and was not found in the data TLB cache. A higher count indicates pressure on the dTLB cache, possibly because of a high rate of unpredictable data accesses or the data spread over too many pages.
+  references:
+    wikipedia: https://en.wikipedia.org/wiki/Translation_lookaside_buffer
+    stackoverflow: https://stackoverflow.com/questions/10446301/
+    vtune: http://www.nacad.ufrj.br/online/intel/vtune/users_guide/mergedProjects/analyzer_ec/mergedProjects/reference_olh/mergedProjects/pmp/ratios/dtlb_miss_rate_due_to_loads.html
+  mitigations:
+  - mem_allocator_je
+  - mem_allocator_tc
+  - huge_pages
+  - improve_locality
+
+iTLB_misses:
+  description:
+    Counts how many times a code (executable) reference needed to be translated from a virtual address to a physical address and was not found in the instruction-TLB cache. A higher count indicates pressure on the iTLB cache, possibly because the code branches to unpredictable parts of the binary.
+  references:
+    wikipedia: https://en.wikipedia.org/wiki/Translation_lookaside_buffer
+    intel: https://www.intel.com/content/dam/develop/external/us/en/documents/runtimeperformanceoptimizationblueprint-largecodepages-q1update.pdf
+    facebook: https://research.facebook.com/publications/automated-hot-text-and-huge-pages-an-easy-to-adopt-solution-towards-high-performing-services/
+    avoiding-imisses: https://paweldziepak.dev/2019/06/21/avoiding-icache-misses/
+  mitigations:
+  - recompile_Os
+  - huge_pages
+  - inline_functions
+  - hot_text
+
+cache_misses:
+  description:
+    Total memory fetches from main memory that could not be served in any of the CPU caches. High cache miss rates can  have many causes, including poor locality, too-small caches, and even interference from other processes.
+  references:
+    overview: https://millyz.github.io/ta/os3150_2016/mem1-lab/mem1/part1_2.html
+    intel: https://community.intel.com/t5/Software-Tuning-Performance/How-to-understand-LLC-misses-LLC-load-misses-and-LLC-store/m-p/1099912
+    UNM: http://ece-research.unm.edu/jimp/611/slides/chap5_3.html
+  mitigations:
+  - huge_pages
+  - improve_locality
+  - prefetching
+  - interference_reduction
+  - increase_cache
+
+context_switches:
+  description:
+    Counts how many times a core that was running this task switched to another task (not switches to kernel mode).
+  references:
+    blog: https://blog.codingconfessions.com/p/context-switching-and-performance
+    netdata: https://www.netdata.cloud/blog/understanding-context-switching-and-its-impact-on-system-performance/
+    site24x7: https://www.site24x7.com/learn/linux/context-switching.html
+  mitigations:
+  - batching_syscalls
+  - no_numa_balancing
+  - cpu_affinity
+  - io_batching
+  - asynch_io
+  - sched_fifo
+  - sched_rr
+  - sched_batch
+  - interrupt_management
+
+cpu_migrations:
+  description:
+    Counts how many times a scheduler's run queue is moved from one logical CPU to another. Such a migration can cause costly low-level or high-level cache flushes.
+  references:
+    ibm: https://www.ibm.com/docs/en/linux-on-systems?topic=management-linux-scheduling
+    archlinux: https://bbs.archlinux.org/viewtopic.php?id=238886
+  mitigations:
+  - numa_binding
+  - cpu_affinity
+
+page_faults:
+  description:
+    Total number of minor and major page faults--requests for a virtual page that isn't currently in physical memory because it was never mapped there yet or because it had been swapped out to disk. These pages can be either in the data segment or in the text (code) segment, necessitating different mitigations.
+  references:
+    wikipedia: https://en.wikipedia.org/wiki/Page_fault
+    intel: https://www.intel.com/content/www/us/en/docs/vtune-profiler/cookbook/2025-0/page-faults.html
+    blog: https://johnnysswlab.com/debugging-performance-issues-in-kernel-space-minor-fault-and-major-faults/
+    stack-overflow: https://stackoverflow.com/questions/50326681
+  mitigations:
+  - mem_allocator_je
+  - mem_allocator_tc
+  - huge_pages
+  - MAP_POPULATE
+  - recompile_Os
+  - improve_locality
+  - increase_RAM
+
+emulation_faults:
+  description:
+    Counts how often the CPU needs to emulate instructions that are not native to its instruction set.
+  references:
+    blog: https://johnnysswlab.com/debugging-performance-issues-in-kernel-space-minor-fault-and-major-faults/
+  mitigations:
+  - recompile_native
+
+L1_icache_load_misses:
+  description:
+    Counts misses of the level-1 instruction cache.
+  references:
+    intel: https://community.intel.com/t5/Software-Tuning-Performance/Which-counter-should-I-use-to-measure-L1I-cache-misses-on/m-p/1159884
+    quora: https://www.quora.com/What-is-an-I-cache-miss-or-a-data-cache-miss
+  mitigations:
+  - recompile_Os
+  - inline_functions
+  - hot_text
+
+L1_dcache_load_misses:
+  description:
+    Counts misses of the level-1 data cache.
+  references:
+    intel: https://community.intel.com/t5/Software-Tuning-Performance/Understanding-L1-L2-L3-misses/td-p/1056573
+    blog: https://josephmuia.ca/2018-09-04-measuring-cache-performance-perf/
+    matklad: https://matklad.github.io/2021/07/10/its-not-always-icache.html
+  mitigations:
+  - huge_pages
+  - prefetching
+  - interference_reduction
+  - increase_cache
+  - improve_locality
+
+LLC_misses:
+  description:
+    Total misses from the CPU's last-level cache (load and store). High cache miss rates can  have many causes, including poor locality, too-small caches, and even interference from other processes.
+  references:
+    intel: https://community.intel.com/t5/Analyzers/How-to-get-llc-misses-using-perf/m-p/1614922
+  mitigations:
+  - improve_locality
+  - prefetching
+  - interference_reduction
+  - increase_cache
+
+branch_misses:
+  description:
+    Counts the total number of time the CPU's branch bredictor chose the wrong branch. Such mispredictions often stall the CPU pipeline, resulting in many wasted cycles.
+  references:
+    collabora: https://www.collabora.com/news-and-blog/blog/2017/03/21/performance-analysis-in-linux/
+    infoq: https://www.infoq.com/articles/making-code-faster-taming-branches/
+    blog: https://bnikolic.co.uk/blog/hpc-perf-branchprediction
+  mitigations:
+  - branch_hints
+  - rearrange_data
+  - branchless_instructions
+  - loop_unrolling
+
+cpu_clock:
+  description:
+    The amount of wall-clock time spent by the CPU. A high value indicates
+    that the CPU was particularly busy, either in useful work or waiting for
+    data, depending on the other metrics. Reducing high CPU clock counts
+    requires optimizing the code in traditional methods and does not have a
+    specific software-based mitigation.
+    Another option is to use a faster CPU or one with more cores, if applicable.
+  references:
+    intel: https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=https://www.intel.com/content/www/us/en/content-details/671488/intel-64-and-ia-32-architectures-optimization-reference-manual-volume-1.html
+  mitigations:
+    - increase_speed
+    - increase_cores
+
+node_misses:
+  description:
+    A node miss in the context of a CPU, specifically referring to
+    Non-Uniform Memory Access (NUMA) systems, means that a CPU core on
+    one node (a physical grouping of memory on a multi-socket system)
+    attempted to access data stored in the memory of another node,
+    requiring a slower memory access due to the data not being locally
+    available on its own node.
+  references:
+    kernel.org: https://docs.kernel.org/admin-guide/numastat.html
+    wikipedia: https://en.wikipedia.org/wiki/Non-uniform_memory_access
+    sqlpassion: https://www.sqlpassion.at/archive/2019/09/23/troubleshooting-numa-node-inbalance-problems/
+    blog: https://www.p99conf.io/2021/09/28/hunting-a-numa-performance-bug/
+  mitigations:
+    - numa_binding
+
+clock_rate:
+  description:
+    Slow performance that is associated with a lower clock rate may be
+    the result of CPU throttling. If the CPU is overworked and overheated,
+    power management features in the server could lower the CPU's clock speed,
+    resulting in lower temperature and performance.
+  references:
+    intel.com: https://www.intel.com/content/www/us/en/support/articles/000088048/processors.html
+    wikipedia: https://en.wikipedia.org/wiki/Dynamic_frequency_scaling
+  mitigations:
+    - cooldown
+    - power_management
+    - improved_cooling
+
+
+# mpip metrics
+
+time_mean_Allreduce:
+  description:
+    High time spent in MPI_Allreduce operations indicates inefficient collective communication patterns. This can be measured by tracking the time spent in MPI_Allreduce calls, message sizes, and frequency of calls. High overhead often results from suboptimal process placement, inefficient algorithms, or poor NUMA locality.
+  references:
+    mpi-tuning: https://mpitutorial.com/tutorials/mpi-reduce-and-allreduce/
+    process-binding: https://www.open-mpi.org/faq/?category=tuning#using-paffinity
+  mitigations:
+    - mpi_allreduce_optimization
+
+time_mean_File_open:
+  description:
+    Poor MPI file I/O performance manifested through excessive time spent in file operations (MPI_File_open, MPI_File_close, MPI_File_read, MPI_File_write), low I/O bandwidth, and inefficient file access patterns. This can result from slow storage, poor file system configuration, or suboptimal I/O patterns.
+  references:
+    mpi-io-guide: https://www.mcs.anl.gov/research/projects/mpi/mpi-standard/mpi-report-2.0/node191.htm
+  mitigations:
+    - mpi_file_io_optimization
+
+time_mean_File_close:
+  description:
+    Poor MPI file I/O performance manifested through excessive time spent in file operations (MPI_File_open, MPI_File_close, MPI_File_read, MPI_File_write), low I/O bandwidth, and inefficient file access patterns. This can result from slow storage, poor file system configuration, or suboptimal I/O patterns.
+  references:
+    mpi-io-guide: https://www.mcs.anl.gov/research/projects/mpi/mpi-standard/mpi-report-2.0/node191.htm
+  mitigations:
+    - mpi_file_io_optimization
+
+# nvidia-smi metrics
+
+gpu_temperature:
+  description:
+    Elevated GPU temperature can trigger driver thermal limiters (SW/HW Thermal Slowdown),
+    which reduce clocks and cause slower or bimodal runtimes. You can confirm by inspecting the clock
+    event reasons and their counters.
+  references:
+    nvml-clocks-event-reasons: https://docs.nvidia.com/deploy/archive/R550/nvml-api/group__nvmlClocksEventReasons.html
+  mitigations:
+    - cooldown
+    - increase_fan_speed                 # if supported on your SKU / environment
+    - improved_cooling

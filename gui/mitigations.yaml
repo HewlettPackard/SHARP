@@ -1,0 +1,470 @@
+#######################################
+# Section one: List of potential mitigations, with descriptions and references
+
+###
+increase_cache:
+  description:
+    Running the application on a CPU with a larger cache can alleviate cache pressure.
+  references:
+    kinsta: https://kinsta.com/knowledgebase/cache-miss/
+    umd: https://www.cs.umd.edu/~meesh/411/CA-online/chapter/cache-optimizations-ii/index.html
+    washington.edu: https://courses.cs.washington.edu/courses/cse378/09au/lectures/cse378au09-20.pdf
+
+###
+increase_RAM:
+  description:
+    Increasing the amount of installed RAM can alleviate or eliminate swapping.
+  references:
+    kinsta: https://kinsta.com/knowledgebase/cache-miss/
+    blog: https://severalnines.com/blog/fixing-page-faults-mongodb/
+
+###
+increase_speed:
+  description:
+    Running the application on a CPU with a higher frequency can improve performance
+    for some applications.
+  references:
+    intel: https://www.intel.com/content/www/us/en/gaming/resources/cpu-clock-speed.html
+    blog: https://aditya-sunjava.medium.com/the-impact-of-clock-speed-versus-architecture-on-computing-performance-4bc94f586830
+
+###
+increase_cores:
+  description:
+    Running the application on a CPU with more cores can improve performance for
+    some parallel applications.
+  references:
+    superuser: https://superuser.com/questions/317771/
+    spiceworks: https://community.spiceworks.com/t/when-do-more-processor-cores-mean-better-pc-performance/571077
+
+###
+mem_allocator_je:
+  description: |
+    JE malloc is an alternative to libc's malloc that optimizes memory allocation
+    for some workloads. To rerun the application with JE malloc, make sure it's
+    installed on your system (on ubuntu, use `apt install libjemalloc2`).
+  references:
+    homepage: https://jemalloc.net/
+    github: https://github.com/jemalloc/jemalloc
+
+###
+mem_allocator_tc:
+  description: |
+    TCmalloc (thread-caching) is an alternative to libc's malloc that optimizes memory allocation
+    under multithreading. To rerun the application with TC malloc, make sure it's
+    installed on your system (on ubuntu, use `apt install google-perftools`).
+  references:
+    github: https://github.com/google/tcmalloc
+    stack-overflow: https://stackoverflow.com/questions/29205141/
+
+###
+improve_locality:
+  description: |
+    Rearrange the data structures in the code to improve locality,
+    so that more related data resides together on the same page,
+    or that fewer pages are used overall (for example, by using smaller basic 
+    datatypes, int16 instead of int32, etc.). Experiment with sparse arrays vs.
+    dense arrays. Consider compressing your data structures (e.g., using bit vectors).
+  references:
+    page-faults: https://www.lenovo.com/us/en/glossary/page-fault/
+    wikipedia: https://en.wikipedia.org/wiki/Page_fault
+    blog: https://gameprogrammingpatterns.com/data-locality.html
+    cornell: https://www.cs.cornell.edu/courses/cs6120/2019fa/blog/loops/
+
+###
+huge_pages:
+  description:
+    Increasing the OS page size stores more data in a page, so fewer pages are
+    needed overall, reducing the pressure on the TLB. The downside is potentially
+    increased latency to access data in the larger pages and fragmentation.
+    On Linux, you can either change the application to require huge pages using
+    mmap or shmget; or you can use transparent huge pages (THP).
+  references:
+    netdata: https://www.netdata.cloud/blog/understanding-huge-pages/
+    kernel.org: https://www.kernel.org/doc/Documentation/vm/transhuge.txt
+    intel.com: https://www.intel.com/content/dam/develop/external/us/en/documents/runtimeperformanceoptimizationblueprint-largecodepages-q1update.pdf
+    vtune: https://www.intel.com/content/www/us/en/docs/vtune-profiler/cookbook/2025-0/page-faults.html
+
+###
+recompile_Os:
+  description:
+    Recompiling the program optimized for smaller size (using -Os) can result
+    in a binary that uses fewer pages and less of the instruction cache.
+    You may also consider the `--fast-math` or `-lto` flags to gcc if feasible.
+  references:
+    webkit: https://webkit.org:/blog/2826/
+    size-optimization-tricks: https://justine.lol/sizetricks/
+
+###
+hot_text:
+  description:
+    Moving 'hot' functions (highly active, performance-critical) to reside close
+    together in a special subsection of the instruction memory.
+    With gcc, this can be accomplished by marking the functions with `__attribute__((hot))`.
+  references:
+    gcc: https://gcc.gnu.org/onlinedocs/gcc/Common-Function-Attributes.html
+    stack-overflow: https://stackoverflow.com/questions/15028990/
+
+###
+prefetching:
+  description:
+    Prefetching data refers to requesting it on the CPU before it's actually used
+    so that it's already in the cache by the time it's needed.
+    With gcc, this can be accomplished with the help of prefetching hints, such as
+    __builtin_prefetch.
+  references:
+    gcc: https://gcc.gnu.org/projects/prefetch.html
+    wikipedia: https://en.wikipedia.org/wiki/Cache_prefetching
+    survey: https://www.ece.lsu.edu/tca/papers/vanderwiel-00.pdf
+    citeseer: https://citeseerx.ist.psu.edu/document?repid=rep1&type=pdf&doi=3810253455af68ab36c7ab1efcb4dbe21511cb8c
+
+###
+interference_reduction:
+  description:
+    Interference from other processes can pollute the CPU caches for your process
+    and induce thrashing. Once you identify the interfering process (using,
+    for example, tools like top), you can try to eliminate them or lower their
+    priority. Killing or deprioritizing daemon processes could also help,
+    but caution must be taken not to affect critical OS services.
+    You can also try to isloate your program from all others using
+    isolcpus or cgroups and csets.
+  references:
+    cgroups: https://chronicle.software/chronicle-tune-your-cpu/
+    kernel.org: https://docs.kernel.org/admin-guide/cgroup-v1/cpusets.html
+
+###
+inline_functions:
+  description:
+    Inlining is a technique that inserts a function's code directly into the
+    code that calls it. It can remove the overhead of a function's call at
+    the cost of increasing the callers' size. The compiler typically inlines
+    some functions on its own or using language directives, but you can also
+    manually move the contents of a function to the calling sites
+    (not recommended, for readability purposes).
+    in C and C++, the keywords inline requests that the compiler inlines a
+    specific function, but the compiler is free to ignore the request.
+  references:
+    wikipedia: https://en.wikipedia.org/wiki/Inline_function
+    microsoft: https://learn.microsoft.com/en-us/cpp/cpp/inline-functions-cpp?view=msvc-170
+    stack-overflow: https://stackoverflow.com/questions/1759300/
+    isocpp: https://isocpp.org/wiki/faq/inline-functions
+
+###
+batching_syscalls:
+  description:
+    The practice of grouping multiple system calls together to be executed in a
+    single operation, thereby minimizing the number of times a program needs to
+    switch from user mode to kernel mode (via an interrupt). Two ways to batch
+    system calls are by buffering them or to defer their execution.
+  references:
+    wisc: https://pages.cs.wisc.edu/~gerald/cs537/Summer17/handouts/traps.pdf
+    blog: https://www.baeldung.com/linux/kernel-system-call-implementation
+
+###
+no_numa_balancing:
+  description:
+    With NUMA balancing, the kernel will migrate processes from one socket
+    to another to try to keep it closer to the memory it's using.
+    However, such process migrations can sometimes cost more performance
+    then the remote memory access they try to reduce.
+  references:
+    redhat: https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/7/html/virtualization_tuning_and_optimization_guide/sect-virtualization_tuning_optimization_guide-numa-auto_numa_balancing#confing_auto_NUMA_balancing
+    suse: https://documentation.suse.com/sles/12-SP5/html/SLES-all/cha-tuning-numactl.html
+    sqlpassion: https://www.sqlpassion.at/archive/2019/09/23/troubleshooting-numa-node-inbalance-problems/
+
+###
+numa_binding:
+  description:
+    To specify a memory placement policy for a process and bind it to one or
+    more NUMA nodes, numctl can be used.
+    You can also use taskset to limit the processes of a program to a single
+    socket or specific cores.
+  references:
+    numactl: https://man7.org/linux/man-pages/man8/numactl.8.html
+    redhat: https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/6/html/performance_tuning_guide/main-cpu#s-cpu-numa-topology
+    blog: https://www.p99conf.io/2021/09/28/hunting-a-numa-performance-bug/
+
+###
+cpu_affinity:
+  description:
+    You can use taskset to limit the processes of a program to a single
+    socket or specific cores.
+  references:
+    taskset: https://man7.org/linux/man-pages/man1/taskset.1.html
+    blog: https://www.p99conf.io/2021/09/28/hunting-a-numa-performance-bug/
+
+###
+io_batching:
+  description:
+    Batching I/O calls is a technique for combining multiple I/O operations
+    into a single request to reduce the number of roundtrips.
+    This technique can decrease interrupts and improve performance.
+    It requires a code transformation and may involve buffering.
+  references:
+    ibm: https://www.ibm.com/docs/en/aix/7.1?topic=options-interrupt-coalescing
+    blog: https://medium.com/@elouadinouhaila566/optimizing-i-o-and-cpu-bound-workloads-how-to-supercharge-your-apps-performance-83a20cfc9775
+
+###
+asynch_io:
+  description:
+    Asynchronous I/O is a method of processing input and output that allows
+    other tasks to continue while an I/O operation is in progress.
+    It requires a code transformation to avoid or reduce blocking operations
+    and is not always possible if the code relies on immediate data.
+  references:
+    wikipedia: https://en.wikipedia.org/wiki/Asynchronous_I/O
+    boost: https://www.boost.org/doc/libs/1_87_0/doc/html/boost_asio/tutorial.html
+    blog: https://medium.com/@elouadinouhaila566/optimizing-i-o-and-cpu-bound-workloads-how-to-supercharge-your-apps-performance-83a20cfc9775
+
+###
+sched_fifo:
+  description:
+    Changing the Linux scheduler policy to SCHED_FIFO can reduce the number
+    of context switches for some applications.
+  references:
+    redhat: https://docs.redhat.com/en/documentation/red_hat_enterprise_linux_for_real_time/7/html/reference_guide/chap-priorities_and_policies
+    chrt: https://www.geeksforgeeks.org/chrt-command-in-linux-with-examples/
+    man-page: https://man7.org/linux/man-pages/man7/sched.7.html
+    stack-overflow: https://stackoverflow.com/questions/9392415/linux-sched-other-sched-fifo-and-sched-rr-differences
+
+###
+sched_rr:
+  description:
+    Changing the Linux scheduler policy to SCHED_RR can reduce the number
+    of context switches for some applications.
+  references:
+    redhat: https://docs.redhat.com/en/documentation/red_hat_enterprise_linux_for_real_time/7/html/reference_guide/chap-priorities_and_policies
+    chrt: https://www.geeksforgeeks.org/chrt-command-in-linux-with-examples/
+    man-page: https://man7.org/linux/man-pages/man7/sched.7.html
+    stack-overflow: https://stackoverflow.com/questions/9392415/linux-sched-other-sched-fifo-and-sched-rr-differences
+
+###
+sched_batch:
+  description:
+    Changing the Linux scheduler policy to SCHED_BATCH can reduce the number
+    of context switches for some applications.
+  references:
+    redhat: https://docs.redhat.com/en/documentation/red_hat_enterprise_linux_for_real_time/7/html/reference_guide/chap-priorities_and_policies
+    chrt: https://www.geeksforgeeks.org/chrt-command-in-linux-with-examples/
+    man-page: https://man7.org/linux/man-pages/man7/sched.7.html
+    stack-overflow: https://stackoverflow.com/questions/9392415/linux-sched-other-sched-fifo-and-sched-rr-differences
+
+###
+interrupt_management:
+  description:
+    Assigning specific IRQs to dedicated CPU cores can help reduce the number
+    of interruptions to other cores. Additionally, some devices and device
+    drivers can help by coalescing interrupts, moderate them, or using softirqs.
+  references:
+    kernel.org: https://docs.kernel.org/core-api/irq/irq-affinity.html
+    redhat: https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/6/html/performance_tuning_guide/s-cpu-irq#s-cpu-irq
+    nvidia: https://enterprise-support.nvidia.com/s/article/what-is-irq-affinity-x
+    blog: https://medium.com/@amerather_9719/optimizing-linux-networking-the-new-interrupt-suppression-mechanism-e515192f02a4
+
+
+###
+MAP_POPULATE:
+  description:
+    When allocating memory using the mmap() system call, the parameter
+    MAP_POPULATE can reduce page faults by pre-populating the page table.
+    Using MAP_POPULATE may require that you replace the memory allocation
+    of the critical pages (that normally fault a lot) with mmap instead
+    of the current mechanism (typically malloc()).
+  references:
+    mmap: https://man7.org/linux/man-pages/man2/mmap.2.html
+    hackernews: https://news.ycombinator.com/item?id=7740578
+
+###
+recompile_native:
+  description:
+    To ensure that a program is optimized for a particular platform and
+    doesn not include unsupported instructions that have to be emulated
+    by the kernel, compile it with the appropriate -march/-mtune flags.
+    with gcc, use `gcc --target-help` to list available targets.
+  references:
+    gcc: https://wiki.gentoo.org/wiki/GCC_optimization
+    blog: https://lemire.me/blog/2018/07/25/it-is-more-complicated-than-i-thought-mtune-march-in-gcc/
+    arm: https://community.arm.com/arm-community-blogs/b/tools-software-ides-blog/posts/compiler-flags-across-architectures-march-mtune-and-mcpu
+
+###
+rearrange_data:
+  description:
+    Rearranging the data structure (or sometimes, the access patterns to the
+    data) can have significant effect on cache performance. For example,
+    you can force or change alignment to match cache lines; Reorder fields
+    to improve alignment and prevent false sharing; allocate memory more
+    contiguously and prefer arrays over lists; transpose matrices; and
+    split structs so that hot data fits in cache.
+  references:
+    microsoft: https://www.microsoft.com/en-us/research/wp-content/uploads/2016/12/ccds.pdf
+    algocademy: https://algocademy.com/blog/cache-friendly-algorithms-and-data-structures-optimizing-performance-through-efficient-memory-access/
+    blog: https://johnnysswlab.com/make-your-programs-run-faster-by-better-using-the-data-cache/
+
+###
+loop_unrolling:
+  description:
+    Loop unrolling is the transformation of a loop such that some of the
+    iterations are done explicitly in the code (using repetition), thus
+    trading off code size for speed.
+    Loop unrolling also has the effect of evaluating the loop condition
+    fewer times, thereby decreasing chance of a branch misprediction,
+    although sometimes the opposite effect is attained.
+    Loop unrolling can be done manually but is often performed by an
+    optimizing compiler as well.
+    gcc has a convenient primitive to unroll loops without rewriting them
+    in the form of `#pragma GCC unroll n`.
+  references:
+    wikipedia: https://en.wikipedia.org/wiki/Loop_unrolling
+    gcc: https://gcc.gnu.org/onlinedocs/gcc/Loop-Specific-Pragmas.html
+    blog: https://lemire.me/blog/2019/11/12/unrolling-your-loops-can-improve-branch-prediction/
+
+###
+branchless_instructions:
+  description:
+    Replacing branching instructions with non-brnaching logic can reduce the
+    number of branch mispredictions. Such transformations can take the form
+    of using arrays instead of if statements, unrolling loops, or using specialized
+    instructions such as cmov.
+  references:
+    infoq: https://www.infoq.com/articles/making-code-faster-taming-branches/
+    algorithmica: https://en.algorithmica.org/hpc/pipelining/branchless/
+    stack-overflow: https://stackoverflow.com/questions/11349221/
+
+###
+branch_hints:
+  description:
+    Branches that cannot be eliminated or transformed can sometimes exhibit better
+    prediction behavior by rearranging the code so that the most likely outcome is
+    first or by adding special compiler hints to indicate which branch is more likely.
+    With gcc, this may look like __builting_expect or other similar intrinsics
+  references:
+    algorithmica: https://en.algorithmica.org/hpc/pipelining/branchless/
+    gcc: https://gcc.gnu.org/onlinedocs/gcc/Other-Builtins.html
+    phoronix: https://www.phoronix.com/news/GCC-Clang-Intel-x86-Branch-Hint
+
+###
+cooldown:
+  description:
+    Pausing execution before running a benchmark can give the CPU enough time
+    to cool down and re-enable high clock frequency. This mitigation can be
+    automated, but to adjust the cooldown duration, please edit this file.
+  references:
+    benchmarks.com: https://support.benchmarks.ul.com/support/solutions/articles/44001791209-my-benchmark-score-seems-to-vary-wildly-between-runs
+
+###
+power_management:
+  description:
+    Most server offer BIOS features to reduce dynamic frequency scaling,
+    for example, by limiting the maximum Turbo-mode frequency.
+    Please consult your BIOS' power-management settings.
+    Additionally, the Linux kernel provides controls for CPU throttling and
+    frequency scaling via the CPUFreq policy.
+  references:
+    blog: https://www.linkedin.com/advice/0/what-role-does-your-computers-bios-settings-play-omwhf
+    intel.com: https://www.intel.com/content/www/us/en/support/articles/000088048/processors.html
+    kernel.org: https://docs.kernel.org/admin-guide/pm/cpufreq.html
+
+###
+improved_cooling:
+  description:
+    Improper server cooling can cause unnecessary frequency scaling.
+    Unfortunately, resolving physical server cooling issues is not always
+    practical, and may be a set effect of the server's location, components,
+    datacenter cooling, and other factors outside our control.
+  references:
+    wikipedia: https://en.wikipedia.org/wiki/Computer_cooling
+    greencloud: https://blog.greencloudvps.com/server-rack-cooling-best-practices-and-solutions.php
+
+
+increase_fan_speed:
+  description: |
+    Increase the GPU’s cooling airflow to prevent thermal throttling and stabilize clocks.
+    On most datacenter GPUs (e.g., A100/A100x), direct per-GPU fan control is not exposed;
+    cooling is governed by the server’s BMC/chassis policies. Use system/BMC controls to
+    raise fan duty or set a higher cooling profile; verify that throttling reasons and
+    temperatures clear after the change. Use the server vendor’s out-of-band interface like
+    IPMI (ipmitool), Redfish, or vendor tooling (iDRAC/iLO/XClarity)
+
+
+# MPI-specific optimizations based on MPIP profiling metrics
+mpi_allreduce_optimization:
+  description: |
+    Optimize MPI_Allreduce operations by adjusting the thread-to-node ratio and
+    communication topology. High allreduce overhead often indicates suboptimal
+    process placement or inefficient collective algorithms. Consider using:
+    - Changing number of nodes and corresponding threads per node to balance communication
+    - Hierarchical communication patterns (node-local reductions followed by inter-node)
+    - Alternative algorithms like ring, tree, or butterfly topologies
+    - Change processing binding with --map-by to optimize NUMA locality and reduce memory bandwidth contention
+  references:
+    mpi-tuning: https://mpitutorial.com/tutorials/mpi-reduce-and-allreduce/
+    process-binding: https://www.open-mpi.org/faq/?category=tuning#using-paffinity
+
+mpi_file_io_optimization:
+  description: |
+    Optimize MPI file I/O operations (MPI_File_open, MPI_File_close, MPI_File_read,
+    MPI_File_write) by improving file system performance and access patterns:
+    - Move shared files to faster storage (NVMe SSDs, parallel file systems like Lustre/GPFS)
+    - Use MPI-IO collective operations instead of independent I/O
+    - Implement file striping and proper stripe size configuration
+    - Reduce file open/close frequency by batching operations
+    - Use asynchronous I/O operations where possible
+    - Configure proper file hints (cb_buffer_size, striping_factor, striping_unit)
+    - Consider using HDF5 or NetCDF for structured data with MPI-IO backend
+  references:
+    mpi-io-guide: https://www.mcs.anl.gov/research/projects/mpi/mpi-standard/mpi-report-2.0/node191.htm
+
+#######################################
+# Section two: Instructions how to rerun a benchmark for each mitigation:
+backend_options:
+  ###
+  mem_allocator_je:
+    run: LD_LIBRARY_PRELOAD=/usr/lib/x86_64-linux-gnu/libjemalloc.so.2 $CMD $ARGS
+
+  ###
+  mem_allocator_tc:
+    run: LD_LIBRARY_PRELOAD=/usr/lib/x86_64-linux-gnu/libtcmalloc.so.4 $CMD $ARGS
+
+  ###
+  huge_pages:  # Need to set env var LIBHUGEFS_DIR or replace with path below":
+    run: |
+      LD_LIBRARY_PRELOAD=/usr/lib/x86_64-linux-gnu/libhugetlbfs.so HUGETLB_MORECORE=yes $CMD $ARGS
+      #      sudo echo always > /sys/kernel/mm/transparent_hugepage/enabled
+      #      $CMD $ARGS
+      #      sudo echo madvise > /sys/kernel/mm/transparent_hugepage/enabled
+      #
+
+  ###
+  no_numa_balancing:
+    run:
+      last_val=`cat /proc/sys/kernel/numa_balancing`;
+      sudo echo 0 > /proc/sys/kernel/numa_balancing;
+      $CMD $ARGS;
+      sudo echo $last_val > /proc/sys/kernel/numa_balancing
+
+  ###
+  sched_fifo:
+    run:
+      sudo chrt --fifo 99 $CMD $ARGS
+
+  ###
+  sched_rr:
+    run:
+      sudo chrt --rr 99 $CMD $ARGS
+
+  ###
+  sched_batch:
+    run:
+      sudo chrt --batch 0 $CMD $ARGS
+
+  ###
+  cooldown:
+    run:
+      sleep 300;
+      $CMD $ARGS
+
+  ### Transparent Huge Pages (THP) can be enabled or disabled on the fly.:
+  thp:
+    run:
+      sudo echo "always" > /sys/kernel/mm/transparent_hugepage/enabled;
+      $CMD $ARGS;
+      sudo echo "madvise" > /sys/kernel/mm/transparent_hugepage/enabled;

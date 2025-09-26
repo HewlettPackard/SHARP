@@ -2,18 +2,15 @@
 # © Copyright 2022--2025 Hewlett Packard Enterprise Development LP
 
 
-library("processx")
 library("stringr")
 
-ldir <- "../launchers/"  # Where to find launcher and config files
-
-available.configs <- gsub(".yaml", "", list.files(path="../launchers", pattern="\\.yaml$"))
+available.configs <- gsub(".yaml", "", list.files(path=bdir, pattern="\\.yaml$"))
 
 in_docker <- length(system("awk ' {print $4; } ' /proc/self/mountinfo | grep '^/docker'", intern=T)) > 0
 if (in_docker) {
   backend_choices <- c("local")
 } else {
-  backend_choices <- c('local', 'ssh', 'fission', 'knative', 'docker')
+  backend_choices <- c('local', 'ssh', 'fission', 'knative', 'docker', 'mpi')
 }
 
 #################################################
@@ -35,6 +32,7 @@ measurePanel <- tabPanel('Measure',
                                 'Confidence interval'="CI",
                                 'High-density interval'="HDI",
                                 'Gaussian mixture'="GMM",
+                                'Kolmogorov-Smirnov'="KS",
                                 'Auto-stop'="DC"
                                 )),
         ),
@@ -63,7 +61,7 @@ measurePanel <- tabPanel('Measure',
       textInput('moreopts', "Any other arguments to pass along to SHARP?"),
 
       fluidRow(column(12, align="right", style="margin-top: 50px;",
-          actionButton('runButton', "Run!", class="btn-lg btn-success")
+          actionButton('runButton', "Run", class="btn-success", icon=icon("circle-play"))
       ))
     ),
 
@@ -108,14 +106,14 @@ compute_args <- function(input)
 
   # Configs, including custom backends and a temporary one with stopping max:
   if (input$backend == "knative") {
-    args = c(args, "-f", paste0(ldir, "knative.yaml"))
+    args = c(args, "-f", paste0(bdir, "knative.yaml"))
   }
   if (input$backend == "fission") {
-    args = c(args, "-f", paste0(ldir, "fission.yaml"))
+    args = c(args, "-f", paste0(bdir, "fission.yaml"))
   }
 
   for (cfg in input$configs) {
-    args = c(args, "-f", paste0(ldir, cfg, ".yaml"))
+    args = c(args, "-f", paste0(bdir, cfg, ".yaml"))
   }
   write(paste('{ "repeater_options": { "max":', input$n, '} }'), file="/tmp/max.yaml")
   args = c(args, "-f", "/tmp/max.yaml")
@@ -135,13 +133,14 @@ measure <- function(input)
   args <- compute_args(input)
   print(args)
   proc <- process$new(cmd, args, stdout="|")
+  logpat <- "Logging runs to: (.*) at"
 
   withProgress(message="Running benchmarks...", value=0, min=1, max=n, {
     if (!proc$is_alive()) {
       print("Output:")
       procout <- proc$read_output_lines()
       print(procout)
-      tmp <- str_match(procout, "Logging runs to: (.*)")[,2]
+      tmp <- str_match(procout, logpat)[,2]
       if (any(!is.na(tmp))) {
         basefn <- tmp[which(!is.na(tmp))]
       }
@@ -151,7 +150,7 @@ measure <- function(input)
       procout <- proc$read_output_lines()
       print(procout)
 
-      tmp <- str_match(procout, "Logging runs to: (.*)")[,2]
+      tmp <- str_match(procout, logpat)[,2]
       if (any(!is.na(tmp))) {
         basefn <- tmp[which(!is.na(tmp))]
       }
@@ -191,7 +190,7 @@ render_measure <- function(input, output) {
     if (input$func == "") {
       showModal(modalDialog("Function or executable required"))
     } else {
-      basefn <- measure(input)
+      basefn <- run_sharp(compute_args(input), input$n, input$experiment)
       output$runData <- DT::renderDataTable(getRunData(paste0(basefn, '.csv')), options=list(pageLength=5))
       output$mdData <- renderText(getMetadata(paste0(basefn, '.md')))
     }

@@ -40,54 +40,6 @@ comparePanel <- tabPanel("Compare",
 
 
 #####################
-ecdf_comparison <- function(baseline, treatment, metric)
-{
-  perf1 <- baseline() %>% pull(metric)
-  perf2 <- treatment() %>% pull(metric)
-  df <- data.frame(Dataset="Baseline", Performance=perf1) %>%
-    rbind(data.frame(Dataset="Treatment", Performance=perf2))
-  df %>%
-    ggplot(aes(x=Performance, color=Dataset)) +
-      stat_ecdf(show.legend=TRUE) +
-      xlab(metric) +
-      ylab("ECDF") +
-      scale_color_manual(values=c(base_color, treat_color)) +
-      theme_light() +
-      theme(text=element_text(size=20), legend.position="bottom")
-}
-
-#####################
-density_comparison <- function(baseline, treatment, metric)
-{
-  perf1 <- baseline() %>% pull(metric)
-  perf2 <- treatment() %>% pull(metric)
-  df <- data.frame(Dataset="Baseline", Performance=perf1) %>%
-    rbind(data.frame(Dataset="Treatment", Performance=perf2))
-  df %>%
-    ggplot(aes(x=Performance, fill=Dataset)) +
-      geom_density(alpha=0.5) +
-#      geom_histogram(aes(y=after_stat(count / sum(count))), position=position_dodge()) +
-      scale_y_continuous(labels=scales::percent) +
-      xlab(metric) +
-#      ylab("Relative count") +
-      ylab("Density") +
-      scale_fill_manual(values=c(base_color, treat_color)) +
-      theme_light() +
-      theme(text=element_text(size=20), legend.position="bottom")
-}
-
-
-#####################
-comparison_table <- function(baseline, treatment, metric)
-{
-  perf1 <- baseline() %>% pull(metric)
-  perf2 <- treatment() %>% pull(metric)
-  stats1 <- compute_summary(perf1, 10)
-  stats2 <- compute_summary(perf2, 10)
-  data.frame(Statistic=names(stats1), Baseline=stats1, Treatment=stats2)
-}
-
-#####################
 narrative_comparison <- function(baseline, treatment, metric)
 {
   perf1 <- baseline %>% pull(metric)
@@ -139,8 +91,15 @@ narrative_comparison <- function(baseline, treatment, metric)
       ret <- paste(ret, ifelse(abs(c_test$estimate) > 0.7, "strongly", "somewhat"))
       ret <- paste(ret, ifelse(c_test$estimate > 0, "correlated", "anti-correlated"))
     }
-    ret <- paste0(ret, "}\\\\", report_test(c_test))
+    ret <- paste(ret, "}\\\\", report_test(c_test), "\\\\")
   }
+
+  # Compute fused mean performance with Kalman Filtering
+  sumv <- var(perf1) + var(perf2)
+  fused <- (var(perf2)*mean(perf1) + var(perf1)*mean(perf2))/sumv
+  ret <- paste(ret, "\\text{Mean performance fused with Kalman Filter}\\\\")
+  ret <- paste0(ret, "\\mu{}=", round(fused, 4))
+#  ret <- paste0(ret, "}\\\\")
 
   withMathJax(paste0(ret, "$$"))
 }
@@ -163,23 +122,24 @@ render_compare <- function(input, output) {
 
   observeEvent(input$compareTreatment, {
     req(nrow(baseline()) > 0 & nrow(treatment()) > 0)
-     updateSelectInput(inputId='compareMetric',
-                       choices=intersect(metric_names(baseline()), metric_names(treatment())))
+     mnames <- intersect(metric_names(baseline()), metric_names(treatment()))
+     sel <- ifelse("inner_time" %in% mnames, "inner_time", "outer_time")
+     updateSelectInput(inputId='compareMetric', choices=mnames, selected=sel)
   })
 
   output$compareDensityPlot <- renderPlot({
     req(nrow(baseline()) > 0 & nrow(treatment()) > 0)
-    density_comparison(baseline, treatment, input$compareMetric)
+    density_comparison(baseline(), treatment(), input$compareMetric)
   })
 
   output$compareCDFPlot <- renderPlot({
     req(nrow(baseline()) > 0 & nrow(treatment()) > 0)
-    ecdf_comparison(baseline, treatment, input$compareMetric)
+    ecdf_comparison(baseline(), treatment(), input$compareMetric)
   })
 
   output$compareTable <- renderTable(digits=digits, striped=TRUE, colnames=TRUE, {
     req(nrow(baseline()) > 0 & nrow(treatment()) > 0)
-    comparison_table(baseline, treatment, input$compareMetric)
+    comparison_table(baseline(), treatment(), input$compareMetric)
   })
 
   output$compareNarrative <- renderUI({

@@ -4,6 +4,7 @@
 source("measure.R")
 source("explore.R")
 source("compare.R")
+source("profile.R")
 
 PAGE_TITLE <- "SHARP"
 
@@ -15,9 +16,11 @@ ui <- fluidPage(theme=shinytheme("spacelab"),
               #inline .form-group { display: table-row;}")
   ),
 
-  navbarPage(windowTitle="SHARP",
+  add_busy_spinner(spin="atom"),
+
+  navbarPage(windowTitle="SHARP", id="mainPanel",
              title=div(img(src="sharp.png", height=30, width=90), ""),
 
-    measurePanel, explorePanel, comparePanel
+    measurePanel, explorePanel, comparePanel, optimizePanel
   )
 )
