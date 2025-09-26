@@ -494,7 +494,6 @@ class KSRepeater(CountRepeater):
     Args:
         threshold:    KS statistic value that triggers stopping (default: 2)
         max_repeats:  Maximum number of repetitions allowed (default: 1000)
-        metric:       The performance metric to be tested (default: "inner_time")
     """
 
     def __init__(self, options: Dict[str, Any]):
@@ -506,8 +505,7 @@ class KSRepeater(CountRepeater):
 
         self.__min_repeats: int = ropts.get("min", 5)
         self.__max_repeats: int = int(ropts.get("max", 1000))
-        self.__threshold: float = float(ropts.get("threshold", 2))
-        self._metric: str = ropts.get("metric", "outer_time")
+        self.__threshold: float = float(ropts.get("threshold", 0.1))
 
     ##########################
     def __call__(self, pdata: RunData) -> bool:
@@ -525,7 +523,10 @@ class KSRepeater(CountRepeater):
             self._runtimes[: int(self.get_count() / 2)],
             self._runtimes[int(self.get_count() / 2) :],
         )
-        print(f"KS: {ks_statistic}")
+
+        if self._verbose:
+            print(f"KS distance for repeater: {ks_statistic}")
+
         return bool(ks_statistic > self.__threshold)
 
 

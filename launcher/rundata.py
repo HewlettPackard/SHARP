@@ -14,9 +14,9 @@ class RunData:
     The RunData class Holds data for a single task run (possibly with multiple copies).
 
     Currently holds a list of outer (total) runtimes for the task (sec),
-    and a list of arbitrary metrics reported by each copy (sec).
+    and a list of arbitrary metrics reported by each rank (sec).
     Automatically starts a clock for outer time upon construction, and ends when
-    the last copy has been added.
+    the last rank has been added.
     """
 
     def __init__(self, ncopies: int = 1):
@@ -39,6 +39,13 @@ class RunData:
             f"Recorded {len(self.perf['outer_time'])} runs out of {self.ncopies}, "
             + f"with these metrics: {self.perf}"
         )
+
+    ######################
+    def user_metrics(self) -> List[str]:
+        """Return a list of the names of user-added metrics (not "outer_time")."""
+        metrics = list(self.perf.keys())
+        metrics.remove("outer_time")
+        return metrics
 
     ######################
     def add_run(self, metrics: Dict[str, Any]) -> None:

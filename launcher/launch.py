@@ -16,26 +16,24 @@ import sys
 from typing import *
 import warnings
 
-from launcher import Launcher
 from custom import CustomLauncher
+from custom_python import CustomPythonLauncher
+from launcher import Launcher
 from local import LocalLauncher
-from mpi import MPILauncher
-from ssh import SSHLauncher
 
 ###################
 def launcher_factory(backend: str, options: Dict[str, Any]) -> Launcher:
     """Return a fully-constructed Launcher object based on args."""
-    # In the absence of pattern matching (Python 3.10+), it's just a big if:
-    if backend == "local":
-        return LocalLauncher(backend, options)
-    elif backend == "mpi":
-        return MPILauncher(backend, options)
-    elif backend == "ssh":
-        return SSHLauncher(backend, options)
-    elif backend in options["backend_options"]:
+    bopts = options.get("backend_options", {})
+    # Use local backend if nothing is provided
+    if backend is None or backend == "local":
+        return LocalLauncher(backend,options)
+    # Check if this is a Python backend
+    elif "file_path" in bopts[backend] and bopts[backend]["file_path"].endswith('.py'):
+        return CustomPythonLauncher(backend, options)
+    # Otherwise use YAML-based CustomLauncher
+    else :
         return CustomLauncher(backend, options)
-    else:
-        raise RuntimeError(f"Unrecognized backend {backend}")
 
 
 ###################
@@ -44,7 +42,6 @@ def log_run(
     log: Logger,
     repeater: Repeater,
     options: Dict[str, Any],
-    sys_specs: Dict[str, Any],
 ) -> None:
     """Log all results from a single run (with possibly multiple copies)."""
     # First, Log data shared across all copies:
@@ -52,7 +49,7 @@ def log_run(
         "repeat",
         str(repeater.get_count()),
         "int",
-        "Batch number when a task is repeated",
+        "Batch number (iteration) when a task is repeated",
     )
     log.add_column("concurrency", options["copies"], "int", "No. of concurrent runs")
     assert pdata is not None
@@ -60,14 +57,19 @@ def log_run(
     # Log individual run data for all copies:
     outer: List[float] = pdata.get_outer()
     for i in range(len(outer)):
-        log.add_row_data("copy", i + 1, "int", "Run number (iteration)")
+        log.add_row_data("rank", i, "int", "Concurrent run number")
         log.add_row_data(
             "outer_time",
             round(outer[i], 5),
             "numeric",
             "External measured run time (s); lower is better",
         )
-        for metric, properties in options.get("metrics", {}).items():
+
+        for metric in pdata.user_metrics():
+            mopts = options.get("metrics", {})
+            properties = mopts.get(metric, mopts.get("auto", {}))
+            assert properties, f"Couldn't find properties for metric {metric}!"
+
             log.add_row_data(
                 metric,
                 pdata.get_metric(metric)[i],
@@ -77,7 +79,7 @@ def log_run(
             )
 
     # Prepeare log for the next repetition, if any:
-    log.save_data(options["mode"], sys_specs)
+    log.save_csv(options["mode"])
     log.clear_rows()
     options["mode"] = "a"  # Subsequent writes to log shouldn't overwrite current data
 
@@ -125,8 +127,9 @@ def get_sys_specs(launchers: List[Launcher]) -> Dict[str, str]:
     ret: Dict[str, str] = {}
     for s, cmd in launchers[-1].sys_spec_commands().items():
         full_cmd: List[str] = shlex.split(chain_of_commands(launchers, 1, cmd)[0])
+        full_cmd: str = chain_of_commands(launchers, 1, cmd)[0].replace('\n', ';')
         try:
-            ret[s] = subprocess.run(full_cmd, capture_output=True, text=True) \
+            ret[s] = subprocess.run(full_cmd, capture_output=True, text=True, shell=True) \
             .stdout \
             .encode() \
             .decode('unicode_escape')
@@ -155,7 +158,7 @@ def run_task(
         repeater (Repeater): A Repeater instance to decide when to stop the run
     """
     cmds: List[str] = chain_of_commands(launchers, options["copies"])
-    sys_specs = get_sys_specs(launchers)
+    mode: str = options["mode"] # save it, it gets modified in log_run
 
     # Warmup backend if needed:
     if options["start"] == "warm":
@@ -177,9 +180,11 @@ def run_task(
         if pdata is None:
             raise Exception("Error executing task--aborting!")
 
-        log_run(pdata, log, repeater, options, sys_specs)
+        log_run(pdata, log, repeater, options)
         if not repeater(pdata):
             break
+
+    log.save_md(mode, get_sys_specs(launchers))
 
 
 #################### Main

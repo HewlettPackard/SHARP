@@ -3,7 +3,7 @@ Logger class to record all the information about a task run in CSV.
 
 A task's run record (line in a CSV file) has two groups of fields:
   - column fields, shared and repeated across all copies (rows) of the task.
-  - Per-run data (primarily performance) for each copy (row) of the task.
+  - Per-run data (primarily performance) for each rank (row) of the task.
 CSV logs are identified by experiment (directory name) and task (filename)
 
 In addition to the CSV file, a markdown file is created with additional
@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 import json
 import os
 import platform
+import time
 from typing import *
 import subprocess
 
@@ -39,6 +40,7 @@ class Logger:
         self.__columns: Dict[str, str] = {}
         self.__metadata: Dict[str, Dict[str, str]] = {}
         self.__task: str = task
+        self.__start_time: float = time.perf_counter()
 
         mydir = os.path.join(topdir, options["experiment"])
         if not os.path.exists(mydir):
@@ -46,7 +48,7 @@ class Logger:
 
         self.__basefn: str = os.path.join(mydir, self.__task.split("/")[-1])
         if options["verbose"]:
-            print(f"Logging runs to: {self.__basefn}")
+            print(f"Logging runs to: {self.__basefn} at time {self.__start_time}")
 
         # Prep text to go in the beginning of the markdown file:
         git = subprocess.run(
@@ -108,30 +110,14 @@ The measurements were run on {platform.node()}, starting at {now} (UTC).\n"""
 
         assert (
             len(self.__rows) <= 1 or field in self.__rows[-2]
-        ), f"Can't add a new field {field} that isn't in previous row"
+        ), f"Can't add a new field '{field}' that isn't in previous row"
         if len(self.__rows) == 0 or field in self.__rows[-1]:
             self.__rows.append({})
         self.__rows[-1][field] = value
 
-    #################
-    def save_data(self, mode: str, sys_specs: Dict[str, Any]) -> None:
-        """
-        Save data before termination.
-
-        When the class is no longer in use, or when we need to start a new set
-        of rows with the same columns, save all pending data to the output files.
-        (Don't use __del__(), since the order of cleanup is indeterminate.)
-
-        Args:
-            mode (str): the write mode on the file: truncate ("w") or append ("a")
-            sys_specs (Dict): Specs of system under test
-        """
-        self.__save_csv(mode)
-        if mode == "w" or not os.path.exists(self.__basefn + ".md"):
-            self.__save_md(mode, sys_specs)
 
     #################
-    def __save_csv(self, mode: str) -> None:
+    def save_csv(self, mode: str) -> None:
         """
         Save all the key/value pairs (including header data) to the CSV file.
 
@@ -150,17 +136,22 @@ The measurements were run on {platform.node()}, starting at {now} (UTC).\n"""
             writer.writerows(records)
 
     #################
-    def __save_md(self, mode: str, sys_specs: Dict[str, Any]) -> None:
+    def save_md(self, mode: str, sys_specs: Dict[str, Any]) -> None:
         """
         Save all the metadata to the .md file.
 
+        Skips writing file if in append mode and it already exists
         Args:
             mode: the write mode on the file: truncate ("w") or append ("a")
             sys_specs (Dict): Specs of system under test
         """
+        if mode == "a" and os.path.exists(self.__basefn + ".md"):
+            return
+
         with open(self.__basefn + ".md", mode, encoding="utf-8") as f:
             now = datetime.now(timezone.utc)
-            f.write(f"Experiment completed at {now}\n\n")
+            f.write(f"Experiment completed at {now} (total experiment time: ")
+            f.write(f"{int(time.perf_counter() - self.__start_time)}s).\n\n")
             f.write(self.__preamble)
             f.write("\n\n## Field description\n\n")
 

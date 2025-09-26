@@ -24,7 +24,6 @@ logtop, _ = os.path.split(mydir)
 logdir: str = os.path.join(logtop, "runlogs")
 
 opt_defaults: Dict[str, Any] = {
-    "mpl": 1,
     "repeats": "1",
     "experiment": "misc",
     "directory": logdir,
@@ -117,17 +116,33 @@ def parse_cmdline() -> argparse.Namespace:
 
 
 ###################
-def load_config(filename: str) -> Dict[str, Any]:
-    """Load parameters from a JSON or YAML file into options dictionary."""
-    with open(filename, "r") as f:
-        if filename.endswith(".yaml"):
-            return yaml.load(f, Loader=yaml.FullLoader)
-        elif filename.endswith(".json"):
-            return json.load(f)
-        else:
-            raise Exception(f"Unrecognized input file format {filename}")
+def load_config(config_file: str) -> Dict[str, Any]:
+    """Load configuration from a file.
 
-    return {}
+    Args:
+        config_file: Path to configuration file (Python or JSON or YAML)
+
+    Returns:
+        Dictionary containing configuration
+    """
+    if config_file.endswith('.py'):
+        # For Python files, just store the file path
+        module_name = os.path.splitext(os.path.basename(config_file))[0]
+        return {
+            "backend_options": {
+                module_name: {
+                    "file_path": config_file
+                }
+            }
+        }
+    else:  # YAML or JSON file
+        with open(config_file, "r") as f:
+            if config_file.endswith(".yaml"):
+                return yaml.load(f, Loader=yaml.FullLoader) # type: ignore
+            elif config_file.endswith(".json"):
+                return json.load(f) # type: ignore
+            else:
+                raise Exception(f"Unrecognized input file format {config_file}")
 
 
 ###################
@@ -149,20 +164,20 @@ def merge(a: Dict[Any, Any], b: Dict[Any, Any], path: List[str] = []) -> Dict[st
 ###################
 def process_previous_options(filename: str) -> Dict[str, Any]:
     """Reproduce option dictionary from a previous run's .md file."""
-    copy: bool = False
+    copy_now: bool = False
     jstr: str = ""
 
     # First, the relevant portion of the .md file to another string:
     with open(filename, "r") as f:
         for line in f:
             if line.strip() == "## Runtime options":
-                copy = True
+                copy_now = True
             elif line.strip() == "## Field description":
                 break
-            elif copy:
+            elif copy_now:
                 jstr += line
 
-    return json.loads(jstr)
+    return json.loads(jstr) # type: ignore
 
 
 ###################
@@ -170,8 +185,11 @@ def process_json_options(
     cfg: Dict[str, Any], args: argparse.Namespace
 ) -> Dict[str, Any]:
     """Merge options with JSON options read in from files or cmd-line string."""
-    cfiles: List[List[str]] = \
-        args.config if args.config else [[mydir + "/default_config.yaml"]]
+    cfiles: List[List[str]] = []
+    if args.config:
+        cfiles = args.config
+    elif not cfg:   # If there's not previous or current config, use default
+        cfiles = [[mydir + "/default_config.yaml"]]
 
     for fn in cfiles:
         merge(cfg, load_config(fn[0]))
@@ -199,10 +217,8 @@ def process_cmdline_options(
         elif k not in cfg:
             cfg[k] = cfg.get(k, opt_defaults[k])
 
-    if args.backend:
-        cfg["backends"] = [b[0] for b in args.backend]
-    else:
-        cfg["backends"] = cfg.get("backends", ["local"])
+    if args.mpl:
+        cfg["copies"] = args.mpl
 
     if args.append:
         cfg["mode"] = "a"
@@ -220,6 +236,14 @@ def process_cmdline_options(
         cfg["start"] = "warm"
     else:
         cfg["start"] = cfg.get("start", "normal")
+
+    # Backends are treated a little differently: any backends specified in the
+    # cmd-line are added to previous experiment's, not replacing them.
+    cfg["backends"] = cfg.get("backends", [])
+    if args.backend:
+        cfg["backends"] += [b[0] for b in args.backend]
+    if not cfg["backends"]:
+        cfg["backends"] = ["local"]
 
     # Process optional arguments:
     cfg["verbose"] = args.verbose

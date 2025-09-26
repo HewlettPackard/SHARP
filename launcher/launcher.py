@@ -27,11 +27,11 @@ class Launcher:
             backend (str): identifier of current backend
             options (dictionary): dictionary of all options
         """
-        _topdir, _ = os.path.split(os.path.abspath(__file__))
-
-        self._fndir, _ = os.path.split(os.path.abspath(_topdir))
+        self._topdir, _ = os.path.split(os.path.abspath(__file__))
+        self._fndir, _ = os.path.split(os.path.abspath(self._topdir))
         self._fndir = os.path.join(self._fndir, "fns")
         self._input_fd = self.__get_input_fd(options)
+        self._venv_path = os.path.join(self._topdir, "../venv-sharp/bin")
 
         self._task = options["task"]
         self._func = options["function"]
@@ -41,6 +41,7 @@ class Launcher:
         self._timeout = options.get("timeout", None)
         self._mopts = options.get("metrics", {})
         self._sys_spec: Dict[str, str] = options.get("sys_spec_commands", {})
+        self._fn_path = options.get("fn_path", "")
 
     ###################
     def reset(self) -> None:
@@ -52,17 +53,29 @@ class Launcher:
         """
         Search an executable for a given function name `func`.
 
-        First, try to find the the first file matching the name `func`[.ext] in
-        the specified `fndir`. the [.ext] extension is optional.
-        If none found, return the OS path to the given file, assuming an
-        explicit full-path to a binary was passed.
+        The search order is:
+        1. If fn_path is specified in backend options, return path with python file.
+        2. If func is an absolute path and exists, return it directly
+        3. Look for `func`[.ext] in the fns/<func> directory
+        4. If none found, return the original func path
         """
-        fdir: str = os.path.join(self._fndir, self._func)
-        for fn in glob.glob(os.path.join(fdir, f"{func}.*")):
+        # Check if custom function path is specified
+        if hasattr(self, '_fn_path') and self._fn_path:
+            return os.path.join(self._fn_path, f"{func}.py")
+
+        # If func is an absolute path and exists, return it directly
+        if os.path.isabs(func) and os.path.isfile(func):
+            return func
+
+        # Search in fns directory using basename of func for directory name
+        func_name = os.path.basename(func)
+        fdir: str = os.path.join(self._fndir, func_name)
+        for fn in glob.glob(os.path.join(fdir, f"{func_name}.*")):
             if os.path.isfile(fn) and os.access(fn, os.X_OK):
                 return fn
 
-        return os.path.join(fdir, func)
+        # Return original func path if no match found
+        return func
 
     ###################
     def __get_input_fd(self, options: Dict[str, Any]) -> int:
@@ -106,6 +119,21 @@ class Launcher:
             return None
 
     ###################
+    def parse_auto_metrics(self, output: str) -> Dict[str, List[str]]:
+        """Extract all the metric names and lists of values from output."""
+        metrics: Dict[str, List[str]] = {}
+        for line in output.splitlines():
+            cols = line.split()
+            name = cols[0]
+            if name in metrics:
+                metrics[name].append(cols[1])
+            else:
+                metrics[name] = [cols[1]]
+
+        return(metrics)
+
+
+    ###################
     def _get_metrics(self, fp, mopts: Dict[str, Any]) -> List[Dict[str, Any]]: # type: ignore
         """
         Get application metrics after run completion.
@@ -119,13 +147,14 @@ class Launcher:
 
             Returns:
                 list: dictionaries mapping from metrics to values
-                (one dictionary per run).  if timeout exceeded or subprocess
-                failed or extraction failed, returns None.
+                (one dictionary per run and ranks). if timeout exceeded
+                or subprocess failed or extraction failed, None is returned.
         """
         if not mopts:
             return [{}]
 
         metrics = {}
+
         for name, mdata in mopts.items():
             cmd = f"cat {fp.name} | " + mdata["extract"]
             result = subprocess.run(cmd, text=True, capture_output=True, shell=True)
@@ -138,8 +167,12 @@ class Launcher:
                     f"Failed to extract output for metric {name}. Did you include the correct backend and output the metric from your program?\nReturn code {result.returncode}, stderr: {result.stderr}"
                 )
                 metrics[name] = ["NA"]
-            else:
-                metrics[name] = result.stdout.split()
+            else:       # Normal case (no errors):
+                if name != "auto":
+                    metrics[name] = result.stdout.split()
+                else:
+                    mets = self.parse_auto_metrics(result.stdout)
+                    metrics.update(mets)
 
         if len(set(map(len, metrics.values()))) != 1:
           raise Exception(f"Some metrics have fewer rows than others. Inspect metrics for duplicated/missing rows:\n{metrics}")
@@ -147,6 +180,7 @@ class Launcher:
         ret = []
         for i in range(len(next(iter(metrics.values())))):
             ret.append({k: metrics[k][i] for k in metrics.keys()})
+
         return ret
 
     ###################
@@ -176,6 +210,7 @@ class Launcher:
                     stdin=self._input_fd,
                     text=True,
                     shell=True,
+                    stderr=subprocess.STDOUT
                 )
             )
 
