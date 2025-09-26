@@ -1,0 +1,7 @@
+backend_options:
+  YAMLMockLauncherWithSysSpec:
+    run: |
+      echo "YAMLMockLauncherWithSysSpec"
+      $CMD $ARGS
+    run_sys_spec: |
+      echo "YAML mock sysspec:"

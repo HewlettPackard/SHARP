@@ -1,0 +1,7 @@
+backend_options:
+  PythonMockLauncherWithSysSpec:
+    run: |
+      echo "PythonMockLauncherWithSysSpec"
+      $CMD $ARGS
+    run_sys_spec: |
+      echo "Python mock sysspec:"

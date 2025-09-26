@@ -1,0 +1,13 @@
+# Configuration excerpt to mock custom YAML launchers
+backend_options:
+  YAMLMockLauncherWithoutSysSpec:
+    run: |
+      echo "YAMLMockLauncherWithoutSysSpec"
+      $CMD $ARGS
+  YAMLMockLauncherWithSysSpec:
+    run: |
+      echo "YAMLMockLauncherWithSysSpec"
+      $CMD $ARGS
+
+    run_sys_spec: |
+      /bin/echo "YAML mock sysspec:" $SPEC_COMMAND 
