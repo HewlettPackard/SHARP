@@ -1,0 +1,44 @@
+# based on https://github.com/DiegoStock12/kubeml/blob/master/ml/environment/Dockerfile
+# offical docker image of nvidia/cuda
+FROM nvidia/cuda:12.2.0-devel-ubuntu20.04
+
+RUN ln -snf /usr/share/zoneinfo/$CONTAINER_TIMEZONE /etc/localtime && echo $CONTAINER_TIMEZONE > /etc/timezone
+# Ubuntu 20.04 only supports getting python3.7, python3.8, python3.9 this way
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install python3.10.4 python3-pip -y  &&\
+    apt-get install gcc libev-dev libffi-dev -y && \
+    apt-get install wget -y &&\
+    apt-get clean
+
+RUN apt-get install -y python3-dev libev-dev
+
+WORKDIR /app
+
+COPY requirements.txt /app
+RUN python3 -m pip install --upgrade pip
+RUN python3 -m pip install -r requirements.txt
+
+## Rodinia installation
+RUN wget http://www.cs.virginia.edu/~skadron/lava/Rodinia/Packages/rodinia_3.1.tar.bz2
+RUN tar -xf rodinia_3.1.tar.bz2
+
+WORKDIR /app/rodinia_3.1/
+RUN sed -i '/cuda\/mummergpu/d' Makefile
+RUN sed -i '/cuda\/cfd/d' Makefile
+RUN sed -i '/cuda\/kmeans/d' Makefile
+RUN sed -i '/cuda\/leukocyte/d' Makefile
+RUN sed -i '/cuda\/hybridsort/d' Makefile
+RUN find . -type f -name '*' -exec sed -i 's/sm_[0-9]\{2\}/sm_80/g' {} +
+RUN make clean
+RUN make CUDA
+RUN mv bin/linux/cuda/lud_cuda bin/linux/cuda/lud
+RUN mv bin/linux/cuda/sc_gpu bin/linux/cuda/sc
+
+ENV PYTHONUNBUFFERED 1
+
+WORKDIR /app
+COPY rodinia-cuda.py .
+
+ENV FAAS_ENV docker
+
+CMD ["sleep", "infinity"]

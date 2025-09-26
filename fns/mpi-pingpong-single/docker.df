@@ -1,0 +1,20 @@
+FROM python:3.10.4-bullseye
+
+RUN ln -snf /usr/share/zoneinfo/$CONTAINER_TIMEZONE /etc/localtime && echo $CONTAINER_TIMEZONE > /etc/timezone
+# Ubuntu 20.04 only supports getting python3.7, python3.8, python3.9 this way
+RUN apt-get update && \
+    apt-get install gcc libev-dev libffi-dev libopenmpi-dev -y && \
+    apt-get clean
+
+WORKDIR /app
+
+COPY requirements.txt /app
+RUN python3 -m pip install --upgrade pip
+RUN python3 -m pip install -r requirements.txt
+
+ENV PYTHONUNBUFFERED 1
+COPY mpi-pingpong-single.py .
+
+ENV FAAS_ENV docker
+
+CMD ["sleep", "infinity"]

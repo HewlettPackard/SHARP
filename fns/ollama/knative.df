@@ -1,0 +1,29 @@
+# Import ollama image
+FROM ollama/ollama:latest
+
+RUN ln -snf /usr/share/zoneinfo/$CONTAINER_TIMEZONE /etc/localtime && echo $CONTAINER_TIMEZONE > /etc/timezone
+# Ubuntu 20.04 only supports getting python3.7, python3.8, python3.9 this way
+RUN apt-get update && \
+    apt-get install gcc libev-dev libffi-dev -y && \
+    apt-get clean
+
+RUN apt-get install -y python3-dev libev-dev
+RUN apt-get install -y python3-pip
+
+COPY requirements.txt .
+RUN python3 -m pip install --upgrade pip
+RUN python3 -m pip install -r requirements.txt
+
+ENV OLLAMA_HOST=
+## Pull llama2 model
+RUN (ollama serve &) && sleep 15 && ollama pull llama2
+
+ENV PYTHONUNBUFFERED 1
+
+COPY ollama.py .
+
+ENV PORT 8080
+ENV FAAS_ENV knative
+
+ENTRYPOINT ["python3"]
+CMD ["ollama.py"]

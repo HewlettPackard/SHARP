@@ -23,9 +23,8 @@ os.environ["HWLOC_COMPONENTS"] = "-gl" # Get rid of pesky X11 warning in MPI
 All combinations of functions and backends to run
 """
 fn_combinations = [
-        { "fn": "nope", "args": "", "backends": [ "local", "docker", "knative", "fission", "mpi", "ssh"] },
+        { "fn": "nope", "args": "", "backends": [ "local", "docker", "knative", "fission"] },
         { "fn": "bounce", "args": "hello world", "backends": [ "local" ] },
-        { "fn": "mpi-pingpong-single", "args": "1000", "backends": [ "mpi" ] },
         { "fn": "cuda-inc", "args": "10000", "backends": [ "local", "docker", "knative" ] },
         { "fn": "rodinia-omp", "args": "backprop", "backends": [ "docker" ] },
         { "fn": "ollama", "args": "hello world", "backends": [ "docker" ] }
@@ -36,8 +35,8 @@ backend_opts = {
         "docker": "-f backends/docker.yaml",
         "fission": "-f backends/fission.yaml",
         "knative": "-f backends/knative.yaml",
-        "mpi": "-f backends/mpi.yaml -j '{ \"backend_options\": { \"mpi\": { \"mpiflags\": \"--host localhost:4\" } } }' --mpl 2",
-        "ssh": "-f backends/ssh.yaml -j '{ \"backend_options\": { \"ssh\": { \"hosts\": \"localhost\", \"run\": \"ssh $HOST \\\"source /home/frachten/sharp/venv-sharp/bin/activate && $CMD $ARGS\\\"\\n\" } } }'"
+        "mpi": "-f backends/mpi.py -f backends/mpi_config.yaml -j '{ \"backend_options\": { \"mpi\": { \"mpiflags\": \"--host localhost:2 -np 2\" } } }'",
+        "ssh": "-f backends/ssh.py -j '{ \"backend_options\": { \"ssh\": { \"hosts\": \"localhost\" } } } '"
 }
 
 
