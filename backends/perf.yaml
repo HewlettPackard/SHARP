@@ -4,8 +4,7 @@
 backend_options:
   perf:
     reset:
-    run: |
-      perf stat -e cache-misses,context-switches,branch-misses,cpu-migrations,page-faults,dTLB-load-misses,iTLB-load-misses,emulation-faults,L1-icache-load-misses,L1-dcache-load-misses,LLC-load-misses,node-load-misses,cpu-clock $CMD $ARGS 2>&1
+    run: perf stat -e cache-misses,context-switches,branch-misses,cpu-migrations,page-faults,dTLB-load-misses,iTLB-load-misses,emulation-faults,L1-icache-load-misses,L1-dcache-load-misses,LLC-load-misses,node-load-misses,cpu-clock,cycles $CMD $ARGS
     run_sys_spec: |
       $SPEC_COMMAND
 
@@ -41,13 +40,13 @@ metrics:
     type: numeric
     units: count
   dTLB_misses:
-    description: data-TLB misses
+    description: Counts how many times a data reference needed to be translated from a virtual address to a physical address and was not found in the data TLB cache.
     extract: grep ' dTLB-load-misses' | awk '{ gsub(/,/, ""); print $1; }' | sed 's/<not/NA/'
     lower_is_better: true
     type: numeric
     units: count
   iTLB_misses:
-    description: instruction-TLB misses
+    description: Counts how many times a data reference needed to be translated from a virtual address to a physical address and was not found in the instruction TLB cache.
     extract: grep ' iTLB-load-misses' | awk '{ gsub(/,/, ""); print $1; }' | sed 's/<not/NA/'
     lower_is_better: true
     type: numeric
@@ -90,7 +89,13 @@ metrics:
     units: count
   cpu_clock:
     description: CPU clock
-    extract: grep ' node-load-misses' | awk '{ gsub(/,/, ""); print $1; }' | sed 's/<not/NA/'
+    extract: grep ' cpu-clock' | awk '{ gsub(/,/, ""); print $1; }' | sed 's/<not/NA/'
     lower_is_better: true
     type: numeric
     units: count
+  clock_rate:
+    description: CPU clock cycles per second
+    extract: awk '/cpu-clock/ {c=$1; gsub(/,/, "", c); clock=c} /cycles/ {c=$1; gsub(/,/, "", c); cycles=c} END {if (clock && cycles && cycles ~ /^[0-9]+$/) print cycles/(clock*1000); else print "NA";}'
+    lower_is_better: false
+    type: numeric
+    units: MHz

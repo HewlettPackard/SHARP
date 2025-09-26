@@ -1,0 +1,11 @@
+# Configuration excerpt to measure CPU package temeperature
+backend_options:
+  temps:
+    run: (bash -c '$CMD $ARGS'; /usr/bin/sensors) 2>&1
+metrics:
+  auto:
+    description: CPU package/core temperature at this package id
+    extract: awk '/Package id/ {gsub(/:/, "", $3); gsub(/[^0-9.-]/, "", $4); package=$3; if($4 != "") printf("package_temp_%d\t%d\n",$3, $4); } /^Core / {gsub(/:/, "", $2); gsub(/[^0-9.-]/, "", $3); if($4 != "") printf("core_temp_%d_%d\t%d\n", package ,$2, $3);}'
+    lower_is_better: true
+    type: numeric
+    units: centigrade

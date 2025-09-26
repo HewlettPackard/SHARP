@@ -1,0 +1,53 @@
+# Configuration excerpt to compute metrics from /bin/time
+backend_options:
+  time:
+    run: /usr/bin/time -f "bin-time output %e %S %F %R %M %P %c %w" bash -c '$CMD $ARGS'
+metrics:
+  wall_time:
+    description: Elapsed wall-clock time
+    extract: awk '/bin-time output / { print $3 }'
+    lower_is_better: true
+    type: numeric
+    units: seconds
+  sys_time:
+    description: System (kernel) time
+    extract: awk '/bin-time output / { print $4 }'
+    lower_is_better: true
+    type: numeric
+    units: seconds
+  major_page_faults:
+    description: Major page faults
+    extract: awk '/bin-time output / { print $5 }'
+    lower_is_better: true
+    type: numeric
+    units: count
+  minor_page_faults:
+    description: Minor page faults
+    extract: awk '/bin-time output / { print $6 }'
+    lower_is_better: true
+    type: numeric
+    units: count
+  max_rss:
+    description: Maximum resident set size
+    extract: awk '/bin-time output / { print $7 }'
+    lower_is_better: true
+    type: numeric
+    units: kbytes
+  percent_cpu:
+    description: Percent of CPU this job got
+    extract: awk '/bin-time output / { gsub(/%$/, "", $8); print $8 }'
+    lower_is_better: true
+    type: numeric
+    units: kbytes
+  involuntary_context_switches:
+    description: Involuntary context switches
+    extract: awk '/bin-time output / { print $9 }'
+    lower_is_better: true
+    type: numeric
+    units: count
+  voluntary_context_switches:
+    description: Voluntary context switches
+    extract: awk '/bin-time output / { print $10 }'
+    lower_is_better: true
+    type: numeric
+    units: count

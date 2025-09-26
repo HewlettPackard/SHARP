@@ -1,0 +1,70 @@
+# MPI backend configuration with integrated metrics
+# This version combines both backend configuration and metrics in a single file
+# Supports:
+# - MPI execution with configurable flags
+# - Rank-specific output collection
+# - Hostname and CPU affinity reporting per rank
+# - Unique temporary directory creation per execution
+#
+# Usage examples:
+#
+# Basic MPI (process count controlled by --mpl):
+#   backend_options:
+#     mpi:
+#       mpiflags: "--host localhost:4"
+#   # Use: --mpl 4 to run with 4 MPI processes
+#
+# Multi-host MPI:
+#   backend_options:
+#     mpi:
+#       mpiflags: "--hostfile /path/to/hostfile"
+#   # Use: --mpl 8 to run with 8 MPI processes
+#
+# Then use: -f backends/mpi.yaml -b mpi
+#
+# Features supported:
+# ✓ MPI execution with configurable process count ($MPL macro)
+# ✓ MPI flags configuration via $MPIFLAGS macro  
+# ✓ Unique temporary directory per execution (no conflicts between runs)
+# ✓ Rank-specific output collection and aggregation
+# ✓ Hostname and CPU affinity reporting per MPI rank
+# ✓ Compatible with existing backend_options.mpi configuration
+# ✓ System specification commands run via MPI
+# ✓ Automatic cleanup of temporary files after execution
+# ✓ Integrated metrics (no separate config file needed)
+#
+# Temporary Directory Behavior:
+# - Creates unique directory like /tmp/mpi-stats-XXXXXX/ for each execution
+# - Prevents conflicts between concurrent MPI runs
+# - Automatically cleaned up after output collection
+#
+backend_options:
+  mpi:
+    tmp_path: "/tmp/"            # Base path for temp dirs (unique subdir created per execution)
+    mpiflags: ""                 # MPI flags (--mpl controls -np, don't include -np here)
+    reset: ''                    # MPI can't really reset jobs
+    run: |
+      mpirun -np $MPL $MPIFLAGS bash -c '$CMD $ARGS && echo "Hostname: `hostname` Rank: $OMPI_COMM_WORLD_RANK Local Rank: $OMPI_COMM_WORLD_LOCAL_RANK CPU Affinity: $(taskset -cp $$)" >> $TMP_PATH$OMPI_COMM_WORLD_RANK' && cat $TMP_PATH* && rm $TMP_PATH*
+    run_sys_spec: |
+      mpirun $MPIFLAGS $SPEC_COMMAND
+
+# MPI-specific metrics for rank, hostname, and CPU affinity analysis
+metrics:
+  hostname:
+    description: hostname
+    extract: grep ' current affinity list:' | awk '{print $2;}'
+    lower_is_better: true
+    type: string
+    units: NA
+  mpi-rank:
+    description: rank
+    extract: grep ' current affinity list:' | awk '{print $4;}'
+    lower_is_better: true
+    type: numeric
+    units: count
+  core:
+    description: core
+    extract: grep ' current affinity list:' | awk '{print $15;}'
+    lower_is_better: true
+    type: string
+    units: NA

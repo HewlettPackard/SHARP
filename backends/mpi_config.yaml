@@ -1,0 +1,25 @@
+backend_options:
+  mpi:
+    tmp_path: /tmp/mpi-stats/
+    mpiflags: ''  # Optional: things like -H or --hostfile
+
+metrics:
+  hostname:
+    description: hostname
+    extract: grep ' current affinity list:' | awk '{print $2;}'
+    lower_is_better: true
+    type: string
+    units: NA
+  mpi-rank:
+    description: rank
+    extract: grep ' current affinity list:' | awk '{print $4;}'
+    lower_is_better: true
+    type: numeric
+    units: count
+  core:
+    description: core
+    extract: grep ' current affinity list:' | awk '{print $15;}'
+    lower_is_better: true
+    type: string
+    units: NA
+

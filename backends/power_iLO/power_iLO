@@ -1,0 +1,15 @@
+###############################################################################
+# Usage: sh power_iLO.sh <username> <password> <application command> <interval>
+###############################################################################
+#!/bin/bash
+START_TIME=$(date +%s)
+$3 &
+BACK_PID=$!
+while kill -0 $BACK_PID; 
+    do
+    python3 backends/power_iLO/measure_power_iLO.py $1 $2 >> output_log
+    sleep $4
+done
+END_TIME=$(date +%s)
+python3 backends/power_iLO/extract_agg_json.py -st $START_TIME -et $END_TIME -of output_log
+rm output_log

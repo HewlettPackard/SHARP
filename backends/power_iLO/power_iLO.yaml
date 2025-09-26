@@ -1,0 +1,29 @@
+backend_options:
+  power:
+    reset: ''      # Defaults to '' anyway if not defined
+    run: sh backends/power_iLO/power_iLO hsc-temp 4HSC2Win! "$CMD $ARGS" 1
+metrics:
+  avg_power:
+    description: Average Power
+    extract: 'sed -n -E -e "s/^Average: ([0-9]+(\.[0-9]{1,4})?).*/\1/p"'
+    lower_is_better: true
+    type: numeric
+    units: watts
+  max_power:
+    description: Maximum Power
+    extract: 'sed -n -E -e "s/^Maximum: ([0-9]+(\.[0-9]{1,4})?).*/\1/p"'
+    lower_is_better: true
+    type: numeric
+    units: watts
+  min_power:
+    description: Minimum Power
+    extract: 'sed -n -E -e "s/^Minimum: ([0-9]+(\.[0-9]{1,4})?).*/\1/p"'
+    lower_is_better: true
+    type: numeric
+    units: watts
+  energy:
+    description: Energy consumed over time
+    extract: 'sed -n -E -e "s/^Energy: ([0-9]+(\.[0-9]{1,4})?).*/\1/p"'
+    lower_is_better: true
+    type: numeric
+    units: joules

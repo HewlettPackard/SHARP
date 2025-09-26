@@ -8,9 +8,9 @@ backend_options:
       fi
     run: |
       if [ -n "$ARGS" ]; then
-        kubectl get ksvc $FN -o jsonpath='{.status.url}' | xargs curl -X POST -H "Content-Type:application/json" -d "$ARGS"
+        kubectl get ksvc $FN -o jsonpath='{.status.url}' | xargs curl -s -X POST -H "Content-Type:application/json" -d "$ARGS"
       else
-        kubectl get ksvc $FN -o jsonpath='{.status.url}' | xargs curl -X POST -H "Content-Type:application/json"
+        kubectl get ksvc $FN -o jsonpath='{.status.url}' | xargs curl -s -X POST -H "Content-Type:application/json"
       fi
     run_sys_spec: |
       pod_name=$(kubectl get pods | grep -oE "^$FN[a-zA-Z0-9-]+")
