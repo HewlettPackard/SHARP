@@ -15,8 +15,8 @@ clean-knative:
 
 prep-knative-image:
 	if ! docker search "${KNATIVE_ENV}" | grep -q "${KNATIVE_ENV}"; then \
-	    docker build -t ${KNATIVE_ENV} -f knative.df .; \
-	    docker push ${KNATIVE_ENV}; \
+		docker build -t ${KNATIVE_ENV} -f knative.df .; \
+		docker push ${KNATIVE_ENV}; \
 	fi
  
 # Pack and register a single function:

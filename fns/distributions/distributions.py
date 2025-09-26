@@ -28,7 +28,7 @@ with the distribution name.
 for i in normal multimodal uniform constant
 do
     echo "$i"
-    launchers/launch.py -v -e $i -b local -r 1 -t $i distributions "{\"method\":\"$i\",\"repetitions\":1000}"
+    launcher/launch.py -v -e $i -b local -r 1 -t $i distributions "{\"method\":\"$i\",\"repetitions\":1000}"
 done
 ```
 
@@ -355,9 +355,11 @@ def sample(options: Union[str, Dict[str, Any]] = {}) -> str:
 
     Distribution-specific parameters: Check each function's documentation
     """
-    if not options or isinstance(options, str):
-        options_text: str = request.get_data(as_text=True)
-        options = json.loads(options_text)
+    if not options:
+        options: str = request.get_data(as_text=True)
+
+    if isinstance(options, str):
+        options = json.loads(options)
 
     if isinstance(options, Dict):
         method = options.get("method", "normal")

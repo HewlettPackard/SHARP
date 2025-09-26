@@ -13,7 +13,7 @@ The `metrics` section includes one or more metric sections (dictionaries), each 
  * `units` (string): the units of measurement for the metric.
 
 
-The following JSON file is an example with three metrics:
+The following JSON file is an example with three metrics (can be done in YAML format as well):
 
 ```json
 {
@@ -42,3 +42,23 @@ The following JSON file is an example with three metrics:
   }
 }
 ```
+
+## 'auto' metrics
+
+
+SHARP also lets you define a backend with a single metric named 'auto'.
+This metric can actually expand to numerous metrics when parsing the
+application's output using the 'extract' command.
+Each line in that output is assumed to have two columns, the first with the 
+metric's name and the second with the metric's value.
+It is assumed that there is only one 'auto' metric in all the backend files 
+included in a single experiment. It's also assumed that all the metrics that
+have a value in one run (copy/rank) will have the same metrics for all the other runs.
+
+To see an example in action, examine the backend file `backends/strace.yaml`.
+Run it with the command:
+```sh
+./launcher/launch.py -f launcher/default_config.yaml -f backends/strace.yaml -b strace /bin/ls
+```
+Then, examine the content of the files `runlogs/misc/ls.*`.
+

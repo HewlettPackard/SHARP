@@ -14,9 +14,17 @@ To run this benchmark, you'll need one or more hosts (physical or virtual), runn
         g++ \
         golang \
         python3-pip \
+        python3-venv \
         apt-transport-https \
+        libopenmpi-dev \
+        libev-dev \
         ca-certificates \
-        curl \
+        libfontconfig1-dev \
+        libfribidi-dev \
+        libharfbuzz-dev \
+        libtiff-dev \
+        libblas-dev liblapack-dev \
+        libcurl4-openssl-dev curl \
         rename \
         docker.io  # If required for FaaS
   ```
@@ -106,7 +114,10 @@ Choose one or more of the following FaaS frameworks and install it:
 SHARP requires a few Python packages to be installed, found in the `requirements.txt` file. You can install them all using:
 
 ```sh
-python3 -m pip install -r requirements.txt
+cd sharp
+python3 -m venv venv-sharp
+source venv-sharp/bin/activate
+venv-sharp/bin/pip3 install -r requirements.txt
 ```
 
 In addition, some of the benchmarking functions have their own prerequisites that need to be installed *at all the hosts you are benchmarking*, that is, not necessarily the same host you're running SHARP from. Depending on which functions and which backend you're planning to run in your benchmarks, you may need to install some or all of the prerequisites.

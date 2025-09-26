@@ -43,7 +43,7 @@ The location of log files is under a per-experiment directory. The top-level dir
 
 ## Invocation
 
-The main tool to generate load for benchmarking is the function launcher (`launchers/launch.py`).
+The main tool to generate load for benchmarking is the function launcher (`launcher/launch.py`).
 It is a flexible tool with many optional configuration points, which are documented here.
 All options have default values.
 The only required argument to `launch.py` is the name of the function you want to run.
@@ -63,10 +63,11 @@ Launcher handles option sources in a particular priority order, with each subseq
     * Remaining-command line flags.
 
 
+Generally, command-line options override those from a previous run, except for backends, where command-line backends are composed with the previous ones.
 To see a summary of the options supported by the command line and their default values, type:
 
 ```sh
-launchers/launch.py -h
+launcher/launch.py -h
 ```
 
 The rest of the command line options control the following behaviors:
@@ -121,7 +122,10 @@ Backends that require options take them as part of the configuration, specified 
 
 ### Custom backends
 
-You can also define your own backend or execution environment as a wrapper around the function/program you want to benchmark.
+You can define your own backend or execution environment as a wrapper around the function/program you want to benchmark. This can be done in two ways:
+
+#### 1. YAML-based Custom Backends
+
 The primary purpose of custom backends is the ability to add measures (i.e., metrics) that are external to the benchmark, collected by some wrapper defined in its own configuration.
 For example, you can add a layer to measure the memory consumption of the program using `/usr/bin/time`.
 To do that, you might run something like:
@@ -142,8 +146,9 @@ The configuration of a custom backend, which can be provided by a file or the co
 ```yaml
 backend_options:
   memory:
-    reset: ''      # Defaults to '' anyway if not defined
-    run: /usr/bin/time --verbose $CMD
+    reset: ''      # Optional command for cold-starts
+    run: /usr/bin/time --verbose $CMD  # Required command wrapper
+    run_sys_spec: $SPEC_COMMAND  # Optional system spec command wrapper
 metrics:
   max_rss:
     description: Maximum resident set size
@@ -159,11 +164,65 @@ Both strings accept special macros that will be substituted for the actual value
  * `$TASK`: replaced with the name of the task
  * `$FN`: replaced with the name of the function
  * `$ARGS`: The arguments to the function/program
- * `$CMD`: The command string to execute, either the function/program, or if composing backends, the next backend to run.
+ * `$CMD`: The command string to execute, either the function/program, or if composing backends, the next backend to run
 
 Then, you can add one or more metrics that process the output of this new backend. The example above shows how the maximum resident set size (RAM) of the program is extracted from the program of `/usr/bin/time`.
 
-See more custom metric example YAML files under `launcher/`
+#### 2. Python-based Custom Backends
+
+For more complex backends that require programmatic control, you can create a Python class that inherits from the `Launcher` base class. This approach gives you full control over how tasks are executed and monitored.
+
+To create a Python backend:
+
+1. Create a new class that inherits from `Launcher`:
+```python
+from launcher import Launcher
+from typing import *
+
+class MyCustomLauncher(Launcher):
+    def __init__(self, backend: str, options: Dict[str, Any]) -> None:
+        """Initialize launcher with backend-specific options."""
+        super().__init__(backend, options)
+        # Initialize your backend-specific attributes
+
+    def reset(self) -> None:
+        """Reset all caches and stale data for cold starts."""
+        super().reset()
+        # Add backend-specific reset logic
+
+    def run_commands(self, copies: int, nested: str = "") -> List[str]:
+        """
+        Generate command strings to execute tasks.
+
+        Args:
+            copies: How many instances of the task to run
+            nested: Nested commands to call instead of function
+
+        Returns:
+            List of command strings to execute
+        """
+        # Must be implemented: generate command strings for your backend
+        return []
+
+    def sys_spec_commands(self) -> Dict[str, str]:
+        """
+        Generate commands to obtain system specifications.
+
+        Returns:
+            Dictionary mapping spec names to commands
+        """
+        # Override to customize how system specs are collected
+        return self._sys_spec
+```
+
+2. Implement the required methods:
+   - `run_commands(self, copies: int, nested: str = "") -> List[str]`: Generate the command strings to execute
+   - Optionally override `reset()` for cold-start behavior
+   - Optionally override `sys_spec_commands()` for custom system specification handling
+
+See `backends/ssh.py` for a complete example of a Python-based backend.
+
+See more custom backend example YAML files under `backends/`, refer here:(`docs/backends.md`).
 
 ## Repeaters
 
@@ -191,7 +250,7 @@ All repeaters support the following three configuration options:
  * `metric`: The name of the performance metric that needs to converge (default: `inner_time`).
 
 The full list of available repeaters and their options is listed next, using their short name as used in the `-r` argument.
-For complete algorithm documentation, refer to the source code (`launchers/repeater.py`).
+For complete algorithm documentation, refer to the source code (`launcher/repeater.py`).
 
 ### MAX
 
@@ -335,7 +394,7 @@ We provide PEP-484 type annotations for all components of the launcher. This sho
 
 ```sh
 # from the repository root directory, where mypy.ini resides
-mypy launchers
+mypy launcher
 ```
 
 ## Using other programming languages

@@ -34,7 +34,7 @@ folder `/usr/local/rodinia/`. It assumes that the binaries are combiled using
 the Makefile and are present in `/usr/local/rodinia/bin/linux/omp/`.
 The launcher can be used for local execution as shown below:
 
-    `./launchers/launch.py -b local rodinia-omp 'backprop 65536'`
+    `./launcher/launch.py -b local rodinia-omp 'backprop 65536'`
 
 The input parameters can be passed either by argv, stdin, or in the body of 
 the HTTP request.
@@ -139,7 +139,9 @@ if __name__ == "__main__":
         ## Knative entry point
         _app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
 
-    rodinia_path = "/usr/local/rodinia/"
+    if os.getenv("FAAS_ENV") != "docker":
+        rodinia_path = "/usr/local/rodinia/"
+
     args: str = ""
 
     if len(sys.argv) < 2:

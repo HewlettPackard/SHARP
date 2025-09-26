@@ -8,16 +8,20 @@ This method is the easiest in terms of installing prerequisites, because they ar
 To build the image in Linux, run:
 
 ```sh
-cd gui
-docker build -t sharp-gui .
+docker build -t sharp-gui -f gui/Dockerfile .
 ```
 
 Then to run it, use:
 ```sh
-docker run -p 2610:2610 sharp-gui
+docker run -p 2626:2626 sharp-gui
 ```
 
-Point a browser at your server using a url like [localhost:2610](http://localhost:2610).
+If you are running the experiments on local system and want the visualization using docker image, use:
+```sh
+docker run -v <Path to SHARP>/runlogs:/usr/sharp/runlogs -p 2626:2626 sharp-gui
+```
+
+Point a browser at your server using a url like [localhost:2626](http://localhost:2626).
 
 To kill the container from another shell, you can run something like:
 
@@ -32,7 +36,7 @@ This requires you install yourself all the preqrequisite software defined in `gu
 Once installed, you can run the GUI with a command like:
 
 ```sh
- R -e 'shiny::runApp("gui/app.R", port=2610, host = "0.0.0.0")'
+ R -e 'shiny::runApp("gui/app.R", port=2626, host = "0.0.0.0")'
 ```
 
 Then continue to point a browser at your server as in the containerized version.

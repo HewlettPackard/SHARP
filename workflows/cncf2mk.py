@@ -163,7 +163,7 @@ def create_mf_variables(variables, states, metadata):
         basedir, _ = os.path.split(basedir)
 
     outdir = os.path.join("$(basedir)", "runlogs", variables["id"])
-    launcher = os.path.join("$(basedir)", "launchers", "launch.py")
+    launcher = os.path.join("$(basedir)", "launcher", "launch.py")
     if "description" in variables:
         launcher += f' --description "$(description)"'
     if metadata.get("verbose") == "True" or metadata.get("verbose") == "yes":

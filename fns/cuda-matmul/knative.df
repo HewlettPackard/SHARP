@@ -5,7 +5,7 @@ FROM nvidia/cuda:12.2.0-devel-ubuntu20.04
 RUN ln -snf /usr/share/zoneinfo/$CONTAINER_TIMEZONE /etc/localtime && echo $CONTAINER_TIMEZONE > /etc/timezone
 # Ubuntu 20.04 only supports getting python3.7, python3.8, python3.9 this way
 RUN apt-get update && \
-    apt-get install python3.10.4 python3-pip -y  &&\
+    DEBIAN_FRONTEND=noninteractive apt-get install python3.10.4 python3-pip -y  &&\
     apt-get install gcc libev-dev libffi-dev -y && \
     apt-get clean
 

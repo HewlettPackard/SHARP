@@ -17,7 +17,7 @@ Hardware and software setup instructions found [here](./docs/setup/README.md).
 After [setting up](./docs/setup/README.md) the software and hardware, check if you can run functions correctly on your chosen backend, say, `fission`:
 
 ```sh
-launchers/launch.py -v -b local sleep 1
+launcher/launch.py -v -b local sleep 1
 ```
 
 This should take about one second and produce some output.
@@ -99,8 +99,10 @@ The code is organized into these subdirectories:
 
  * `fns`: Individual functions that can be used and composed in benchmarks (overviewed in the Functions section above).
  * `examples`: Top-level benchmark Makefile and individual benchmarks using workflows of these functions (overviewed [here](./examples/README.md)).
- * `launchers`: An abstraction layer to launch any function on any backend (described [here](./docs/launcher.md)).
+ * `launcher`: An abstraction layer to launch any function on any backend (described [here](./docs/launcher.md)).
+ * `backends`: Config files to run custom backends (described [here](./docs/backends.md)).
  * `workflows`: A description of workflow formats and a conversion script from CNCF format to Makefiles (described [here](./workflows/README.md).
  * `runlogs`: Output top-level directory for log files from individual function runs, organized by experiment subdirectories.
  * `reports`: Output top-level directory for complete benchmark results and analyses, organized by experiment subdirectories.
  * `docs`: Contains general setup instructions, as well as instructions specific to each backend, function, and benchmark.
+ * `test`: Contains test implementations and mock launchers for testing the launcher framework with different configurations.
