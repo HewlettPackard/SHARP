@@ -89,7 +89,7 @@ with the distribution name.</p>
 <pre><span></span><code><span class="k">for</span><span class="w"> </span>i<span class="w"> </span><span class="k">in</span><span class="w"> </span>normal<span class="w"> </span>multimodal<span class="w"> </span>uniform<span class="w"> </span>constant
 <span class="k">do</span>
 <span class="w">    </span><span class="nb">echo</span><span class="w"> </span><span class="s2">&quot;</span><span class="nv">$i</span><span class="s2">&quot;</span>
-<span class="w">    </span>launchers/launch.py<span class="w"> </span>-v<span class="w"> </span>-e<span class="w"> </span><span class="nv">$i</span><span class="w"> </span>-b<span class="w"> </span><span class="nb">local</span><span class="w"> </span>-r<span class="w"> </span><span class="m">1</span><span class="w"> </span>-t<span class="w"> </span><span class="nv">$i</span><span class="w"> </span>distributions<span class="w"> </span><span class="s2">&quot;{\&quot;method\&quot;:\&quot;</span><span class="nv">$i</span><span class="s2">\&quot;,\&quot;repetitions\&quot;:1000}&quot;</span>
+<span class="w">    </span>launcher/launch.py<span class="w"> </span>-v<span class="w"> </span>-e<span class="w"> </span><span class="nv">$i</span><span class="w"> </span>-b<span class="w"> </span><span class="nb">local</span><span class="w"> </span>-r<span class="w"> </span><span class="m">1</span><span class="w"> </span>-t<span class="w"> </span><span class="nv">$i</span><span class="w"> </span>distributions<span class="w"> </span><span class="s2">&quot;{\&quot;method\&quot;:\&quot;</span><span class="nv">$i</span><span class="s2">\&quot;,\&quot;repetitions\&quot;:1000}&quot;</span>
 <span class="k">done</span>
 </code></pre>
 </div>
@@ -131,7 +131,7 @@ with the distribution name.</p>
 </span><span id="L-28"><a href="#L-28"><span class="linenos"> 28</span></a><span class="sd">for i in normal multimodal uniform constant</span>
 </span><span id="L-29"><a href="#L-29"><span class="linenos"> 29</span></a><span class="sd">do</span>
 </span><span id="L-30"><a href="#L-30"><span class="linenos"> 30</span></a><span class="sd">    echo &quot;$i&quot;</span>
-</span><span id="L-31"><a href="#L-31"><span class="linenos"> 31</span></a><span class="sd">    launchers/launch.py -v -e $i -b local -r 1 -t $i distributions &quot;{\&quot;method\&quot;:\&quot;$i\&quot;,\&quot;repetitions\&quot;:1000}&quot;</span>
+</span><span id="L-31"><a href="#L-31"><span class="linenos"> 31</span></a><span class="sd">    launcher/launch.py -v -e $i -b local -r 1 -t $i distributions &quot;{\&quot;method\&quot;:\&quot;$i\&quot;,\&quot;repetitions\&quot;:1000}&quot;</span>
 </span><span id="L-32"><a href="#L-32"><span class="linenos"> 32</span></a><span class="sd">done</span>
 </span><span id="L-33"><a href="#L-33"><span class="linenos"> 33</span></a><span class="sd">```</span>
 </span><span id="L-34"><a href="#L-34"><span class="linenos"> 34</span></a>

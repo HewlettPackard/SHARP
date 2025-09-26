@@ -10,7 +10,7 @@ The top-level function process_options reads in configuration from four sources:
 The order above is of increasing priority, such that a command-line option overrides
 a JSON string from -j, which overrides a config YAML/JSON file, which overrides .md.
 
-© Copyright 2024--2024 Hewlett Packard Enterprise Development LP
+© Copyright 2024--2025 Hewlett Packard Enterprise Development LP
 """
 import argparse
 import json

@@ -153,7 +153,7 @@ end := swapbytes-2.csv
 
 basedir := /home/frachten/sharp
 outdir := $(basedir)/runlogs/demo
-launcher := $(basedir)/launchers/launch.py --description "$(description)"
+launcher := $(basedir)/launcher/launch.py --description "$(description)"
 csv_files := swapbytes-1.csv inc.csv cuda-inc.csv swapbytes-2.csv
 
 

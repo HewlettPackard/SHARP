@@ -22,7 +22,7 @@ The launcher can be used for local execution as shown below:
 The input parameters can be passed either by argv, stdin, or in the body of 
 the HTTP request.
 
-© Copyright 2023--2024 Hewlett Packard Enterprise Development LP
+© Copyright 2023--2025 Hewlett Packard Enterprise Development LP
 """
 
 from flask import request, Flask
