@@ -16,24 +16,19 @@ import sys
 from typing import *
 import warnings
 
-from custom import CustomLauncher
-from custom_python import CustomPythonLauncher
+
 from launcher import Launcher
-from local import LocalLauncher
 
 ###################
 def launcher_factory(backend: str, options: Dict[str, Any]) -> Launcher:
     """Return a fully-constructed Launcher object based on args."""
     bopts = options.get("backend_options", {})
-    # Use local backend if nothing is provided
-    if backend is None or backend == "local":
-        return LocalLauncher(backend,options)
-    # Check if this is a Python backend
-    elif "file_path" in bopts[backend] and bopts[backend]["file_path"].endswith('.py'):
-        return CustomPythonLauncher(backend, options)
-    # Otherwise use YAML-based CustomLauncher
-    else :
-        return CustomLauncher(backend, options)
+    # Use default local backend if nothing is provided
+    if backend is None:
+        backend = "local"
+
+    # All backends are now YAML-based - use standard Launcher
+    return Launcher(backend, options)
 
 
 ###################
@@ -92,8 +87,10 @@ def chain_of_commands(
 
     Only the last command actually runs on the last Launcher,
     all others run the commands for the next launcher.
-    Only the first launcher runs `copies` times--the rest are set to run once,
-    but since the launchers are chained, they all run `copies` times.
+
+    If any launcher in the chain handles concurrency internally (like MPI),
+    the outer launcher should only create one command, letting the inner
+    launcher handle the parallelism.
 
     Args:
         launchers: An ordered list of Launcher-class instances.
@@ -106,15 +103,31 @@ def chain_of_commands(
     if len(launchers) == 1:
         return [override] if override else launchers[0].run_commands(copies)
 
-    cmd: str = override if override else launchers[-1].run_commands(1)[0]
-    for l in reversed(launchers[1:-1]):
-        cmd = l.run_commands(1, cmd)[0]
+    # Check if any launcher in the chain handles concurrency internally
+    has_internal_concurrency = any(l.handles_concurrency_internally() for l in launchers)
 
-    return launchers[0].run_commands(copies, cmd)
+    # Build the command chain from the end
+    # The last launcher gets the full copies count if it handles concurrency internally
+    last_launcher_copies = copies if launchers[-1].handles_concurrency_internally() else 1
+    cmd: str = override if override else launchers[-1].run_commands(last_launcher_copies)[0]
+
+    # Middle launchers get full copies if they handle concurrency internally, otherwise 1 copy
+    for l in reversed(launchers[1:-1]):
+        middle_copies = copies if l.handles_concurrency_internally() else 1
+        cmd = l.run_commands(middle_copies, cmd)[0]
+
+    # The first launcher gets the copy count if it handles concurrency internally,
+    # otherwise gets 1 copy if any other launcher handles concurrency internally
+    if launchers[0].handles_concurrency_internally():
+        outer_copies = copies
+    else:
+        outer_copies = 1 if has_internal_concurrency else copies
+
+    return launchers[0].run_commands(outer_copies, cmd)
 
 
 ###################
-def get_sys_specs(launchers: List[Launcher]) -> Dict[str, str]:
+def get_sys_specs(launchers: List[Launcher]) -> Dict[str, Any]:
     """
     Run all system spec commands through the Launcher chain.
 
@@ -123,23 +136,32 @@ def get_sys_specs(launchers: List[Launcher]) -> Dict[str, str]:
 
     Returns:
         Dictionary mapping every specification name to its value
+        (two-level nested structure for grouped specs)
     """
-    ret: Dict[str, str] = {}
-    for s, cmd in launchers[-1].sys_spec_commands().items():
-        full_cmd: List[str] = shlex.split(chain_of_commands(launchers, 1, cmd)[0])
-        full_cmd: str = chain_of_commands(launchers, 1, cmd)[0].replace('\n', ';')
-        try:
-            ret[s] = subprocess.run(full_cmd, capture_output=True, text=True, shell=True) \
-            .stdout \
-            .encode() \
-            .decode('unicode_escape')
-        except Exception as error:
-            print(f"Error during system specification {s} running {full_cmd}: {error}")
-            ret[s] = f"Error during system specification {s}: {error}"
+    ret: Dict[str, Dict[str, str]] = {}
+    sys_spec_commands = launchers[-1].sys_spec_commands()
 
+    # Warn if sys_spec_commands is empty and we don't have sys_spec.yaml
+    # Check if 'sys_spec_commands' key exists in options to distinguish
+    # between "not configured" and "configured but empty (repro mode)"
+    if not sys_spec_commands and 'sys_spec_commands' not in launchers[-1]._options:
+        warnings.warn("No system specifications to show. Did you forget to include sys_spec.yaml?")
+        return {}
 
-    if not ret:
-        warnings.warn("No system specifications to show. Did you forget to include default_config.yaml")
+    for group, commands in sys_spec_commands.items():
+        ret[group] = {}
+        for key, command in commands.items():
+            full_cmd: str = chain_of_commands(launchers, 1, command)[0].replace('\n', ';')
+            try:
+                result = subprocess.run(full_cmd, capture_output=True, text=True, shell=True) \
+                    .stdout \
+                    .encode() \
+                    .decode('unicode_escape') \
+                    .strip()
+                ret[group][key] = result
+            except Exception as error:
+                print(f"Error during system specification {group}.{key} running {full_cmd}: {error}")
+                ret[group][key] = f"Error: {error}"
 
     return ret
 

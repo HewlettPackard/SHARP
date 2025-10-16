@@ -24,7 +24,7 @@
 #
 # Features supported:
 # ✓ MPI execution with configurable process count ($MPL macro)
-# ✓ MPI flags configuration via $MPIFLAGS macro  
+# ✓ MPI flags configuration via $MPIFLAGS macro
 # ✓ Unique temporary directory per execution (no conflicts between runs)
 # ✓ Rank-specific output collection and aggregation
 # ✓ Hostname and CPU affinity reporting per MPI rank
@@ -44,9 +44,9 @@ backend_options:
     mpiflags: ""                 # MPI flags (--mpl controls -np, don't include -np here)
     reset: ''                    # MPI can't really reset jobs
     run: |
-      mpirun -np $MPL $MPIFLAGS bash -c '$CMD $ARGS && echo "Hostname: `hostname` Rank: $OMPI_COMM_WORLD_RANK Local Rank: $OMPI_COMM_WORLD_LOCAL_RANK CPU Affinity: $(taskset -cp $$)" >> $TMP_PATH$OMPI_COMM_WORLD_RANK' && cat $TMP_PATH* && rm $TMP_PATH*
+      mpirun -np $MPL $MPIFLAGS bash -c '$CMD $ARGS && echo "Hostname: `hostname` Rank: $OMPI_COMM_WORLD_RANK Local Rank: $OMPI_COMM_WORLD_LOCAL_RANK CPU Affinity: $(taskset -cp $$)" >> $TMP_PATH$OMPI_COMM_WORLD_RANK' && cat $TMP_PATH* && rm -rf $TMP_PATH
     run_sys_spec: |
-      mpirun $MPIFLAGS $SPEC_COMMAND
+      $SPEC_COMMAND
 
 # MPI-specific metrics for rank, hostname, and CPU affinity analysis
 metrics:

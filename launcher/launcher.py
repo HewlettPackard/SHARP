@@ -13,10 +13,11 @@ import tempfile
 import time
 from typing import *
 import warnings
+import platform
 
 
 class Launcher:
-    """Base class for all launchers."""
+    """Flexible launcher based on command-line options."""
 
     ###################
     def __init__(self, backend: str, options: Dict[str, Any]) -> None:
@@ -32,6 +33,7 @@ class Launcher:
         self._fndir = os.path.join(self._fndir, "fns")
         self._input_fd = self.__get_input_fd(options)
         self._venv_path = os.path.join(self._topdir, "../venv-sharp/bin")
+        self._backend = backend
 
         self._task = options["task"]
         self._func = options["function"]
@@ -40,13 +42,73 @@ class Launcher:
         self._verbose = options["verbose"]
         self._timeout = options.get("timeout", None)
         self._mopts = options.get("metrics", {})
-        self._sys_spec: Dict[str, str] = options.get("sys_spec_commands", {})
+        self._sys_spec: Dict[str, Dict[str, str]] = options.get("sys_spec_commands", {})
         self._fn_path = options.get("fn_path", "")
+
+        bopts: Dict[str, Any] = options.get("backend_options", {})
+
+        assert (
+            backend in bopts
+        ), f"Can't have a custom backend {backend} without an options section for it"
+        assert (
+            "run" in bopts[backend]
+        ), f"Can't have a custom backend {backend} without a run command"
+
+        self.__reset_cmd = bopts[backend].get("reset", "")
+        self.__run_cmd = bopts[backend]["run"]
+        self.__spec_run_cmd = bopts[backend].get("run_sys_spec", "$SPEC_COMMAND")
+
+        # Parse hosts for SSH-like backends
+        self.__hosts = self.__parse_hosts(bopts[backend])
+
+        # Parse MPI-specific options
+        self.__mpiflags = bopts[backend].get("mpiflags", "")
+        self.__tmp_path = bopts[backend].get("tmp_path", "/tmp/")
+
+        # Create unique temporary directory for MPI if tmp_path is specified
+        if "tmp_path" in bopts[backend]:
+            # Create a unique temporary directory within the specified base path
+            base_tmp = bopts[backend]["tmp_path"].rstrip("/")
+            self.__unique_tmp_dir = tempfile.mkdtemp(prefix="mpi-stats-", dir=base_tmp if os.path.exists(base_tmp) else None)
+            self.__unique_tmp_dir += "/"  # Ensure trailing slash for consistency
+
+    ###################
+    def __parse_hosts(self, backend_opts: Dict[str, Any]) -> List[str]:
+        """Parse hosts from backend options, supporting hosts string or hostfile."""
+        if "hosts" in backend_opts and backend_opts["hosts"]:
+            return str(backend_opts["hosts"]).split(",")
+        elif "hostfile" in backend_opts and backend_opts["hostfile"]:
+            try:
+                with open(backend_opts["hostfile"], "r") as f:
+                    return [line.strip() for line in f if line.strip()]
+            except FileNotFoundError:
+                warnings.warn(f"Hostfile {backend_opts['hostfile']} not found, using localhost")
+                return [platform.node()]
+        else:
+            # Default to localhost if no hosts specified
+            return [platform.node()]
 
     ###################
     def reset(self) -> None:
-        """Reset all caches and stale data for function so that next launch is cold."""
-        pass
+        """Perform any reset activities to ensure cold start."""
+        if self.__reset_cmd:
+            cmd = self.__expand_macros(self.__reset_cmd)
+            try:
+                result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+                if result.returncode != 0 and self._backend == "local":
+                    # Special handling for local backend cache flushing
+                    print("Flushing all filesystem caches...")
+                    print("Can't reset caches. Consider adding this line to /etc/sudoers:")
+                    print(f"{os.getlogin()}\tALL=NOPASSWD:\t/sbin/sysctl vm.drop_caches=3")
+                    print("Stderr:", result.stderr)
+                    raise PermissionError("Failed to flush filesystem caches")
+            except Exception as e:
+                if self._backend == "local":
+                    # Re-raise with helpful message for local backend
+                    raise
+                else:
+                    # For other backends, just warn but continue
+                    warnings.warn(f"Reset command failed for backend {self._backend}: {e}")
 
     ###################
     def _find_exec(self, func: str) -> str:
@@ -231,22 +293,178 @@ class Launcher:
         return None
 
     ###################
+    def __expand_macros(self, src: str, copy_index: int = 0) -> str:
+        """
+        Replace special-meaning macros in a string with values from the Launcher.
+
+        Currently supported macros are:
+            $TASK: The name of the task
+            $FN: The name of the function
+            $ARGS: A string of space-separated arguments to the command/function
+            $HOST: Current host for round-robin selection (based on copy_index)
+            $HOST0, $HOST1, etc.: Specific host by index
+            $MPIFLAGS: MPI flags from backend options
+            $TMP_PATH: Temporary path for MPI outputs (unique per execution)
+        In addition, $CMD and $MPL are substitited at `commands` for the actual
+        command to run (possibly nested) and actual concurrency.
+        """
+        result = (
+            src.replace("$TASK", self._task)
+            .replace("$FN", self._func)
+            .replace("$ARGS", self._args)
+            .replace("$MPIFLAGS", self.__mpiflags)
+        )
+
+        # Use unique temporary directory if available, otherwise fall back to configured tmp_path
+        tmp_path = getattr(self, '_Launcher__unique_tmp_dir', self.__tmp_path)
+        result = result.replace("$TMP_PATH", tmp_path)
+
+        # Handle host macros
+        if "$HOST" in result:
+            # Round-robin host selection
+            host = self.__hosts[copy_index % len(self.__hosts)] if self.__hosts else "localhost"
+            result = result.replace("$HOST", host)
+
+        # Handle specific host indices ($HOST0, $HOST1, etc.)
+        for i, host in enumerate(self.__hosts):
+            result = result.replace(f"$HOST{i}", host)
+
+        return result
+
+    ###################
+    def __build_base_command(self, copies: int, nested: str = "") -> str:
+        """
+        Build the base command with CMD, MPL, and ARGS substitutions.
+
+        This method handles the core command construction logic that's common
+        to both MPI and non-MPI backends.
+
+        Args:
+            copies (int): Number of copies for MPL substitution
+            nested (str): Nested commands to call instead of function, if defined
+
+        Returns:
+            str: Command with basic substitutions applied (before macro expansion)
+        """
+        if nested:
+            cmd = self.__run_cmd.replace("$CMD", nested)
+            # Always substitute $MPL for MPI backends, even when used as outer backends
+            if self.__is_mpi_backend():
+                cmd = cmd.replace("$MPL", str(copies))
+            # Remove $ARGS from all the outer backends
+            cmd = cmd.replace(" $ARGS", "").replace("$ARGS ", "").replace("$ARGS", "")
+        else:
+            cmd = self.__run_cmd
+            cmd = cmd.replace("$CMD", self._find_exec(self._func))
+            cmd = cmd.replace("$MPL", str(copies))
+            if "$ARGS" not in self.__run_cmd:
+                cmd += " " + self._args
+        return cmd
+
+    def __is_mpi_backend(self) -> bool:
+        """
+        Check if this is an MPI-style backend that handles concurrency internally.
+
+        MPI backends use mpirun/mpiexec and handle all processes internally,
+        so only one command should be created regardless of copy count.
+
+        Returns:
+            bool: True if backend is MPI-style (handles concurrency internally)
+        """
+        # More reliable detection: look for mpirun/mpiexec AND $MPL usage
+        cmd_lower = self.__run_cmd.lower()
+        has_mpi_command = any(mpi_cmd in cmd_lower for mpi_cmd in ['mpirun', 'mpiexec', 'srun'])
+        has_mpl_macro = "$MPL" in self.__run_cmd
+        return has_mpi_command and has_mpl_macro
+
+    def __build_mpi_command(self, copies: int, nested: str = "") -> str:
+        """
+        Build a single MPI command that handles all processes internally.
+
+        For MPI backends, we return a single command where mpirun manages
+        multiple processes. This matches the behavior of the original mpi.py
+        backend where --mpl translates to -np for mpirun.
+
+        Args:
+            copies (int): Number of MPI processes to run (becomes -np value)
+            nested (str): Nested commands to call instead of function, if defined
+
+        Returns:
+            str: Single MPI command with macro expansion applied
+        """
+        cmd = self.__build_base_command(copies, nested)
+        return self.__expand_macros(cmd, copy_index=0)
+
+    def __build_parallel_commands(self, copies: int, nested: str = "") -> List[str]:
+        """
+        Build multiple commands for parallel execution (one per copy).
+
+        For non-MPI backends (like SSH), we create one command per copy.
+        Each command runs independently and may target different hosts
+        (round-robin distribution for SSH).
+
+        Args:
+            copies (int): Number of command copies to create
+            nested (str): Nested commands to call instead of function, if defined
+
+        Returns:
+            List[str]: List of commands, one per copy, with per-copy macro expansion
+        """
+        cmds = []
+        for i in range(copies):
+            cmd = self.__build_base_command(copies, nested)
+            cmd = self.__expand_macros(cmd, copy_index=i)
+            cmds.append(cmd)
+        return cmds
+
+    ###################
     def run_commands(self, copies: int, nested: str = "") -> List[str]:
         """
         Compute a list of commands that would launch a task with a given number of copies.
 
         Args:
             copies (int): How many instances of the task to run
-            nested: (str) Nested commands to call instead of function, if defined
-        Returns:
-            list: Each sublists is a sequence of strings to issue at the command
-            line to run a single copy of the task.
+            nested (str): Nested commands to call instead of function, if defined
 
-        Needs to be implemented by each subclass separately
+        Returns:
+            list: Each sublists is a sequence of strings to issue
+                  at the command line to run a single copy of the task.
+
+        Replaces any instances of the `$MPL` macro with copies.
+        For MPI backends: returns single command that handles all processes internally.
+        For SSH-like backends: distributes copies across hosts in round-robin fashion.
         """
-        return []
+        if self.__is_mpi_backend():
+            # MPI backends return a single command that handles all processes internally
+            return [self.__build_mpi_command(copies, nested)]
+        else:
+            # Non-MPI backends create one command per copy
+            return self.__build_parallel_commands(copies, nested)
 
     ###################
-    def sys_spec_commands(self) -> Dict[str, str]:
-        """Compute a mapping from sys specs to commands to run to obtain system specifications."""
-        return self._sys_spec
+    def handles_concurrency_internally(self) -> bool:
+        """
+        Check if this launcher handles concurrency internally (like MPI).
+
+        Returns:
+            bool: True if this launcher manages multiple processes internally
+        """
+        return self.__is_mpi_backend()
+
+    ###################
+    def sys_spec_commands(self) -> Dict[str, Dict[str, str]]:
+        """Compute a mapping from sys specs to commands to run to obtain system specifications.
+
+        Returns two-level nested dictionary: {group: {key: command}}
+        """
+        ret: Dict[str, Dict[str, str]] = {}
+
+        for group, commands in self._sys_spec.items():
+            ret[group] = {}
+            for key, command in commands.items():
+                cmd: str = self.__spec_run_cmd.replace("$SPEC_COMMAND", command)
+                # Use first host for system specifications
+                cmd = self.__expand_macros(cmd, copy_index=0)
+                ret[group][key] = cmd
+
+        return ret

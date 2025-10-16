@@ -1,0 +1,49 @@
+# SSH backend configuration compatible with existing backend_options.ssh.hosts
+# This version works with the standard SSH configuration format and supports:
+# - Single host execution
+# - Multi-host round-robin execution
+# - Host lists from 'hosts' option (comma-separated)
+# - Host lists from 'hostfile' option
+# - Automatic fallback to localhost
+#
+# Usage examples:
+#
+# Single host:
+#   backend_options:
+#     ssh:
+#       hosts: "remote-server.com"
+#
+# Multiple hosts (round-robin):
+#   backend_options:
+#     ssh:
+#       hosts: "node1.cluster.edu,node2.cluster.edu,node3.cluster.edu"
+#
+# Host file:
+#   backend_options:
+#     ssh:
+#       hostfile: "/path/to/hostlist.txt"
+#
+# Then use: -b ssh
+#
+# Features supported:
+# ✓ Round-robin host selection for multiple copies using $HOST macro
+# ✓ Compatible with existing backend_options.ssh.hosts configuration
+# ✓ Support for both hosts string and hostfile options
+# ✓ Automatic fallback to localhost when no hosts specified
+# ✓ System specification commands run on first host
+# ✓ No virtual environment dependency (removed as requested)
+#
+# The $HOST macro automatically selects hosts in round-robin fashion:
+# - Copy 0 -> hosts[0]
+# - Copy 1 -> hosts[1]
+# - Copy 2 -> hosts[2]
+# - Copy 3 -> hosts[0] (wraps around)
+# etc.
+
+backend_options:
+  ssh:
+    reset: ''  # SSH can't really reset remote machines
+    run: |
+      ssh $HOST '$CMD $ARGS'
+    run_sys_spec: |
+      ssh $HOST '$SPEC_COMMAND'
