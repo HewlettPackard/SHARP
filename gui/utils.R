@@ -6,6 +6,7 @@
 library("LaplacesDemon")
 library("moments")
 library("processx")
+library("changepoint")
 
 bdir <- "../backends/"  # Where to find backend config files
 ldir <- "../launcher/"  # Where to find launcher
@@ -63,6 +64,9 @@ create_distribution_plot <- function(x, metric, divider=NA)
   df <- data.frame(val = x, col = x > divider)
   df[is.na(df)] <- TRUE
 
+  # Count non-NA samples for annotation
+  n_count <- sum(!is.na(x))
+
   p <- ggplot(df, aes(x = val)) +
     stat_halfeye(point_interval = mode_hdi,
                  .width = c(.67, .95),
@@ -84,8 +88,22 @@ create_distribution_plot <- function(x, metric, divider=NA)
     theme_light() +
     theme(text=element_text(size=20))
 
+  # Annotate sample size in the top-right corner
+  # Use x=Inf,y=Inf with hjust/vjust to place inside plot margins
+  p <- p + annotate("text", x = Inf, y = Inf,
+                    label = paste0("n=", fmt(n_count)),
+                    hjust = 1.05, vjust = 1.5,
+                    size = 5, colour = "black")
+
   if (!is.na(divider)) {
     p <- p + geom_vline(xintercept=divider, linetype="dotted", color="blue", linewidth=1.5)
+
+    # Add text label with cutoff value
+    p <- p + annotate("text", x = divider, y = Inf,
+                      label = sprintf("%.2f", divider),
+                      hjust = -0.1, vjust = 1.5,
+                      angle = 270,
+                      size = 5, colour = "blue")
   }
 
   return(p)
@@ -125,9 +143,192 @@ metric_names <- function(df)
 }
 
 ############################
+# Detect change points using PELT algorithm
+# Returns list of change point indices (segment end positions)
+detect_change_points <- function(x, model="rbf", pen=NULL, min_size=NULL) {
+  # Remove NAs
+  x_clean <- na.omit(x)
+  n <- length(x_clean)
+
+  if (n < 10) return(list(cps=integer(0), n=n))
+
+  # Set defaults
+  if (is.null(min_size)) {
+    min_size <- max(3, floor(0.05 * n))  # 5% of sample size
+  }
+  if (is.null(pen)) {
+    # More conservative penalty: 3 * log(n) instead of 2 * log(n)
+    pen <- 3 * log(n)
+  }
+
+  tryCatch({
+    # Use changepoint package's cpt.meanvar for distributional changes
+    # or cpt.mean for mean-only changes
+    if (model == "rbf" || model == "meanvar") {
+      result <- cpt.meanvar(x_clean, method="PELT", penalty="Manual", pen.value=pen, minseglen=min_size)
+    } else {
+      result <- cpt.mean(x_clean, method="PELT", penalty="Manual", pen.value=pen, minseglen=min_size)
+    }
+    cps <- cpts(result)
+    list(cps=cps, n=n, min_size=min_size, pen=pen)
+  }, error = function(e) {
+    list(cps=integer(0), n=n, error=e$message)
+  })
+}
+
+############################
+# Estimate autocorrelation lag (where ACF drops below threshold)
+estimate_acf_lag <- function(x, threshold=0.2, max_lag=NULL) {
+  x_clean <- na.omit(x)
+  n <- length(x_clean)
+
+  if (n < 10) return(list(lag=0, max_acf=NA))
+
+  if (is.null(max_lag)) {
+    max_lag <- min(floor(n/4), 50)
+  }
+
+  tryCatch({
+    acf_result <- acf(x_clean, lag.max=max_lag, plot=FALSE)
+    acf_vals <- as.numeric(acf_result$acf[-1])  # Exclude lag 0
+
+    # Find first lag where ACF drops below threshold
+    below_thresh <- which(abs(acf_vals) < threshold)
+    lag <- if (length(below_thresh) > 0) below_thresh[1] else max_lag
+
+    list(lag=lag, max_acf=max(abs(acf_vals), na.rm=TRUE))
+  }, error = function(e) {
+    list(lag=0, max_acf=NA, error=e$message)
+  })
+}
+
+############################
+# Characterize warmup, cooldown, and change points in a time series
+# Returns a narrative string describing temporal patterns
+characterize_changepoints <- function(x, model="rbf", pen=NULL, min_size=NULL,
+                                     acf_threshold=0.2, warmup_pct=0.3, cooldown_pct=0.7) {
+  x_clean <- na.omit(x)
+  n <- length(x_clean)
+
+  if (n < 10) return("")
+
+  narrative <- c()
+
+  # ACF analysis
+  acf_info <- estimate_acf_lag(x_clean, threshold=acf_threshold)
+  if (!is.na(acf_info$max_acf)) {
+    if (acf_info$max_acf > 0.5) {
+      narrative <- c(narrative, sprintf("Strong autocorrelation detected (max ACF=%.2f at lag ~%d), suggesting performance samples are not truly independent or the system preserves state between runs.",
+                                       acf_info$max_acf, acf_info$lag))
+    } else if (acf_info$max_acf > 0.2) {
+      narrative <- c(narrative, sprintf("Moderate autocorrelation present (max ACF=%.2f), indicating some temporal dependency in measurements.",
+                                       acf_info$max_acf))
+    }
+  }
+
+  # Change point detection
+  cp_result <- detect_change_points(x_clean, model=model, pen=pen, min_size=min_size)
+
+  if (length(cp_result$cps) == 0) {
+    narrative <- c(narrative, "No significant change points detected; series appears stationary.")
+    return(paste(narrative, collapse=" "))
+  }
+
+  cps <- cp_result$cps
+  n_cps <- length(cps)
+
+  # Identify potential warmup (first CP in early portion)
+  warmup_threshold <- floor(warmup_pct * n)
+  early_cps <- cps[cps <= warmup_threshold & cps >= cp_result$min_size]
+
+  if (length(early_cps) > 0) {
+    warmup_idx <- early_cps[1]
+    warmup_pct_actual <- round(100 * warmup_idx / n)
+
+    # Compute median difference and p-value
+    warmup_data <- x_clean[1:warmup_idx]
+    remainder_data <- x_clean[(warmup_idx+1):n]
+    median_diff <- median(remainder_data) - median(warmup_data)
+    median_diff_fmt <- if (abs(median_diff) < 0.01 && median_diff != 0) {
+      formatC(median_diff, format="e", digits=2)
+    } else {
+      sprintf("%.2f", median_diff)
+    }
+    median_diff_pct <- 100 * median_diff / median(warmup_data)
+
+    # Wilcoxon test (robust to non-normality)
+    test_result <- tryCatch({
+      wilcox.test(warmup_data, remainder_data)
+    }, error = function(e) NULL)
+
+      if (!is.null(test_result)) {
+        p_str <- format_p_value(test_result$p.value, rounding=3, p_option="rounded")
+        narrative <- c(narrative, sprintf(
+          "Potential warm-up period detected: first %d samples (%d%% of data; median difference = %s (%.1f%%), %s).",
+          warmup_idx, warmup_pct_actual, median_diff_fmt, median_diff_pct, p_str))
+      } else {
+        narrative <- c(narrative, sprintf(
+          "Potential warm-up period detected: first %d samples (%d%% of data).",
+          warmup_idx, warmup_pct_actual))
+      }
+  }
+
+  # Identify potential cooldown (last CP in late portion)
+  cooldown_threshold <- floor(cooldown_pct * n)
+  late_cps <- cps[cps >= cooldown_threshold & cps <= (n - cp_result$min_size)]
+
+  if (length(late_cps) > 0) {
+    cooldown_idx <- late_cps[length(late_cps)]
+    cooldown_pct_actual <- round(100 * (n - cooldown_idx) / n)
+
+    # Compute median difference and p-value
+    cooldown_data <- x_clean[(cooldown_idx+1):n]
+    remainder_data <- x_clean[1:cooldown_idx]
+    median_diff <- median(cooldown_data) - median(remainder_data)
+    median_diff_fmt <- if (abs(median_diff) < 0.01 && median_diff != 0) {
+      formatC(median_diff, format="e", digits=2)
+    } else {
+      sprintf("%.2f", median_diff)
+    }
+    median_diff_pct <- 100 * median_diff / median(remainder_data)
+
+    # Wilcoxon test
+    test_result <- tryCatch({
+      wilcox.test(cooldown_data, remainder_data)
+    }, error = function(e) NULL)
+
+      if (!is.null(test_result)) {
+        p_str <- format_p_value(test_result$p.value, rounding=3, p_option="rounded")
+        narrative <- c(narrative, sprintf(
+          "Potential cool-down period detected: last %d samples (%d%% of data; median difference = %s (%.1f%%), %s).",
+          n - cooldown_idx, cooldown_pct_actual, median_diff_fmt, median_diff_pct, p_str))
+      } else {
+        narrative <- c(narrative, sprintf(
+          "Potential cool-down period detected: last %d samples (%d%% of data).",
+          n - cooldown_idx, cooldown_pct_actual))
+      }
+  }
+
+  # Report middle change points if any
+  middle_cps <- cps[cps > warmup_threshold & cps < cooldown_threshold]
+  if (length(middle_cps) > 0) {
+    narrative <- c(narrative, sprintf("%d regime change(s) detected in steady-state region.",
+                                     length(middle_cps)))
+  }
+
+  # Overall summary
+  if (n_cps == 1) {
+    narrative <- c(narrative, "Single change point suggests a phase transition in the data.")
+  }
+
+  paste(narrative, collapse=" ")
+}
+
+############################
 # Returns a string that defines the type of the distribution in terms of
 # modality and skewness.
-characterize_distribution <- function(x, skew_thresh=0.5)
+characterize_distribution <- function(x, skew_thresh=0.5, include_changepoints=TRUE,
+                                     cp_model="rbf", cp_pen=NULL, cp_min_size=NULL)
 {
   ret <- "Distribution appears to be"
   if (is.amodal(x)) {
@@ -152,6 +353,14 @@ characterize_distribution <- function(x, skew_thresh=0.5)
     ret <- paste(ret, "right-skewed.")
   } else {
     ret <- paste(ret, "unskewed.")
+  }
+
+  # Add change point analysis if requested and sufficient data
+  if (include_changepoints && length(na.omit(x)) >= 10) {
+    cp_narrative <- characterize_changepoints(x, model=cp_model, pen=cp_pen, min_size=cp_min_size)
+    if (nchar(cp_narrative) > 0) {
+      ret <- paste(ret, cp_narrative)
+    }
   }
 
 #  ret <- paste(ret, "Modes at:")
@@ -307,6 +516,18 @@ comparison_table <- function(baseline, treatment, metric)
   data.frame(Statistic=names(stats1), Baseline=stats1, Treatment=stats2)
 }
 
+#####################
+# Wrap any UI element (typically a button) with a tooltip
+# ui_element: The Shiny UI element to wrap (e.g., actionButton, shinyFilesButton)
+# tooltip_text: The text to display on hover
+# Returns: A div containing the element with tooltip functionality
+with_tooltip <- function(ui_element, tooltip_text) {
+  tags$div(
+    title = tooltip_text,
+    ui_element
+  )
+}
+
 ###############################################################################
 ######## Statistical test reporting, borrowed from https://github.com/eitanf/sysconf
 ###############################################################################
@@ -338,12 +559,15 @@ rounded_p <- function(p, rounding) {
 # "stars" returns either "", "*", "**", "***" based on the significance levels *<0.05, **<0.01, ***<0.001
 # The default option "rounded" rounds p value or shows it as less than the given precision threshold.
 format_p_value <- function(p, rounding = 2, p_option = "rounded") {
-  case_when(
-    p_option == FALSE        ~ "",
-    p_option == "exact"      ~ paste0("p=", p),
-    p_option == "stars"      ~ ifelse(p < 0.001, "***", ifelse(p < 0.01, "**", ifelse(p < 0.05, "*", ""))),
-    TRUE                     ~ rounded_p(p, rounding)
-  )
+  if (p_option == FALSE) {
+    return("")
+  } else if (p_option == "exact") {
+    return(paste0("p=", p))
+  } else if (p_option == "stars") {
+    return(ifelse(p < 0.001, "***", ifelse(p < 0.01, "**", ifelse(p < 0.05, "*", ""))))
+  } else {
+    return(rounded_p(p, rounding))
+  }
 }
 
 ####################

@@ -32,7 +32,8 @@ RUN R -e 'install.packages(c("shiny", \
                              "gsl", \
                              "DT", \
                              "ggdist", \
-                             "GGally"))'
+                             "GGally", \
+                             "changepoint"))'
 
 # To be replaced with git clone:
 COPY requirements.txt .

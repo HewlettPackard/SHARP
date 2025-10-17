@@ -5,7 +5,7 @@ explorePanel <- tabPanel("Explore",
   fluidRow(
     column(2, p("Select experiment to explore")),
     column(2,
-      shinyFilesButton('exploreFile', label="Load dataset", title="Select log file to explore", multiple=FALSE),
+      uiOutput('exploreFileButton'),
     ),
     column(2,
       selectInput('exploreMetric', "Metric to visualize", choices=c("outer_time"))
@@ -25,14 +25,15 @@ explorePanel <- tabPanel("Explore",
   hr(),
 
   fluidRow(
-    column(7, plotOutput('explorePlot'), click='exploreClick'),
+    column(7,
+      plotOutput('explorePlot', click='exploreClick'),
+      textOutput('exploreCharacteristics')
+    ),
     column(5,
       h4("Summary statistics"),
       tableOutput('exploreTable')
     ),
   ),
-
-  textOutput('exploreCharacteristics'),
 
   hr(),
 
@@ -64,7 +65,7 @@ render_explore <- function(input, output) {
       fname <- basename(file_path)
       with_tooltip(
         actionButton('exploreFileLoaded', label=fname, icon=icon('file-lines'), class='btn-primary'),
-        paste("Loaded:", file_path)
+        file_path
       )
     }
   })
