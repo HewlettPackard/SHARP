@@ -34,6 +34,16 @@ class CommandTestCase(unittest.TestCase):
         self._runlogs_path = os.path.join(self.__project_root, self._runlogs)
         self._fns_dir = os.path.join(self.__project_root, "fns")
 
+    def get_task_name(self) -> str:
+        """Generate unique task name from current test method name.
+
+        Returns:
+            Task name derived from test method (e.g., 'test_foo' -> 'test_foo')
+        """
+        # Get the current test method name
+        test_method = self._testMethodName
+        return test_method
+
     def tearDown(self) -> None:
         """Clean up after each test."""
         super().tearDown()
@@ -59,7 +69,7 @@ class CommandTestCase(unittest.TestCase):
 
     def assert_command_success(self, stdout: str, returncode: int, expect_output: bool = False) -> None:
         """Assert that a command executed successfully.
-        
+
         Args:
             stdout: Standard output from command
             returncode: Return code from command
@@ -69,10 +79,10 @@ class CommandTestCase(unittest.TestCase):
         #self.assertEqual(stderr, "", "Expected empty stderr") #Assert this individually case by case
         if expect_output:
             self.assertNotEqual(stdout, "", "Expected output in stdout")
-        
+
     def assert_command_failure(self, stdout: str, returncode: int) -> None:
         """Assert that a command failed as expected.
-        
+
         Args:
             stdout: Standard output from command
             returncode: Return code from command
@@ -117,30 +127,23 @@ class CommandTestCase(unittest.TestCase):
         with open(csv_path, newline='') as csvfile:
             return sum(1 for _ in csv.DictReader(csvfile))
 
-    def _verify_md_content(self, config: bool, backends: List[str], expected_content: Optional[List[str]] = None,
-                          expect_sys_config: bool = True, expect_warning: bool = False) -> None:
+    def _verify_md_content(self, backends: List[str], expected_content: Optional[List[str]] = None) -> None:
         """Helper method to verify markdown content for different test scenarios.
 
         Args:
-            config: Whether to include default config
             backends: List of backends to test
             expected_content: Optional list of strings expected in the content
-            expect_sys_config: Whether to expect system configuration section
-            expect_warning: Whether to expect warning in stderr
+
+        Note:
+            sys_spec.yaml is always auto-loaded, so system configuration is always present.
         """
         try:
             # Construct command
             cmd = f'-d {self._runlogs} -e {self._expname}'
-            if config:
-                cmd += ' -f launcher/default_config.yaml'
 
             # Add mock launcher backend configs
             for backend in backends:
-                if backend == 'PythonMockLauncherWithSysSpec':
-                    cmd += ' -f tests/backends/python_mock_with_sysspec.yaml'
-                elif backend == 'PythonMockLauncherWithoutSysSpec':
-                    cmd += ' -f tests/backends/python_mock_without_sysspec.yaml'
-                elif backend == 'YAMLMockLauncherWithSysSpec':
+                if backend == 'YAMLMockLauncherWithSysSpec':
                     cmd += ' -f tests/backends/yaml_mock_with_sysspec.yaml'
                 elif backend == 'YAMLMockLauncherWithoutSysSpec':
                     cmd += ' -f tests/backends/yaml_mock_without_sysspec.yaml'
@@ -152,20 +155,14 @@ class CommandTestCase(unittest.TestCase):
             # Run command and verify results
             stdout, stderr, returncode = self.run_launcher(cmd)
             self.assert_command_success(stdout, returncode)
-
-            if expect_warning:
-                self.assertNotEqual(stderr, "", "Expected warning about no system specifications")
-            else:
-                self.assertEqual(stderr, "", "Expected empty stderr")
+            self.assertEqual(stderr, "", "Expected empty stderr")
 
             # Verify markdown content
             md_path = os.path.join(self._runlogs_path, self._expname, f"{self._nope_fun}.md")
             with open(md_path) as f:
                 content = f.read()
-                if expect_sys_config:
-                    self.assertIn("## System configuration", content, "Expected system specifications")
-                else:
-                    self.assertNotIn("## System configuration", content, "Expected no system specifications")
+                # sys_spec.yaml is always auto-loaded, so system config is always present
+                self.assertIn("## System configuration", content, "Expected system specifications")
 
                 if expected_content:
                     for expected in expected_content:

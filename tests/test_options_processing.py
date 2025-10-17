@@ -38,29 +38,37 @@ class OptionsProcessingTests(CommandTestCase):
         with open(self.task4_path, "w") as f:
             json.dump({"task": "task4"}, f)
 
-    def test_no_default_config(self) -> None:
-        """Test launcher without default_config.yaml."""
-        stdout, stderr, returncode = self.run_launcher(
-            f'-d {self._runlogs} -e {self._expname} -j \'{{"task": "task1"}}\' -f {self.task3_path} {self._nope_fun}')
-        self.assert_command_success(stdout, returncode)
-        self.assertNotEqual(stderr, "", "Expected stderr to have warning regarding no system specifications.")
+    def test_sys_spec_override(self) -> None:
+        """Test that sys_spec commands can be overridden by later config files."""
+        # Create a config file that overrides a sys_spec command
+        override_config = os.path.join(self.config_dir, "override_sys_spec.yaml")
+        with open(override_config, "w") as f:
+            f.write("sys_spec_commands:\n")
+            f.write("  system:\n")
+            f.write("    hostname: 'echo OVERRIDDEN_HOSTNAME'\n")
 
-        # Verify md file exists and doesn't contain sys_spec_commands
-        md_path = os.path.join(self._runlogs_path, self._expname, "task1.md")
+        stdout, stderr, returncode = self.run_launcher(
+            f'-d {self._runlogs} -e {self._expname} -f {override_config} -j \'{{"task": "task_override"}}\' {self._nope_fun}')
+        self.assert_command_success(stdout, returncode)
+        self.assertEqual(stderr, "", "Expected empty stderr")
+
+        # Verify the hostname was overridden in the MD file
+        md_path = os.path.join(self._runlogs_path, self._expname, "task_override.md")
         self.assertTrue(os.path.exists(md_path), "Expected MD file to exist")
         with open(md_path) as f:
             content = f.read()
-            self.assertNotIn("sys_spec_commands", content,
-                           "sys_spec_commands should not be present in configuration")
+            self.assertIn('"hostname": "OVERRIDDEN_HOSTNAME"', content,
+                         "Expected overridden hostname in system configuration")
 
     def test_default_config(self) -> None:
-        """Test launcher with default configuration."""
-        stdout, stderr, returncode = self.run_launcher(f"-d {self._runlogs} -e {self._expname} {self._nope_fun}")
+        """Test launcher with auto-loaded sys_spec.yaml."""
+        task_name = self.get_task_name()
+        stdout, stderr, returncode = self.run_launcher(f"-d {self._runlogs} -e {self._expname} -t {task_name} {self._nope_fun}")
         self.assert_command_success(stdout, returncode)
         self.assertEqual(stderr, "", "Expected empty stderr")
 
         # Verify md file contents
-        md_path = os.path.join(self._runlogs_path, self._expname, f"{self._nope_fun}.md")
+        md_path = os.path.join(self._runlogs_path, self._expname, f"{task_name}.md")
         self.assertTrue(os.path.exists(md_path), "Expected MD file to exist")
         with open(md_path) as f:
             content = f.read()
@@ -96,7 +104,7 @@ class OptionsProcessingTests(CommandTestCase):
     def test_task_flag_overrides_all(self) -> None:
         """Test that -t flag overrides both JSON and config file task names."""
         cmd = (f'-d {self._runlogs} -e {self._expname} -t task2 -j \'{{"task": "task1"}}\' '
-               f'-f launcher/default_config.yaml -f {self.task3_path} {self._nope_fun}')
+               f'-f {self.task3_path} {self._nope_fun}')
         stdout, stderr, returncode = self.run_launcher(cmd)
         self.assert_command_success(stdout, returncode)
         self.assertEqual(stderr, "", "Expected empty stderr")
@@ -116,7 +124,7 @@ class OptionsProcessingTests(CommandTestCase):
             json.dump({"task": "task3"}, f)
 
         # Run with JSON override (should override config file)
-        cmd = f'-d {self._runlogs} -e {self._expname} -j \'{{"task": "task1"}}\' -f launcher/default_config.yaml -f {self.task3_path} {self._nope_fun}'
+        cmd = f'-d {self._runlogs} -e {self._expname} -j \'{{"task": "task1"}}\' -f {self.task3_path} {self._nope_fun}'
         stdout, stderr, returncode = self.run_launcher(cmd)
         self.assert_command_success(stdout, returncode)
         self.assertEqual(stderr, "", "Expected empty stderr")
@@ -128,7 +136,7 @@ class OptionsProcessingTests(CommandTestCase):
 
     def test_config_file_task_override(self) -> None:
         """Test that config file can override default task name."""
-        stdout, stderr, returncode = self.run_launcher(f'-d {self._runlogs} -e {self._expname} -f launcher/default_config.yaml -f {self.task3_path} {self._nope_fun}')
+        stdout, stderr, returncode = self.run_launcher(f'-d {self._runlogs} -e {self._expname} -f {self.task3_path} {self._nope_fun}')
         self.assert_command_success(stdout, returncode)
         self.assertEqual(stderr, "", "Expected empty stderr")
         # Verify we're writing to task3.* files
@@ -139,7 +147,7 @@ class OptionsProcessingTests(CommandTestCase):
 
     def test_first_config_file_precedence(self) -> None:
         """Test that first config file takes precedence."""
-        stdout, stderr, returncode = self.run_launcher(f'-d {self._runlogs} -e {self._expname} -f launcher/default_config.yaml -f {self.task4_path} -f {self.task3_path} {self._nope_fun}')
+        stdout, stderr, returncode = self.run_launcher(f'-d {self._runlogs} -e {self._expname} -f {self.task4_path} -f {self.task3_path} {self._nope_fun}')
         self.assert_command_success(stdout, returncode)
         self.assertEqual(stderr, "", "Expected empty stderr")
 
@@ -151,7 +159,7 @@ class OptionsProcessingTests(CommandTestCase):
 
     def test_last_config_file_precedence(self) -> None:
         """Test that last config file takes precedence."""
-        stdout, stderr, returncode = self.run_launcher(f'-d {self._runlogs} -e {self._expname} -f launcher/default_config.yaml -f {self.task3_path} -f {self.task4_path} {self._nope_fun}')
+        stdout, stderr, returncode = self.run_launcher(f'-d {self._runlogs} -e {self._expname} -f {self.task3_path} -f {self.task4_path} {self._nope_fun}')
         self.assert_command_success(stdout, returncode)
         self.assertEqual(stderr, "", "Expected empty stderr")
 
@@ -168,7 +176,7 @@ class OptionsProcessingTests(CommandTestCase):
             json.dump({"task": "task3", "mode": "a"}, f)
 
         # Run command twice
-        cmd = f'-d {self._runlogs} -e {self._expname} -f launcher/default_config.yaml -f {self.task3_path} -f {self.task4_path} {self._nope_fun}'
+        cmd = f'-d {self._runlogs} -e {self._expname} -f {self.task3_path} -f {self.task4_path} {self._nope_fun}'
         self.run_launcher(cmd)  # First run
         stdout, stderr, returncode = self.run_launcher(cmd)  # Second run
         self.assert_command_success(stdout, returncode)
@@ -185,7 +193,7 @@ class OptionsProcessingTests(CommandTestCase):
         with open(self.task4_path, "w") as f:
             json.dump({"task": "task4", "mode": "a"}, f)
 
-        cmd = f'-d {self._runlogs} -e {self._expname} -f launcher/default_config.yaml -f {self.task3_path} -f {self.task4_path} {self._nope_fun}'
+        cmd = f'-d {self._runlogs} -e {self._expname} -f {self.task3_path} -f {self.task4_path} {self._nope_fun}'
         self.run_launcher(cmd)  # First run
         self.run_launcher(cmd)  # Second run
 
@@ -214,7 +222,7 @@ class OptionsProcessingTests(CommandTestCase):
             json.dump({"task": "task4", "start": "warm"}, f)
 
         # Run with just task4.json
-        stdout, stderr, returncode = self.run_launcher(f'-d {self._runlogs} -e {self._expname} -f launcher/default_config.yaml -f {self.task4_path} {self._nope_fun}')
+        stdout, stderr, returncode = self.run_launcher(f'-d {self._runlogs} -e {self._expname} -f {self.task4_path} {self._nope_fun}')
         self.assert_command_success(stdout, returncode)
         self.assertEqual(stderr, "", "Expected empty stderr")
 
@@ -233,7 +241,7 @@ class OptionsProcessingTests(CommandTestCase):
         with open(self.task4_path, "w") as f:
             json.dump({"task": "task4", "start": "warm"}, f)
         # First run to create md file
-        self.run_launcher(f'-d {self._runlogs} -e {self._expname} -f launcher/default_config.yaml -f {self.task4_path} {self._nope_fun}')
+        self.run_launcher(f'-d {self._runlogs} -e {self._expname} -f {self.task4_path} {self._nope_fun}')
 
         # Move md file to config dir and remove csv
         orig_md_path = os.path.join(self._runlogs_path, self._expname, "task4.md")
@@ -258,7 +266,7 @@ class OptionsProcessingTests(CommandTestCase):
         with open(self.task4_path, "w") as f:
             json.dump({"task": "task4", "start": "warm"}, f)
         # First run to create md file
-        self.run_launcher(f'-d {self._runlogs} -e {self._expname} -f launcher/default_config.yaml -f {self.task4_path} {self._nope_fun}')
+        self.run_launcher(f'-d {self._runlogs} -e {self._expname} -f {self.task4_path} {self._nope_fun}')
 
         # Run reproduction with task override
         md_path = os.path.join(self._runlogs_path, self._expname, "task4.md")
@@ -278,7 +286,7 @@ class OptionsProcessingTests(CommandTestCase):
     def test_time_backend(self) -> None:
         """Test time backend metrics."""
         stdout, stderr, returncode = self.run_launcher(
-            f'-d {self._runlogs} -e {self._expname} -f launcher/default_config.yaml -f backends/bintime.yaml -b time {self._nope_fun}')
+            f'-d {self._runlogs} -e {self._expname} -f backends/bintime.yaml -b time {self._nope_fun}')
         self.assert_command_success(stdout, returncode)
         self.assertEqual(stderr, "", "Expected empty stderr")
 
@@ -296,7 +304,7 @@ class OptionsProcessingTests(CommandTestCase):
         """Test reproduction with task override."""
         # First create the source experiment
         self.run_launcher(
-            f'-d {self._runlogs} -e {self._expname} -f launcher/default_config.yaml -f backends/bintime.yaml -b time {self._nope_fun}')
+            f'-d {self._runlogs} -e {self._expname} -f backends/bintime.yaml -b time {self._nope_fun}')
 
         # Run reproduction with task override
         md_path = os.path.join(self._runlogs_path, self._expname, f"{self._nope_fun}.md")
@@ -313,12 +321,12 @@ class OptionsProcessingTests(CommandTestCase):
         """Test reproduction with backend override."""
         # First create the source experiment
         self.run_launcher(
-            f'-d {self._runlogs} -e {self._expname} -f launcher/default_config.yaml -f backends/bintime.yaml -b time {self._nope_fun}')
+            f'-d {self._runlogs} -e {self._expname} -f backends/bintime.yaml -b time {self._nope_fun}')
 
         # Run reproduction with uname backend
         md_path = os.path.join(self._runlogs_path, self._expname, f"{self._nope_fun}.md")
         stdout, stderr, returncode = self.run_launcher(
-            f'-d {self._runlogs} -e {self._expname} --repro {md_path} -f launcher/default_config.yaml -f backends/uname.yaml -b uname -t task6')
+            f'-d {self._runlogs} -e {self._expname} --repro {md_path} -f backends/uname.yaml -b uname -t task6')
         self.assert_command_success(stdout, returncode)
 
         # Verify task6.csv has both time and uname metrics
@@ -326,6 +334,68 @@ class OptionsProcessingTests(CommandTestCase):
                           "hostname metric should not be empty")
         self.assertNotEqual(self.read_csv_column(f"{self._expname}/task6", "max_rss", 0), "",
                           "kernel metric should not be empty")
+
+    def test_autoload_local_backend_default(self) -> None:
+        """Test that local backend config is auto-loaded when no backend is specified."""
+        # Run without any -f or -b flags - should auto-load backends/local.yaml
+        stdout, stderr, returncode = self.run_launcher(
+            f'-d {self._runlogs} -e {self._expname} -t autoload_default {self._nope_fun}')
+        self.assert_command_success(stdout, returncode)
+        self.assertEqual(stderr, "", "Expected empty stderr")
+
+        # Verify the run completed successfully
+        csv_content = self.read_csv_column(f"{self._expname}/autoload_default", "outer_time", 0)
+        self.assertNotEqual(csv_content, "", "outer_time should be recorded")
+
+    def test_autoload_local_backend_explicit(self) -> None:
+        """Test that local backend config is auto-loaded when -b local is specified."""
+        # Run with -b local but no -f - should auto-load backends/local.yaml
+        stdout, stderr, returncode = self.run_launcher(
+            f'-d {self._runlogs} -e {self._expname} -t autoload_explicit -b local {self._nope_fun}')
+        self.assert_command_success(stdout, returncode)
+        self.assertEqual(stderr, "", "Expected empty stderr")
+
+        # Verify the run completed successfully
+        csv_content = self.read_csv_column(f"{self._expname}/autoload_explicit", "outer_time", 0)
+        self.assertNotEqual(csv_content, "", "outer_time should be recorded")
+
+    def test_autoload_other_backend(self) -> None:
+        """Test that backend config is auto-loaded when -b backend is specified without -f."""
+        # Run with -b uname but no -f - should auto-load backends/uname.yaml
+        stdout, stderr, returncode = self.run_launcher(
+            f'-d {self._runlogs} -e {self._expname} -t autoload_uname -b uname {self._nope_fun}')
+        self.assert_command_success(stdout, returncode)
+        self.assertEqual(stderr, "", "Expected empty stderr")
+
+        # Verify uname metrics were collected
+        self.assertNotEqual(self.read_csv_column(f"{self._expname}/autoload_uname", "hostname", 0), "",
+                          "hostname metric should not be empty")
+
+    def test_autoload_multiple_backends(self) -> None:
+        """Test that multiple backend configs are auto-loaded in order."""
+        # Run with -b local -b uname but no -f - should auto-load both in order
+        stdout, stderr, returncode = self.run_launcher(
+            f'-d {self._runlogs} -e {self._expname} -t autoload_multi -b local -b uname {self._nope_fun}')
+        self.assert_command_success(stdout, returncode)
+        self.assertEqual(stderr, "", "Expected empty stderr")
+
+        # Verify both backends worked
+        self.assertNotEqual(self.read_csv_column(f"{self._expname}/autoload_multi", "outer_time", 0), "",
+                          "outer_time (from local) should be recorded")
+        self.assertNotEqual(self.read_csv_column(f"{self._expname}/autoload_multi", "hostname", 0), "",
+                          "hostname (from uname) should not be empty")
+
+    def test_no_autoload_when_explicit_config(self) -> None:
+        """Test that backend config is NOT auto-loaded when already provided via -f."""
+        # Run with -f backends/uname.yaml -b uname - should NOT auto-load again
+        stdout, stderr, returncode = self.run_launcher(
+            f'-d {self._runlogs} -e {self._expname} -t no_autoload -f backends/uname.yaml -b uname {self._nope_fun}')
+        self.assert_command_success(stdout, returncode)
+        self.assertEqual(stderr, "", "Expected empty stderr")
+
+        # Verify it still works (config was loaded via -f)
+        self.assertNotEqual(self.read_csv_column(f"{self._expname}/no_autoload", "hostname", 0), "",
+                          "hostname metric should not be empty")
 
 
 

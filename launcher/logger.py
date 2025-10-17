@@ -63,8 +63,11 @@ The measurements were run on {platform.node()}, starting at {now} (UTC).\n"""
         if git.returncode == 0:
             self.__preamble += f"The source code version used was from git hash: {git.stdout.strip()}\n"
 
-        self.__preamble += "\n## Runtime options\n\n"
-        self.__preamble += json.dumps(options, indent=2)
+        self.__preamble += "\n## Runtime options\n\n```json\n"
+        # Exclude sys_spec_commands from runtime options output (it's shown in System configuration)
+        options_filtered = {k: v for k, v in options.items() if k != "sys_spec_commands"}
+        self.__preamble += json.dumps(options_filtered, indent=2)
+        self.__preamble += "\n```"
 
     #################
     def clear_rows(self) -> None:
@@ -162,5 +165,7 @@ The measurements were run on {platform.node()}, starting at {now} (UTC).\n"""
 
             if sys_specs:
                 f.write("\n## System configuration\n\n")
-                for key in sys_specs:
-                    f.write(f"### {key}\n{sys_specs[key]}\n")
+                # Output as JSON for two-level structured data
+                f.write("```json\n")
+                f.write(json.dumps(sys_specs, indent=2))
+                f.write("\n```\n")
