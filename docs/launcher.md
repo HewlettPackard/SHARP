@@ -37,7 +37,7 @@ A header field is a field whose value is the same for the entire task, such as t
 
 In addition to the CSV file, a per-task human-readable markdown file is created with a short description of the task and all the options used in its invocation. The file is called task.md, substituting for the actual task name.
 The markdown file also contains specific information identifying the system-under-test, including hardware and operating-system descriptors.
-The different sections for system information, and the commands to generate their data, can be found in default_config.yaml and may be overriden by your own configuration.
+The different sections for system information, and the commands to generate their data, can be found in sys_spec.yaml and may be overridden by your own configuration.
 
 The location of log files is under a per-experiment directory. The top-level directory customizable and defaults to `../runlogs`.
 
@@ -110,9 +110,39 @@ launch.py -v -f conf1.json,conf2.yaml  -j '{ "repeater_options": { "verbose": tr
 ## Backends
 
 SHARP currently supports the following backends (execution environments) on which the function can be run. Not all functions can run as expected on all backends. For example, to use the MPI backend effectively, the program must use the MPI library.
+
+### Backend Auto-loading
+
+When you specify a backend with `-b <backend>`, SHARP automatically loads the corresponding backend configuration file if it exists and the backend doesn't already have options defined. The auto-loading searches for:
+1. `backends/<backend>.yaml` first
+2. `backends/<backend>.json` if .yaml not found
+
+This means you can now run backends without explicitly including their configuration files:
+
+```sh
+# These are equivalent:
+launch.py -b docker myfunction
+launch.py -f backends/docker.yaml -b docker myfunction
+```
+
+**Configuration Merge Order:**
+All configuration sources are merged in the following priority order:
+1. Previous .md file (with --repro flag)
+2. All `-f` config files (in order of appearance)
+3. JSON string (with -j flag)
+4. Command-line flags
+5. Auto-loaded backend configs (in order of `-b` appearance)
+
+This means:
+- Explicit `-f` files take precedence over auto-loaded backend configs
+- If you specify `-f backends/docker.yaml -b docker`, the file is loaded once (not twice)
+- Multiple backends are auto-loaded in the order they appear: `-b backend1 -b backend2` loads backend1.yaml then backend2.yaml
+
+### Built-in Backends
+
 Backends that require options take them as part of the configuration, specified as a dictionary. The configuration file/string includes a list of backends, each represented as a dictionary where the `type` entry specifies the name/type of the backend, and any other entries are optional and context-dependent, as specified next.
 
-1. `local`: Default environment, just runs the function/script locally. Takes no options.
+1. `local`: Default environment, just runs the function/script locally. Configuration is in `backends/local.yaml`.
 
 2. `ssh`: Run the function/script on one or more remote hosts. These hosts are configured under "backend_options"/"ssh" and are specified either with the `hosts` entry (comma-separated list of hosts) or `hostfile` entry (filename to read host names from). When more than one host is specified, is function is executed on a host selected from the list in round-robin fashion.
 
@@ -168,59 +198,65 @@ Both strings accept special macros that will be substituted for the actual value
 
 Then, you can add one or more metrics that process the output of this new backend. The example above shows how the maximum resident set size (RAM) of the program is extracted from the program of `/usr/bin/time`.
 
-#### 2. Python-based Custom Backends
+#### 2. Advanced YAML Backend Configuration
 
-For more complex backends that require programmatic control, you can create a Python class that inherits from the `Launcher` base class. This approach gives you full control over how tasks are executed and monitored.
+For complex backends that require more sophisticated execution patterns, you can create comprehensive YAML backend configurations. The unified Launcher class supports powerful macro expansion and execution patterns.
 
-To create a Python backend:
+**Key Features:**
+- **Macro expansion**: Use `$TASK`, `$FN`, `$ARGS`, `$HOST`, `$MPIFLAGS`, `$TMP_PATH`, etc.
+- **MPI support**: Use `$MPL` macro for MPI process count
+- **Host management**: Round-robin host selection with `$HOST` or specific hosts with `$HOST0`, `$HOST1`, etc.
+- **System specifications**: Custom commands for collecting system information
 
-1. Create a new class that inherits from `Launcher`:
-```python
-from launcher import Launcher
-from typing import *
-
-class MyCustomLauncher(Launcher):
-    def __init__(self, backend: str, options: Dict[str, Any]) -> None:
-        """Initialize launcher with backend-specific options."""
-        super().__init__(backend, options)
-        # Initialize your backend-specific attributes
-
-    def reset(self) -> None:
-        """Reset all caches and stale data for cold starts."""
-        super().reset()
-        # Add backend-specific reset logic
-
-    def run_commands(self, copies: int, nested: str = "") -> List[str]:
-        """
-        Generate command strings to execute tasks.
-
-        Args:
-            copies: How many instances of the task to run
-            nested: Nested commands to call instead of function
-
-        Returns:
-            List of command strings to execute
-        """
-        # Must be implemented: generate command strings for your backend
-        return []
-
-    def sys_spec_commands(self) -> Dict[str, str]:
-        """
-        Generate commands to obtain system specifications.
-
-        Returns:
-            Dictionary mapping spec names to commands
-        """
-        # Override to customize how system specs are collected
-        return self._sys_spec
+**Example: SSH Backend with Host Management**
+```yaml
+backend_options:
+  ssh-cluster:
+    # Round-robin execution across multiple hosts
+    hosts: "node1.cluster.edu,node2.cluster.edu,node3.cluster.edu"
+    run: |
+      ssh $HOST "source /path/to/venv/bin/activate && $CMD $ARGS"
+    reset: |
+      ssh $HOST "sudo sync && sudo sysctl vm.drop_caches=3"
+    run_sys_spec: |
+      ssh $HOST "$SPEC_COMMAND"
 ```
 
-2. Implement the required methods:
-   - `run_commands(self, copies: int, nested: str = "") -> List[str]`: Generate the command strings to execute
-   - Optionally override `reset()` for cold-start behavior
-   - Optionally override `sys_spec_commands()` for custom system specification handling
+**Example: MPI Backend**
+```yaml
+backend_options:
+  mpi-custom:
+    mpiflags: "--bind-to core --map-by core"
+    tmp_path: "/scratch/mpi-outputs/"
+    run: |
+      mpirun -np $MPL $MPIFLAGS --output-filename $TMP_PATH/mpi-output $CMD $ARGS
+    run_sys_spec: |
+      $SPEC_COMMAND
+```
 
-See `backends/ssh.py` for a complete example of a Python-based backend.
+**Example: Container-based Backend**
+```yaml
+backend_options:
+  singularity:
+    run: |
+      singularity exec --bind /data:/data /path/to/container.sif $CMD $ARGS
+    reset: |
+      singularity exec /path/to/container.sif /bin/sh -c "sync && echo 3 > /proc/sys/vm/drop_caches"
+    run_sys_spec: |
+      singularity exec /path/to/container.sif $SPEC_COMMAND
+```
+
+**Available Macros:**
+- `$TASK`: Task name
+- `$FN`: Function name
+- `$CMD`: Full path to function executable
+- `$ARGS`: Function arguments
+- `$MPL`: Number of copies/processes (for MPI backends)
+- `$HOST`: Current host (round-robin selection)
+- `$HOST0`, `$HOST1`, etc.: Specific host by index
+- `$MPIFLAGS`: MPI flags from backend configuration
+- `$TMP_PATH`: Temporary directory path
+- `$SPEC_COMMAND`: System specification command
 
 See more custom backend example YAML files under `backends/`, refer here:(`docs/backends.md`).
 

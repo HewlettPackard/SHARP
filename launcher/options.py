@@ -10,7 +10,11 @@ The top-level function process_options reads in configuration from four sources:
 The order above is of increasing priority, such that a command-line option overrides
 a JSON string from -j, which overrides a config YAML/JSON file, which overrides .md.
 
-© Copyright 2024--2025 Hewlett Packard Enterprise Development LP
+After processing all explicit configuration sources, backend configuration files are
+automatically loaded for any backends specified with -b that don't yet have
+backend_options defined. These auto-loaded files are merged after all -f files.
+
+© Copyright 2024--2024 Hewlett Packard Enterprise Development LP
 """
 import argparse
 import json
@@ -22,6 +26,7 @@ import yaml
 mydir, _ = os.path.split(os.path.abspath(__file__))
 logtop, _ = os.path.split(mydir)
 logdir: str = os.path.join(logtop, "runlogs")
+backends_dir: str = os.path.join(logtop, "backends")
 
 opt_defaults: Dict[str, Any] = {
     "repeats": "1",
@@ -162,6 +167,37 @@ def merge(a: Dict[Any, Any], b: Dict[Any, Any], path: List[str] = []) -> Dict[st
 
 
 ###################
+def auto_load_backend_config(backend: str, cfg: Dict[str, Any]) -> None:
+    """
+    Automatically load backend configuration file if backend options not already present.
+
+    Searches for backends/{backend}.yaml first, then backends/{backend}.json.
+    If found and backend options not already defined, merges the config into cfg.
+
+    Args:
+        backend: Name of the backend to auto-load
+        cfg: Configuration dictionary to merge into (modified in place)
+    """
+    # Check if backend already has options defined
+    backend_opts = cfg.get("backend_options", {})
+    if backend in backend_opts:
+        return  # Already configured, skip auto-load
+
+    # Search for config file: .yaml first, then .json
+    config_path = None
+    for ext in ['.yaml', '.json']:
+        candidate = os.path.join(backends_dir, f"{backend}{ext}")
+        if os.path.exists(candidate):
+            config_path = candidate
+            break
+
+    # If found, load and merge
+    if config_path:
+        backend_config = load_config(config_path)
+        merge(cfg, backend_config)
+
+
+###################
 def process_previous_options(filename: str) -> Dict[str, Any]:
     """Reproduce option dictionary from a previous run's .md file."""
     copy_now: bool = False
@@ -175,6 +211,9 @@ def process_previous_options(filename: str) -> Dict[str, Any]:
             elif line.strip() == "## Field description":
                 break
             elif copy_now:
+                # Skip code block markers (```json and ```)
+                if line.strip() in ["```json", "```"]:
+                    continue
                 jstr += line
 
     return json.loads(jstr) # type: ignore
@@ -185,11 +224,15 @@ def process_json_options(
     cfg: Dict[str, Any], args: argparse.Namespace
 ) -> Dict[str, Any]:
     """Merge options with JSON options read in from files or cmd-line string."""
+    # Always load sys_spec.yaml first to provide default system specifications
+    sys_spec_file = os.path.join(mydir, "sys_spec.yaml")
+    if os.path.exists(sys_spec_file):
+        merge(cfg, load_config(sys_spec_file))
+
+    # Then load user-specified config files (which can override sys_spec settings)
     cfiles: List[List[str]] = []
     if args.config:
         cfiles = args.config
-    elif not cfg:   # If there's not previous or current config, use default
-        cfiles = [[mydir + "/default_config.yaml"]]
 
     for fn in cfiles:
         merge(cfg, load_config(fn[0]))
@@ -266,6 +309,10 @@ def process_options() -> Dict[str, Any]:
     - Config file(s) with -f flag
     - JSON string with -j flag
     - Remaining-command line flags.
+
+    After all explicit options are processed, automatically loads backend
+    configuration files for any backends that don't yet have options defined.
+    Auto-loaded backend configs are merged in the order backends appear on command line.
     """
     args: argparse.Namespace = parse_cmdline()
     cfg: Dict[str, Any] = {}
@@ -274,6 +321,11 @@ def process_options() -> Dict[str, Any]:
         cfg = process_previous_options(args.repro[0])
     cfg = process_json_options(cfg, args)
     cfg = process_cmdline_options(cfg, args)
+
+    # Auto-load backend configuration files for backends without options
+    # This happens after all -f files are processed, in order of -b appearance
+    for backend in cfg.get("backends", []):
+        auto_load_backend_config(backend, cfg)
 
     # Sanity checks for options:
     if "function" not in cfg or not cfg["function"]:

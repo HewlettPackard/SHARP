@@ -1,0 +1,68 @@
+sys_spec_commands:   # Shell commands to generate SUT description for MD file
+  cpu:
+    processor_count: 'nproc'
+    model_name: 'grep "model name" /proc/cpuinfo | head -1 | cut -d: -f2 | xargs'
+    vendor: 'grep "vendor_id" /proc/cpuinfo | head -1 | cut -d: -f2 | xargs'
+    cpu_cores: 'grep "cpu cores" /proc/cpuinfo | head -1 | cut -d: -f2 | xargs'
+    cache_size: 'grep "cache size" /proc/cpuinfo | head -1 | cut -d: -f2 | xargs'
+    cpu_temperature_celsius: 'sensors 2>/dev/null | grep -m1 -E "Package id 0:|Tctl:|Tdie:|Core 0:" | grep -oE "[0-9]+\.[0-9]+" | head -1 || echo "NA"'
+    fan_speed_rpm: 'result=$(sensors 2>/dev/null | grep -m1 -i "fan" | grep -oE "[0-9]+" | head -1); if [ -z "$result" ]; then echo "NA"; else echo "$result"; fi'
+    scaling_governor: 'cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null || echo "NA"'
+    scaling_min_freq_khz: 'cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_min_freq 2>/dev/null || echo "NA"'
+    scaling_max_freq_khz: 'cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq 2>/dev/null || echo "NA"'
+    scaling_cur_freq_khz: 'cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq 2>/dev/null || echo "NA"'
+    architecture: 'uname -m'
+
+  memory:
+    total_memory_kb: 'awk "/MemTotal/ {print \$2}" /proc/meminfo'
+    available_memory_kb: 'awk "/MemAvailable/ {print \$2}" /proc/meminfo'
+    free_memory_kb: 'awk "/MemFree/ {print \$2}" /proc/meminfo'
+    cached_memory_kb: 'awk "/^Cached/ {print \$2}" /proc/meminfo'
+    swap_total_kb: 'awk "/SwapTotal/ {print \$2}" /proc/meminfo'
+    swap_free_kb: 'awk "/SwapFree/ {print \$2}" /proc/meminfo'
+
+  gpu:
+    vendor: 'if command -v nvidia-smi &> /dev/null; then echo "NVIDIA"; elif command -v rocm-smi &> /dev/null; then echo "AMD"; else echo "NA"; fi'
+    name: 'nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || rocm-smi --showproductname 2>/dev/null | grep "GPU" | cut -d: -f2 | xargs || echo "NA"'
+    total_memory_mb: 'nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null || rocm-smi --showmeminfo vram 2>/dev/null | grep "Total Memory" | grep -oE "[0-9]+" || echo "NA"'
+    free_memory_mb: 'nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits 2>/dev/null || rocm-smi --showmeminfo vram 2>/dev/null | grep "Free Memory" | grep -oE "[0-9]+" || echo "NA"'
+    temperature_celsius: 'nvidia-smi --query-gpu=temperature.gpu --format=csv,noheader 2>/dev/null || rocm-smi --showtemp 2>/dev/null | grep "Temperature" | grep -oE "[0-9]+" || echo "NA"'
+
+  load_average:
+    one_minute: 'awk "{print \$1}" /proc/loadavg'
+    five_minute: 'awk "{print \$2}" /proc/loadavg'
+    fifteen_minute: 'awk "{print \$3}" /proc/loadavg'
+
+  virtual_memory:
+    swappiness: 'cat /proc/sys/vm/swappiness 2>/dev/null || echo "NA"'
+    dirty_ratio: 'cat /proc/sys/vm/dirty_ratio 2>/dev/null || echo "NA"'
+    dirty_background_ratio: 'cat /proc/sys/vm/dirty_background_ratio 2>/dev/null || echo "NA"'
+    overcommit_memory: 'cat /proc/sys/vm/overcommit_memory 2>/dev/null || echo "NA"'
+    overcommit_ratio: 'cat /proc/sys/vm/overcommit_ratio 2>/dev/null || echo "NA"'
+
+  network:
+    rmem_max: 'cat /proc/sys/net/core/rmem_max 2>/dev/null || echo "NA"'
+    wmem_max: 'cat /proc/sys/net/core/wmem_max 2>/dev/null || echo "NA"'
+    netdev_max_backlog: 'cat /proc/sys/net/core/netdev_max_backlog 2>/dev/null || echo "NA"'
+    somaxconn: 'cat /proc/sys/net/core/somaxconn 2>/dev/null || echo "NA"'
+
+  filesystem:
+    file_max: 'cat /proc/sys/fs/file-max 2>/dev/null || echo "NA"'
+    root_available_gb: 'df -BG / | awk "NR==2 {print \$4}" | sed "s/G//"'
+
+  kernel:
+    version: 'uname -r'
+    pid_max: 'cat /proc/sys/kernel/pid_max 2>/dev/null || echo "NA"'
+    threads_max: 'cat /proc/sys/kernel/threads-max 2>/dev/null || echo "NA"'
+
+  scheduler:
+    autogroup_enabled: 'cat /proc/sys/kernel/sched_autogroup_enabled 2>/dev/null || echo "NA"'
+    cfs_bandwidth_slice_us: 'cat /proc/sys/kernel/sched_cfs_bandwidth_slice_us 2>/dev/null || echo "NA"'
+    rr_timeslice_ms: 'cat /proc/sys/kernel/sched_rr_timeslice_ms 2>/dev/null || echo "NA"'
+    rt_period_us: 'cat /proc/sys/kernel/sched_rt_period_us 2>/dev/null || echo "NA"'
+    rt_runtime_us: 'cat /proc/sys/kernel/sched_rt_runtime_us 2>/dev/null || echo "NA"'
+
+  system:
+    uptime_seconds: 'cat /proc/uptime | cut -d. -f1'
+    running_processes: 'ps aux | wc -l'
+    hostname: 'hostname'

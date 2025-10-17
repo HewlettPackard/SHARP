@@ -1,0 +1,6 @@
+# Configuration for local backend
+backend_options:
+  local:
+    run: "$CMD $ARGS"
+    reset: "sudo sh -c '/usr/bin/sync; /sbin/sysctl vm.drop_caches=3'"
+    run_sys_spec: "$SPEC_COMMAND"
