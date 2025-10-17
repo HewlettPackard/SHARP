@@ -1,11 +1,11 @@
 # based on https://github.com/DiegoStock12/kubeml/blob/master/ml/environment/Dockerfile
 # offical docker image of nvidia/cuda
-FROM nvidia/cuda:12.2.0-devel-ubuntu20.04
+FROM nvidia/cuda:12.8.0-devel-ubuntu22.04
 
 RUN ln -snf /usr/share/zoneinfo/$CONTAINER_TIMEZONE /etc/localtime && echo $CONTAINER_TIMEZONE > /etc/timezone
-# Ubuntu 20.04 only supports getting python3.7, python3.8, python3.9 this way
+# Ubuntu 22.04 supports python3.10 natively
 RUN apt-get update && \
-    DEBIAN_FRONTEND=noninteractive apt-get install python3.10.4 python3-pip -y  &&\
+    DEBIAN_FRONTEND=noninteractive apt-get install python3 python3-pip -y  &&\
     apt-get install gcc libev-dev libffi-dev -y && \
     apt-get clean
 
