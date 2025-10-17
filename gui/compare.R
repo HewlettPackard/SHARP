@@ -107,17 +107,31 @@ narrative_comparison <- function(baseline, treatment, metric)
 #####################
 render_compare <- function(input, output) {
   digits <- 4
+  data <- reactiveValues()
 
   shinyFileChoose(input, 'compareBaseline', roots=c(logdir='../runlogs'), filetypes=c('csv'))
   shinyFileChoose(input, 'compareTreatment', roots=c(logdir='../runlogs'), filetypes=c('csv'))
 
   bfn <- reactive(parseFilePaths(roots=c(logdir='../runlogs'), input$compareBaseline)$datapath)
   tfn <- reactive(parseFilePaths(roots=c(logdir='../runlogs'), input$compareTreatment)$datapath)
-  baseline <- reactive(read_csv(bfn()))
-  treatment <- reactive(read_csv(tfn()))
 
-  output$baselineName <- renderText(bfn())
-  output$treatmentName <- renderText(tfn())
+  # Helpers to get CSV filenames - use stored values if available, otherwise reactive
+  get_bfn <- make_file_getter(bfn, data, "bfn")
+  get_tfn <- make_file_getter(tfn, data, "tfn")
+
+  baseline <- reactive({
+    req(length(get_bfn()) > 0)
+    data$bfn <- bfn()  # Store when accessed
+    read_csv(get_bfn())
+  })
+  treatment <- reactive({
+    req(length(get_tfn()) > 0)
+    data$tfn <- tfn()  # Store when accessed
+    read_csv(get_tfn())
+  })
+
+  output$baselineName <- renderText(get_bfn())
+  output$treatmentName <- renderText(get_tfn())
 
 
   observeEvent(input$compareTreatment, {

@@ -246,9 +246,19 @@ render_predict <- function(input, output)
     list(src=filename, alt="TBD")
   }, deleteFile=FALSE)
 
+  data <- reactiveValues()
+
   shinyFileChoose(input, 'predictFile', roots=c(logdir='../runlogs'), filetypes=c('csv'))
   pfn <- reactive(parseFilePaths(roots=c(logdir='../runlogs'), input$predictFile)$datapath)
-  dataset <- reactive(read_csv(pfn()))
+
+  # Helper to get CSV filename - uses stored value if available, otherwise reactive
+  get_pfn <- make_file_getter(pfn, data, "pfn")
+
+  dataset <- reactive({
+    req(length(get_pfn()) > 0)
+    data$pfn <- pfn()  # Store when accessed
+    read_csv(get_pfn())
+  })
   best_fit_params <- reactive(best_fit(dataset() %>% pull(input$predictMetric)))
 
   observeEvent(input$predictFile, {

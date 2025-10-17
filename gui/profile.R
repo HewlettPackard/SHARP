@@ -122,11 +122,11 @@ suggest_cutoff <- function(x) {
 
   if (is.unimodal(x) || is.amodal(x)) {
     skew <- skewness(x)
-    
+
     if (is.na(skew)) {
       return(median(x, na.rm = TRUE))
     }
-    
+
     if (skew <= -0.5) {    # Left-tailed
       return(quantile(x, 0.25, names = FALSE, na.rm = TRUE)[[1]])
     } else if (skew >= 0.5) {   # Right-tailed
@@ -149,26 +149,26 @@ select_tree_predictors <- function(data, metric, exclude, max_predictors = MAX_P
   # Exclude columns with 1 or fewer unique non-NA values, user-defined exclusions, the metric, and "cat"
   constant_cols <- names(data)[sapply(data, function(x) length(unique(na.omit(x)))) <= 1]
   all_exclude <- unique(c(exclude, constant_cols, metric, "cat"))
-  
+
   potential_predictors <- setdiff(names(data), all_exclude)
-  
+
   # Separate numeric and non-numeric predictors
   is_numeric_col <- sapply(data[potential_predictors], is.numeric)
   numeric_predictors <- potential_predictors[is_numeric_col]
   non_numeric_predictors <- potential_predictors[!is_numeric_col]
-  
+
   # If we have many numeric predictors, select the top N most correlated ones
   if (length(numeric_predictors) > max_predictors) {
     correlations <- sapply(data[numeric_predictors], function(x) {
       # Check for variance in this specific column and metric
       x_clean <- na.omit(x)
       metric_clean <- na.omit(data[[metric]])
-      
-      if (length(x_clean) <= 1 || length(unique(x_clean)) <= 1 || 
+
+      if (length(x_clean) <= 1 || length(unique(x_clean)) <= 1 ||
           length(metric_clean) <= 1 || length(unique(metric_clean)) <= 1) {
         return(NA)
       }
-      
+
       # Additional check for zero standard deviation to prevent warnings
       tryCatch({
         if (sd(x_clean) == 0 || sd(metric_clean) == 0) {
@@ -177,7 +177,7 @@ select_tree_predictors <- function(data, metric, exclude, max_predictors = MAX_P
       }, error = function(e) {
         return(NA)  # If sd() fails for any reason
       })
-      
+
       # Calculate correlation only if both have variance
       if (is.numeric(x) && is.numeric(data[[metric]])) {
         # Suppress warnings about zero standard deviation
@@ -186,13 +186,13 @@ select_tree_predictors <- function(data, metric, exclude, max_predictors = MAX_P
         return(NA)
       }
     })
-    
+
     # Filter out NA correlations and get absolute values
     abs_correlations <- abs(correlations[!is.na(correlations)])
-    
+
     # Filter out perfect correlations (likely duplicates of the outcome metric)
     filtered_correlations <- abs_correlations[abs_correlations < 0.999]
-    
+
     # Fallback if all correlations are perfect
     if (length(filtered_correlations) == 0) {
       filtered_correlations <- abs_correlations[abs_correlations < 1.0]
@@ -200,18 +200,18 @@ select_tree_predictors <- function(data, metric, exclude, max_predictors = MAX_P
         filtered_correlations <- abs_correlations  # Last resort fallback
       }
     }
-    
+
     # Select top predictors
     num_to_select <- min(max_predictors, length(filtered_correlations))
     filtered_names <- names(filtered_correlations)
     top_numeric_predictors <- filtered_names[order(filtered_correlations, decreasing = TRUE)[1:num_to_select]]
-    
+
     # Combine top numeric predictors with any non-numeric ones
     final_predictors <- c(top_numeric_predictors, non_numeric_predictors)
   } else {
     final_predictors <- potential_predictors
   }
-  
+
   return(final_predictors)
 }
 
@@ -232,12 +232,12 @@ compute_tree <- function(data, metric, cutoff, exclude) {
   comparison_result <- metric_values > cutoff
   data$cat <- ifelse(comparison_result, "RIGHT", "LEFT")
   data$cat <- as.factor(data$cat)
-  
+
   # Check if all data falls into one category
   right_count <- sum(data$cat == "RIGHT", na.rm = TRUE)
   left_count <- sum(data$cat == "LEFT", na.rm = TRUE)
   total_rows <- nrow(data)
-  
+
   if (right_count == total_rows || left_count == total_rows) {
     return(NULL) # All data is in one category
   }
@@ -253,7 +253,7 @@ compute_tree <- function(data, metric, cutoff, exclude) {
 
   # 2. Select the most relevant predictors
   final_predictors <- select_tree_predictors(data, metric, exclude)
-  
+
   if (length(final_predictors) == 0) {
     showModal(modalDialog(title = "Error", "No suitable predictors found to build a model."))
     return(NULL)
@@ -261,7 +261,7 @@ compute_tree <- function(data, metric, cutoff, exclude) {
 
   # 3. Build the formula and compute the tree
   formula_str <- build_tree_formula(final_predictors)
-  
+
   rpart(as.formula(formula_str), data=data)
 }
 
@@ -360,11 +360,16 @@ render_optimize <- function(input, output) {
   global <- reactiveValues()
   shinyFileChoose(input, 'profileFile', roots=c(logdir='../runlogs'), filetypes=c('md'))
   mdfn <- reactive(parseFilePaths(roots=c(logdir='../runlogs'), input$profileFile)$datapath)
-  proffn <- reactive(gsub(".md", "-prof.csv", mdfn()))
-  markdown <- reactive(scan(mdfn(), what="character", sep="\n"))
+
+  # Helpers to get metadata filenames - use stored values if available, otherwise reactive
+  get_mdfn <- make_file_getter(mdfn, global, "mdfn")
+  get_mitigation_mdfn <- make_file_getter(mdfn, global, "mitigation_mdfn")
+
+  proffn <- reactive(gsub(".md", "-prof.csv", get_mdfn()))
+  markdown <- reactive(scan(get_mdfn(), what="character", sep="\n"))
   dataset <- reactive({
-    req(length(mdfn()) > 0)  # Require that a file is selected
-    csv_file <- gsub(".md", ".csv", mdfn())
+    req(length(get_mdfn()) > 0)  # Require that a file is selected
+    csv_file <- gsub(".md", ".csv", get_mdfn())
     if (file.exists(csv_file)) {
       fast_read_csv(csv_file)
     } else {
@@ -375,6 +380,8 @@ render_optimize <- function(input, output) {
 
   observeEvent(input$profileFile, {
     req(nrow(dataset()) > 0)
+    # Store the metadata filename for later use
+    global$mdfn <- mdfn()
     # If dataset contains profile data, ask to pick another file
     if ("perf_time" %in% names(dataset())) {
       showModal(modalDialog(
@@ -385,7 +392,7 @@ render_optimize <- function(input, output) {
     }
 
     # If -prof exist, reuse, rerun, or cancel
-    else if (file.exists(gsub(".md", "-prof.md", mdfn()))) {
+    else if (file.exists(gsub(".md", "-prof.md", get_mdfn()))) {
       showModal(modalDialog(
         title = "Profile data already exists for this run",
         "What to do with existing profile data?",
@@ -431,19 +438,19 @@ render_optimize <- function(input, output) {
 
   # Launch SHARP to rerun experiment with profiling data:
   observeEvent(input$runProfiler, {
-    task <- paste0(tools::file_path_sans_ext(basename(mdfn())), "-prof")
+    task <- paste0(tools::file_path_sans_ext(basename(get_mdfn())), "-prof")
     reps <- as.numeric(first(na.omit(str_extract(markdown(), '"max": ([:digit:]+)', group=1))))
     experiment <- first(na.omit(str_extract(markdown(), '"experiment": "(.*)"', group=1)))
     print(paste("Running profiler for", task, "experiment:", experiment, "with repetitions:", reps))
     args <- c("-v",
-              "--repro", unname(mdfn()),
+              "--repro", unname(get_mdfn()),
               "-f", paste0(bdir, "perf.yaml"),
               "-b", "perf",
               "-t", task)
 
     removeModal()
     run_sharp(args, reps, experiment)
-    
+
     withProgress(message = 'Loading new profile data...', value = 0, {
       incProgress(0.5, detail = "Reading CSV file")
       global$rawdata <- fast_read_csv(proffn())
@@ -466,7 +473,7 @@ render_optimize <- function(input, output) {
     nonunique <- global$rawdata %>%
       select(where(~ length(unique(.x)) > 1))
     updateSelectInput(inputId='profileFilterMetric', choices=c('None', colnames(nonunique)))
-    
+
     # Update predictor choices based on current metric
     if (!is.null(input$profileMetric) && input$profileMetric != "") {
       valid_predictors <- select_tree_predictors(global$rawdata, input$profileMetric, exclude = character(0))
@@ -490,10 +497,10 @@ render_optimize <- function(input, output) {
     if (req(input$profileFilterMetric) != "None") {
       req(input$profileFilterValue)
     }
-    
+
     filtered_indices <- filter_var(global$rawdata[[input$profileFilterMetric]], input$profileFilterValue)
     temp_filtered <- global$rawdata[filtered_indices,]
-    
+
     # Remove columns with no variance (<=1 unique non-NA values) - optimized for large datasets
     if (ncol(temp_filtered) > 1000) {
       # Use data.table for faster variance checking on large datasets
@@ -504,7 +511,7 @@ render_optimize <- function(input, output) {
       variance_check <- sapply(temp_filtered, function(x) length(unique(na.omit(x))) > 1)
     }
     global$filtered <- temp_filtered[, variance_check, drop = FALSE]
-    
+
     # Check selected metric still exists and has variance
     if (input$profileMetric %in% colnames(global$filtered)) {
       global$cutoff <- suggest_cutoff(global$filtered[[input$profileMetric]])
@@ -547,7 +554,7 @@ render_optimize <- function(input, output) {
     req(!is.null(input$profileMetric) && input$profileMetric != "")
     req(input$profileMetric %in% colnames(global$filtered))
     req(!is.null(global$cutoff) && !is.na(global$cutoff))
-    
+
     tr <- compute_tree(global$filtered, input$profileMetric, global$cutoff, input$excludePredictors)
     if (!is.null(tr)) {
       plot_tree(tr)
@@ -668,8 +675,14 @@ render_optimize <- function(input, output) {
 
   # Rerun benchmark with selected mitigation:
   observeEvent(input$tryMitigation, {
+    req(input$mitigationSelector, length(get_mdfn()) > 0, nzchar(get_mdfn()))
+
+    # Store for use in other handlers
+    global$mitigation_mdfn <- get_mdfn()
+
     # First, check if we already have the data:
-    if (file.exists(mitfn())) {
+    mitfn_path <- gsub(".md", sprintf("-%s.csv", input$mitigationSelector), get_mdfn())
+    if (file.exists(mitfn_path)) {
       showModal(modalDialog(title="Mitigation data exists",
         "A file with mitigation data exists. Do you want to use it or rerun it?",
         footer = tagList(
@@ -703,24 +716,27 @@ render_optimize <- function(input, output) {
   # Launch SHARP to rerun experiment with profiling data:
   observeEvent(input$runMitigation, {
     m <- input$mitigationSelector
-    task <- paste0(tools::file_path_sans_ext(basename(mdfn())), "-", m)
+    task <- paste0(tools::file_path_sans_ext(basename(get_mitigation_mdfn())), "-", m)
     reps <- as.numeric(first(na.omit(str_extract(markdown(), '"max": ([:digit:]+)', group=1))))
     experiment <- first(na.omit(str_extract(markdown(), '"experiment": "(.*)"', group=1)))
     print(paste("Running profiler for", task, "experiment:", experiment, "with repetitions:", reps))
-    args <- c("-v", "--repro", unname(mdfn()), "-t", task)
+    args <- c("-v", "--repro", unname(get_mitigation_mdfn()), "-t", task)
     if (m %in% names(mitigations$backend_options)) {
       args <- c(args, "-f",  "mitigations.yaml", "-b", m)
     }
 
     removeModal()
     run_sharp(args, reps, experiment)
-    global$mitdata <- read_csv(mitfn())
+    mitfn_path <- gsub(".md", sprintf("-%s.csv", m), get_mitigation_mdfn())
+    global$mitdata <- fast_read_csv(mitfn_path)
   })
 
 
   # Load mitigation data from existing, previous file:
   observeEvent(input$useMitigationData, {
-    global$mitdata <- read_csv(mitfn())
+    m <- input$mitigationSelector
+    mitfn_path <- gsub(".md", sprintf("-%s.csv", m), get_mitigation_mdfn())
+    global$mitdata <- fast_read_csv(mitfn_path)
     sel <- ifelse("inner_time" %in% metric_names(global$mitdata), "inner_time", "outer_time")
     updateSelectInput(inputId='mitigationCompareMetric', choices=metric_names(global$mitdata), selected=sel)
     removeModal()

@@ -50,12 +50,33 @@ render_explore <- function(input, output) {
   cfn <- reactive(parseFilePaths(roots=c(logdir='../runlogs'), input$exploreFile)$datapath)
   data <- reactiveValues(raw=NULL, selected=NULL, dataset=NULL, perf=NULL)
 
+  # Helper to get CSV filename - uses stored value if available, otherwise reactive
+  get_cfn <- make_file_getter(cfn, data, "cfn")
+
+  # Dynamic file button that shows filename when loaded
+  output$exploreFileButton <- renderUI({
+    # Render initial button
+    if (is.null(data$raw)) {
+      shinyFilesButton('exploreFile', label="Load dataset", title="Select log file to explore", multiple=FALSE, icon=icon('file-lines'))
+    } else {
+      # Show filename after data is loaded
+      file_path <- get_cfn()
+      fname <- basename(file_path)
+      with_tooltip(
+        actionButton('exploreFileLoaded', label=fname, icon=icon('file-lines'), class='btn-primary'),
+        paste("Loaded:", file_path)
+      )
+    }
+  })
+
   ### Read raw data from file whenever Load dataset is clicked:
   observeEvent(input$exploreFile, {
     req(length(cfn()) > 0)
+    # Store the filename for later use
+    data$cfn <- cfn()
     freezeReactiveValue(input, "exploreMetric")
 
-    raw_data <- read_csv(cfn()) %>%
+    raw_data <- read_csv(get_cfn()) %>%
       mutate(across(where(is.character), factor))
     mnames <- metric_names(raw_data)
     nonunique <- raw_data %>%

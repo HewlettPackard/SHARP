@@ -15,6 +15,22 @@ leftcol="darkgreen"
 rightcol="orange"
 
 ###############################################################################
+# Helper to get filename from shinyFiles - uses stored value if available, otherwise reactive
+# This prevents issues when parseFilePaths() returns empty values due to stale state
+#
+# Usage:
+#   fn <- reactive(parseFilePaths(...)$datapath)
+#   get_fn <- make_file_getter(fn, storage)
+#   storage$filename <- fn()  # Store when file is selected
+#   get_fn()                   # Use later to retrieve
+make_file_getter <- function(reactive_fn, storage, storage_key = "filename") {
+  function() {
+    stored <- storage[[storage_key]]
+    if (!is.null(stored) && length(stored) > 0) stored else reactive_fn()
+  }
+}
+
+###############################################################################
 # Compute summary statistics for a given vector and precision and return as vector
 compute_summary <- function(x, digits=5)
 {

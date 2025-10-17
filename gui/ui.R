@@ -12,7 +12,7 @@ ui <- fluidPage(theme=shinytheme("spacelab"),
                 #shinythemes::themeSelector(),
 
   tags$head(    # Tag for fields in-line with table
-    tags$style(type="text/css", "#inline label{ display: table-cell; text-align: left; vertical-align: middle; } 
+    tags$style(type="text/css", "#inline label{ display: table-cell; text-align: left; vertical-align: middle; }
               #inline .form-group { display: table-row;}")
   ),
 
