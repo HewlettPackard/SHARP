@@ -1,0 +1,97 @@
+# MPI Profiling (mpiP) backend configuration with integrated metrics
+# This version combines both backend configuration and metrics in a single file
+# Supports:
+# - MPI execution with mpiP profiling and configurable flags
+# - Rank-specific output collection with MPI performance data
+# - Hostname and CPU affinity reporting per rank
+# - Automatic mpiP library loading and output processing
+# - Unique temporary directory creation per execution
+#
+# Prerequisites:
+# - mpiP library must be installed and accessible
+# - Python script for processing mpiP output must be available
+# - MPI environment properly configured
+#
+# Placeholders to configure in the run command:
+# - <Path to store mpip_runs>: Directory where mpiP output files will be stored (e.g., "/path/to/mpip/output")
+# - <Path to libmpiP.so>: Full path to libmpiP.so shared library (e.g., "/usr/local/lib/libmpiP.so" or "/opt/mpiP/lib/libmpiP.so")
+#
+# Usage examples:
+#
+# Basic mpiP profiling (single host):
+#   backend_options:
+#     mpip:
+#       tmp_path: "/tmp/mpip_runs"
+#       mpi_flags: ""
+#   # Use: --mpl 4 to run with 4 MPI processes
+#
+# Multi-host mpiP profiling:
+#   backend_options:
+#     mpip:
+#       tmp_path: "/tmp/mpip_runs"
+#       mpi_flags: "--hostfile /path/to/hostfile --mca btl_tcp_if_include eth0"
+#   # Use: --mpl 8 to run with 8 MPI processes across multiple hosts
+#
+# Then use: -f backends/mpip.yaml -b mpip
+#
+# Features supported:
+# ✓ MPI execution with mpiP profiling and configurable process count ($MPL macro)
+# ✓ MPI flags configuration for multi-host and network settings
+# ✓ Automatic mpiP library preloading and environment setup
+# ✓ mpiP output file generation and automated processing
+# ✓ Rank-specific output collection and aggregation
+# ✓ Hostname and CPU affinity reporting per MPI rank
+# ✓ Integrated MPI performance metrics extraction
+# ✓ Automatic cleanup of temporary and mpiP files after execution
+# ✓ Compatible with existing backend_options.mpip configuration
+# ✓ System specification commands run via MPI
+#
+# Temporary Directory and Output Behavior:
+# - Uses configurable temporary directory for rank-specific outputs
+# - Creates mpiP output files in specified directory
+# - Processes mpiP files with Python script for metric extraction
+# - Automatically cleans up all temporary files after execution
+# - Prevents conflicts between concurrent MPI runs
+backend_options:
+  mpip:
+    tmp_path: "/tmp/"
+    mpiflags: ""  # Optional: thingss like -H or --hostfile
+    reset: ""
+    run: |
+      export MPIP_OUTPUT_DIR=<Path to store mpip_runs> && \
+      mkdir -p $MPIP_OUTPUT_DIR && \
+      mpirun -np $MPL $MPIFLAGS bash -c ' export LD_PRELOAD=<Path to libmpiP.so> && export MPIP="-k 1 -f <Path to store mpip_runs>" && $CMD $ARGS && echo \"Hostname `hostname` Rank $OMPI_COMM_WORLD_RANK Local Rank $OMPI_COMM_WORLD_LOCAL_RANK CPU Affinity $(taskset -cp $$) \" >> $TMP_PATH$OMPI_COMM_WORLD_RANK' && \
+      # Get the mpiP file path
+      MPIP_FILE=$(ls -t $MPIP_OUTPUT_DIR/*.mpiP | head -1) && \
+      python backends/mpip/process_mpip.py $MPIP_FILE > mpip_processed_file && \
+      # Delete the mpiP file
+      rm $MPIP_FILE && \
+      ls -v $TMP_PATH* | xargs cat && \
+      cat mpip_processed_file && \
+      rm -rf $TMP_PATH mpip_processed_file
+
+metrics:
+  hostname:
+    description: hostname
+    extract: grep ' current affinity list:' | awk '{print $2;}'
+    lower_is_better: true
+    type: string
+    units: NA
+  mpi_rank:
+    description: rank
+    extract: grep ' current affinity list:' | awk '{print $4;}'
+    lower_is_better: true
+    type: numeric
+    units: count
+  core:
+    description: core
+    extract: grep ' current affinity list:' | awk '{print $15;}'
+    lower_is_better: true
+    type: string
+    units: NA
+  auto:
+    description: MPI performance data
+    extract: grep 'MPIP_perf_data' | awk '{print $2, $3}'
+    lower_is_better: true
+    type: numeric
+    units: NA
