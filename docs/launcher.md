@@ -37,9 +37,32 @@ A header field is a field whose value is the same for the entire task, such as t
 
 In addition to the CSV file, a per-task human-readable markdown file is created with a short description of the task and all the options used in its invocation. The file is called task.md, substituting for the actual task name.
 The markdown file also contains specific information identifying the system-under-test, including hardware and operating-system descriptors.
-The different sections for system information, and the commands to generate their data, can be found in sys_spec.yaml and may be overridden by your own configuration.
+The different sections for system information, and the commands to generate their data, can be found in `launcher/sys_spec.yaml` and may be overridden by your own configuration.
 
 The location of log files is under a per-experiment directory. The top-level directory customizable and defaults to `../runlogs`.
+
+## System Specifications
+
+By default, SHARP collects extensive system information (CPU, GPU, memory, network, kernel, scheduler settings, etc.) for every task execution. This information is used to identify and document the system-under-test in the markdown output file.
+
+### Skipping System Specifications for Testing
+
+The `--skip-sys-specs` flag allows you to skip system specification collection, which significantly speeds up execution. This is useful for:
+
+- **Development and testing**: Reduce test execution time from 10+ minutes to ~2 minutes
+- **Quick prototyping**: Verify function execution without overhead
+- **CI/CD pipelines**: Faster feedback cycles
+
+Example:
+```sh
+# Normal execution with system specs (~5-30 seconds for specs collection)
+launcher/launch.py -b local myfunction
+
+# Fast execution without system specs (~1-2 seconds)
+launcher/launch.py --skip-sys-specs -b local myfunction
+```
+
+When using `--skip-sys-specs`, the markdown output file will still be generated but will contain minimal system information (only what's absolutely necessary for reproducibility).
 
 ## Invocation
 
@@ -85,6 +108,7 @@ The rest of the command line options control the following behaviors:
  * `-f` lets you pass additional options via one or more configuration files (explained below)
  * `-j` lets you pass additional options via a literal JSON string (explained below)
  * `-v` turns on verbose mode to show interim run data.
+ * `--skip-sys-specs` skips system specification collection for faster execution (useful for testing and development).
 
 ## Configuration files
 
