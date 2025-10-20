@@ -23,9 +23,10 @@ class CommandTestCase(unittest.TestCase):
     def setUp(self) -> None:
         """Set up test fixtures."""
         super().setUp()
-        self._runlogs = "test-logs"  # Default directory for test logs
+        self._runlogs = "runlogs/tests"  # Default directory for test logs
         self._expname = "tests"      # Default experiment name for tests
         self._nope_fun = "nope"      # Default function for the tests
+        self._skip_sys_specs = False  # By default, collect sys_specs (tests can override)
 
         # Get absolute paths based on test file location
         mydir, _ = os.path.split(os.path.abspath(__file__))
@@ -64,6 +65,9 @@ class CommandTestCase(unittest.TestCase):
         Args:
             args: String containing launcher arguments
         """
+        # Prepend --skip-sys-specs if enabled (for faster testing)
+        if self._skip_sys_specs and "--skip-sys-specs" not in args:
+            args = f"--skip-sys-specs {args}"
         command = f"{self._launcher_path} {args}"
         return self.run_command(command)
 

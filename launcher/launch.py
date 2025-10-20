@@ -141,11 +141,9 @@ def get_sys_specs(launchers: List[Launcher]) -> Dict[str, Any]:
     ret: Dict[str, Dict[str, str]] = {}
     sys_spec_commands = launchers[-1].sys_spec_commands()
 
-    # Warn if sys_spec_commands is empty and we don't have sys_spec.yaml
-    # Check if 'sys_spec_commands' key exists in options to distinguish
-    # between "not configured" and "configured but empty (repro mode)"
-    if not sys_spec_commands and 'sys_spec_commands' not in launchers[-1]._options:
-        warnings.warn("No system specifications to show. Did you forget to include sys_spec.yaml?")
+    # If sys_spec_commands is empty, skip system specification collection
+    # This can happen if --skip-sys-specs flag was used or sys_spec.yaml is missing
+    if not sys_spec_commands:
         return {}
 
     for group, commands in sys_spec_commands.items():

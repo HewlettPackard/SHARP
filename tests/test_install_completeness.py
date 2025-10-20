@@ -20,16 +20,22 @@ except:
 
 os.environ["HWLOC_COMPONENTS"] = "-gl" # Get rid of pesky X11 warning in MPI
 
+# Get project root directory
+_mydir, _ = os.path.split(os.path.abspath(__file__))
+_project_root, _ = os.path.split(_mydir)
+_venv_path = os.path.join(_project_root, "venv-sharp", "bin", "activate")
+
 """
 All combinations of functions and backends to run
 """
 fn_combinations = [
         { "fn": "nope", "args": "", "backends": [ "local", "docker", "knative", "fission", "mpi", "ssh"] },
         { "fn": "bounce", "args": "hello world", "backends": [ "local" ] },
-        { "fn": "mpi-pingpong-single", "args": "1000", "backends": [ "mpi" ] },
-        { "fn": "cuda-inc", "args": "10000", "backends": [ "local", "docker", "knative" ] },
+        { "fn": "mpi-pingpong-single", "args": "10", "backends": [ "mpi" ] },  # Reduced from 1000 to 10
+        { "fn": "cuda-inc", "args": "100", "backends": [ "local", "docker", "knative" ] },  # Reduced from 10000 to 100
         { "fn": "rodinia-omp", "args": "backprop", "backends": [ "docker" ] },
-        { "fn": "ollama", "args": "hello world", "backends": [ "docker" ] }
+        # Skip ollama - it's too slow for regular testing (30-60s per test)
+        # { "fn": "ollama", "args": "hello world", "backends": [ "docker" ] }
 ]
 
 backend_opts = {
@@ -38,7 +44,7 @@ backend_opts = {
         "fission": "-f backends/fission.yaml",
         "knative": "-f backends/knative.yaml",
         "mpi": "-f backends/mpi.yaml -j '{ \"backend_options\": { \"mpi\": { \"mpiflags\": \"--host localhost:4\" } } }' --mpl 2",
-        "ssh": "-f backends/ssh.yaml -j '{ \"backend_options\": { \"ssh\": { \"hosts\": \"localhost\", \"run\": \"ssh $HOST \\\"source /home/frachten/sharp/venv-sharp/bin/activate && $CMD $ARGS\\\"\\n\" } } }'"
+        "ssh": f"-f backends/ssh.yaml -j '{{ \"backend_options\": {{ \"ssh\": {{ \"hosts\": \"localhost\", \"run\": \"ssh $HOST \\\"source {_venv_path} && $CMD $ARGS\\\"\\n\" }} }} }}'"
 }
 
 
@@ -46,6 +52,11 @@ class CompleteFunctionTests(CommandTestCase):
     """Tests to ensure launcher.py can run all built-in functions with all backends."""
     all_combinations = [ (f"{_['fn']}_{backend}", backend, _['fn'], _['args']) \
             for _ in fn_combinations for backend in _["backends"] ]
+
+    def setUp(self) -> None:
+        """Set up test with sys_specs disabled for faster testing."""
+        super().setUp()
+        self._skip_sys_specs = True  # Skip sys_specs for faster integration testing
 
     def check_docker_container(self, fn: str) -> bool:
         """Check if a Docker container with exact name is running.

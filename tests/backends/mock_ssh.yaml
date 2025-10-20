@@ -1,0 +1,6 @@
+backend_options:
+  mock_ssh:
+    run: |
+      # Mock ssh backend - instant execution
+      echo "Mock ssh backend executing..." >&2
+      $CMD $ARGS

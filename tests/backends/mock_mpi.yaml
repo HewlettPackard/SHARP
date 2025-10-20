@@ -1,0 +1,6 @@
+backend_options:
+  mock_mpi:
+    run: |
+      # Mock mpi backend - instant execution
+      echo "Mock mpi backend executing..." >&2
+      $CMD $ARGS

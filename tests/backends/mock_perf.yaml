@@ -1,0 +1,6 @@
+backend_options:
+  mock_perf:
+    run: |
+      # Mock perf backend - instant execution
+      echo "Mock perf backend executing..." >&2
+      $CMD $ARGS

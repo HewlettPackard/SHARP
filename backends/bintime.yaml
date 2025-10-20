@@ -1,6 +1,6 @@
 # Configuration excerpt to compute metrics from /bin/time
 backend_options:
-  time:
+  bintime:
     run: /usr/bin/time -f "bin-time output %e %S %F %R %M %P %c %w" bash -c '$CMD $ARGS'
 metrics:
   wall_time:

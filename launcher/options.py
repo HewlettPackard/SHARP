@@ -105,6 +105,11 @@ def parse_cmdline() -> argparse.Namespace:
         help="print to stdout the output from each function run",
         action="store_true",
     )
+    p.add_argument(
+        "--skip-sys-specs",
+        help="Skip system specification collection (faster for testing)",
+        action="store_true",
+    )
 
     g1 = p.add_mutually_exclusive_group()
     g1.add_argument(
@@ -224,10 +229,11 @@ def process_json_options(
     cfg: Dict[str, Any], args: argparse.Namespace
 ) -> Dict[str, Any]:
     """Merge options with JSON options read in from files or cmd-line string."""
-    # Always load sys_spec.yaml first to provide default system specifications
-    sys_spec_file = os.path.join(mydir, "sys_spec.yaml")
-    if os.path.exists(sys_spec_file):
-        merge(cfg, load_config(sys_spec_file))
+    # Load sys_spec.yaml unless --skip-sys-specs is set
+    if not getattr(args, 'skip_sys_specs', False):
+        sys_spec_file = os.path.join(mydir, "sys_spec.yaml")
+        if os.path.exists(sys_spec_file):
+            merge(cfg, load_config(sys_spec_file))
 
     # Then load user-specified config files (which can override sys_spec settings)
     cfiles: List[List[str]] = []

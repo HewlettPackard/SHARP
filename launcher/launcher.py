@@ -42,7 +42,11 @@ class Launcher:
         self._verbose = options["verbose"]
         self._timeout = options.get("timeout", None)
         self._mopts = options.get("metrics", {})
-        self._sys_spec: Dict[str, Dict[str, str]] = options.get("sys_spec_commands", {})
+        # Skip sys_specs if requested (useful for fast testing)
+        if options.get("skip_sys_specs", False):
+            self._sys_spec = {}
+        else:
+            self._sys_spec: Dict[str, Dict[str, str]] = options.get("sys_spec_commands", {})
         self._fn_path = options.get("fn_path", "")
 
         bopts: Dict[str, Any] = options.get("backend_options", {})

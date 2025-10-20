@@ -20,6 +20,11 @@ except:
 class SimpleLauncherTests(CommandTestCase):
     """Tests to ensure launcher.py handles command-line operations correctly."""
 
+    def setUp(self) -> None:
+        """Set up test with sys_specs disabled for faster testing."""
+        super().setUp()
+        self._skip_sys_specs = True  # Skip sys_specs for faster simple tests
+
     def test_launcher_no_arguments(self) -> None:
         """Test launcher.py without arguments, expecting an error."""
         stdout, stderr, returncode = self.run_launcher("")

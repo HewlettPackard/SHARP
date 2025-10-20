@@ -24,6 +24,8 @@ class OptionsProcessingTests(CommandTestCase):
     def setUp(self) -> None:
         """Set up test fixtures, including temporary config files."""
         super().setUp()
+        self._skip_sys_specs = True  # Skip sys_specs for faster option processing tests
+
         # Create temporary config files
         self.config_dir = os.path.join(self._runlogs_path, self._expname, "configs")
         os.makedirs(self.config_dir, exist_ok=True)
@@ -40,6 +42,9 @@ class OptionsProcessingTests(CommandTestCase):
 
     def test_sys_spec_override(self) -> None:
         """Test that sys_spec commands can be overridden by later config files."""
+        # This test specifically needs sys_specs, so disable skipping
+        self._skip_sys_specs = False
+
         # Create a config file that overrides a sys_spec command
         override_config = os.path.join(self.config_dir, "override_sys_spec.yaml")
         with open(override_config, "w") as f:
@@ -285,8 +290,11 @@ class OptionsProcessingTests(CommandTestCase):
 
     def test_time_backend(self) -> None:
         """Test time backend metrics."""
+        # This test needs real metrics from the time backend
+        self._skip_sys_specs = False
+
         stdout, stderr, returncode = self.run_launcher(
-            f'-d {self._runlogs} -e {self._expname} -f backends/bintime.yaml -b time {self._nope_fun}')
+            f'-d {self._runlogs} -e {self._expname} -f backends/bintime.yaml -b bintime {self._nope_fun}')
         self.assert_command_success(stdout, returncode)
         self.assertEqual(stderr, "", "Expected empty stderr")
 
@@ -302,9 +310,12 @@ class OptionsProcessingTests(CommandTestCase):
 
     def test_repro_task_override(self) -> None:
         """Test reproduction with task override."""
+        # This test needs real metrics for reproduction
+        self._skip_sys_specs = False
+
         # First create the source experiment
         self.run_launcher(
-            f'-d {self._runlogs} -e {self._expname} -f backends/bintime.yaml -b time {self._nope_fun}')
+            f'-d {self._runlogs} -e {self._expname} -f backends/bintime.yaml -b bintime {self._nope_fun}')
 
         # Run reproduction with task override
         md_path = os.path.join(self._runlogs_path, self._expname, f"{self._nope_fun}.md")
@@ -319,9 +330,12 @@ class OptionsProcessingTests(CommandTestCase):
 
     def test_repro_with_backend_override(self) -> None:
         """Test reproduction with backend override."""
+        # This test needs real metrics for reproduction
+        self._skip_sys_specs = False
+
         # First create the source experiment
         self.run_launcher(
-            f'-d {self._runlogs} -e {self._expname} -f backends/bintime.yaml -b time {self._nope_fun}')
+            f'-d {self._runlogs} -e {self._expname} -f backends/bintime.yaml -b bintime {self._nope_fun}')
 
         # Run reproduction with uname backend
         md_path = os.path.join(self._runlogs_path, self._expname, f"{self._nope_fun}.md")
