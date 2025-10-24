@@ -57,7 +57,7 @@ class TestFetchSources(unittest.TestCase):
             mock_run.return_value = MagicMock(returncode=0, stderr="")
 
             try:
-                fetch_sources([source], "test_bench")
+                fetch_sources([source], "test_bench", base_dir=self.temp_dir)
             except (OSError, Exception):
                 pass
 
@@ -78,7 +78,7 @@ class TestFetchSources(unittest.TestCase):
             mock_run.return_value = MagicMock(returncode=0, stderr="")
 
             try:
-                fetch_sources([source], "test_bench")
+                fetch_sources([source], "test_bench", base_dir=self.temp_dir)
             except (OSError, Exception):
                 pass
 
@@ -98,7 +98,7 @@ class TestFetchSources(unittest.TestCase):
             location=str(source_dir)
         )
 
-        result = fetch_sources([source], "test_bench")
+        result = fetch_sources([source], "test_bench", base_dir=self.temp_dir)
         self.assertIsInstance(result, Path)
         self.assertTrue(result.exists())
 
@@ -108,6 +108,7 @@ class TestBuildBenchmark(unittest.TestCase):
 
     def setUp(self):
         """Create benchmark configuration for testing."""
+        self.temp_dir = Path(tempfile.mkdtemp())
         self.benchmark = BenchmarkConfig(
             benchmarks={
                 'test_bench': BenchmarkEntry(
@@ -124,6 +125,12 @@ class TestBuildBenchmark(unittest.TestCase):
                 )
             }
         )
+
+    def tearDown(self):
+        """Clean up temporary files."""
+        import shutil
+        if self.temp_dir.exists():
+            shutil.rmtree(self.temp_dir)
 
     def test_build_benchmark_download_only_returns_manifest(self):
         """Test download_only flag returns manifest without building."""

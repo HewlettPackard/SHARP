@@ -20,12 +20,13 @@ from src.core.packaging.errors import BuildError, SourceError
 
 def fetch_sources(sources: list[BenchmarkSource],
                   benchmark_name: str,
-                  clean: bool = False) -> Path:
+                  clean: bool = False,
+                  base_dir: Path | None = None) -> Path:
     """
     Fetch and prepare benchmark sources.
 
     Downloads sources from git, local filesystem, or URL to a shared
-    directory within benchmarks/_sources/{benchmark_name}/.
+    directory within benchmarks/_sources/{benchmark_name}/ (or base_dir if specified).
 
     For benchmark suites (e.g., Rodinia), multiple benchmarks reference
     the same sources location, so they share the same download.
@@ -34,9 +35,10 @@ def fetch_sources(sources: list[BenchmarkSource],
         sources: List of source specifications (BenchmarkSource objects)
         benchmark_name: Benchmark name (used for directory path)
         clean: If True, remove existing sources before fetching
+        base_dir: Optional base directory for sources (default: benchmarks/_sources)
 
     Returns:
-        Path to sources directory (benchmarks/_sources/{benchmark_name}/)
+        Path to sources directory
 
     Raises:
         SourceError: If fetch fails or sources invalid
@@ -45,9 +47,12 @@ def fetch_sources(sources: list[BenchmarkSource],
     if not sources:
         raise SourceError("No sources specified in benchmark config")
 
-    # Determine sources directory in benchmarks/_sources/{benchmark_name}/
-    project_root = Path(__file__).parent.parent.parent.parent
-    sources_dir = project_root / "benchmarks" / "_sources" / benchmark_name
+    # Determine sources directory
+    if base_dir is None:
+        project_root = Path(__file__).parent.parent.parent.parent
+        base_dir = project_root / "benchmarks" / "_sources"
+
+    sources_dir = base_dir / benchmark_name
     sources_dir.mkdir(parents=True, exist_ok=True)
 
     # Handle --clean flag: remove existing sources
@@ -148,7 +153,8 @@ def _fetch_download(source: BenchmarkSource, dest: Path) -> None:
 def build_benchmark(benchmark: BenchmarkConfig,
                     backend_type: str,
                     download_only: bool = False,
-                    clean: bool = False) -> dict[str, Any]:
+                    clean: bool = False,
+                    base_dir: Path | None = None) -> dict[str, Any]:
     """
     Build benchmark artifact or prepare sources.
 
@@ -159,6 +165,7 @@ def build_benchmark(benchmark: BenchmarkConfig,
         backend_type: 'appimage' or 'docker'
         download_only: If True, download sources and return (no build)
         clean: If True, remove existing sources before build
+        base_dir: Optional base directory for sources (default: benchmarks/_sources)
 
     Returns:
         Build manifest dict with:
@@ -184,7 +191,8 @@ def build_benchmark(benchmark: BenchmarkConfig,
     sources_dir = fetch_sources(
         entry.sources,
         benchmark_name,
-        clean=clean
+        clean=clean,
+        base_dir=base_dir
     )
 
     # If --download-only, return early with manifest

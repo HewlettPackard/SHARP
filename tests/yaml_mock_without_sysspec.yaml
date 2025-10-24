@@ -1,5 +1,0 @@
-backend_options:
-  YAMLMockLauncherWithoutSysSpec:
-    run: |
-      echo "YAMLMockLauncherWithoutSysSpec"
-      $CMD $ARGS

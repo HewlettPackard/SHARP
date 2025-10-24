@@ -8,6 +8,7 @@ initialization to prevent unintended runtime modifications.
 © Copyright 2024--2025 Hewlett Packard Enterprise Development LP
 """
 
+import copy
 import os
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -73,7 +74,8 @@ class Settings:
             default: Default value if key not found
 
         Returns:
-            Setting value or default if not found
+            Setting value or default if not found. For dict values, returns
+            a deep copy to prevent external modification.
 
         Example:
             >>> settings = Settings()
@@ -91,6 +93,9 @@ class Settings:
             else:
                 return default
 
+        # Return deep copy for dicts to prevent mutation
+        if isinstance(val, dict):
+            return copy.deepcopy(val)
         return val
 
     @property
@@ -105,5 +110,4 @@ class Settings:
 
         Returns a deep copy to prevent external modification of settings.
         """
-        import copy
         return copy.deepcopy(self._data)
