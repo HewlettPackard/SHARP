@@ -1,0 +1,23 @@
+# MPI Microbenchmark Suite
+# Defines 1 MPI-focused microbenchmark for parallel communication patterns
+
+include:
+  - ../_shared.yaml
+
+benchmarks:
+  mpi-pingpong-single:
+    entry_point: python3
+    args: [mpi-pingpong-single.py]
+    tags: [communication, mpi]
+
+sources: []  # Local MPI Python file
+
+build:
+  docker:
+    base_image: python:3.10-slim
+    requirements: [mpi4py, numpy]
+  appimage:
+    runtime: ubuntu:20.04
+    system_deps: [libopenmpi-dev]
+
+tags: [python, mpi]

@@ -1,0 +1,42 @@
+# CPU Microbenchmark Suite
+# Defines 5 CPU-focused microbenchmarks with local Python implementations
+
+include:
+  - ../_shared.yaml
+
+benchmarks:
+  sleep:
+    entry_point: python3
+    args: [sleep.py, "1.0"]
+    tags: [latency]
+
+  nope:
+    entry_point: python3
+    args: [nope.py]
+    tags: [overhead]
+
+  inc:
+    entry_point: python3
+    args: [inc.py, "1000", "0"]
+    tags: [memory]
+
+  matmul:
+    entry_point: python3
+    args: [matmul.py, "100"]
+    tags: [compute]
+
+  bounce:
+    entry_point: python3
+    args: [bounce.py]
+    tags: [network]
+
+sources: []  # Local files in same directory
+
+build:
+  docker:
+    base_image: python:3.10-slim
+    requirements: [numpy, flask]
+  appimage:
+    runtime: ubuntu:20.04
+
+tags: [python, cpu]
