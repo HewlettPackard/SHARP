@@ -31,7 +31,7 @@ def singleton(cls: Type[T]) -> Type[T]:
         The decorated class with singleton behavior
     """
     class SingletonWrapper:
-        _instances = {}
+        _instances: dict[Type[T], T] = {}
 
         def __call__(self, *args: Any, **kwargs: Any) -> T:
             if cls not in self._instances:

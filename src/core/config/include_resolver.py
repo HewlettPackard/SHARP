@@ -214,7 +214,7 @@ def _process_includes(
         )
 
     # Start with empty dict, merge all includes
-    merged = {}
+    merged: dict[str, Any] = {}
 
     for include_path in includes:
         if not isinstance(include_path, str):

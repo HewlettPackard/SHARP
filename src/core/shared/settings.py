@@ -83,7 +83,7 @@ class Settings:
             'runlogs'
         """
         keys = key_path.split('.')
-        val = self._data
+        val: Any = self._data
 
         for k in keys:
             if isinstance(val, dict):

@@ -56,6 +56,7 @@ class BackendOptionConfig(BaseModel):
     composable: bool = True  # False means outermost backend (cannot be wrapped)
     command_template: str = ""  # Shell command with $CMD and $ARGS placeholders
     placeholders: dict[str, str] = {}  # Macro substitutions (e.g., PROCS for MPI)
+    reset: str = ""  # Reset command for cold starts (e.g., clear caches)
 
     @field_validator('command_template')
     @classmethod

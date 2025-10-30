@@ -7,58 +7,41 @@ and integration with include resolution.
 © Copyright 2025--2025 Hewlett Packard Enterprise Development LP
 """
 
+import pytest
 import tempfile
-import unittest
 from pathlib import Path
-
-from pydantic import ValidationError
 
 from src.core.config.errors import ConfigError
 from src.core.config.loader import load_config, discover_benchmarks, discover_backends
 from src.core.config.schema import (
     BackendConfig,
-    BackendOptionConfig,
     BenchmarkConfig,
-    BenchmarkSource,
-    BenchmarkBuild,
-    BenchmarkEntry,
-    MetricDefinition,
 )
 
 
-class TestLoadConfig(unittest.TestCase):
-    """Test load_config function."""
+@pytest.fixture
+def config_temp_dir(tmp_path):
+    """Create temporary directory for test files."""
+    return tmp_path
 
-    def setUp(self):
-        """Create temporary directory for test files."""
-        self.temp_dir = Path(tempfile.mkdtemp())
 
-    def tearDown(self):
-        """Clean up temporary files."""
-        for file in self.temp_dir.rglob("*"):
-            if file.is_file():
-                file.unlink()
-        for dir in sorted(self.temp_dir.rglob("*"), reverse=True):
-            if dir.is_dir():
-                dir.rmdir()
-        self.temp_dir.rmdir()
+def test_load_config_without_schema_returns_dict(config_temp_dir):
+    """Test loading config without schema returns raw dict."""
+    config_file = config_temp_dir / "config.yaml"
+    config_file.write_text("key1: value1\nkey2: value2\nlist: [1, 2, 3]")
 
-    def test_load_config_without_schema_returns_dict(self):
-        """Test loading config without schema returns raw dict."""
-        config_file = self.temp_dir / "config.yaml"
-        config_file.write_text("key1: value1\nkey2: value2\nlist: [1, 2, 3]")
+    result = load_config(str(config_file))
 
-        result = load_config(str(config_file))
+    assert isinstance(result, dict)
+    assert result['key1'] == 'value1'
+    assert result['key2'] == 'value2'
+    assert result['list'] == [1, 2, 3]
 
-        self.assertIsInstance(result, dict)
-        self.assertEqual(result['key1'], 'value1')
-        self.assertEqual(result['key2'], 'value2')
-        self.assertEqual(result['list'], [1, 2, 3])
 
-    def test_load_config_with_backend_schema(self):
-        """Test loading backend config with schema validation."""
-        backend_file = self.temp_dir / "backend.yaml"
-        backend_file.write_text("""
+def test_load_config_with_backend_schema(config_temp_dir):
+    """Test loading backend config with schema validation."""
+    backend_file = config_temp_dir / "backend.yaml"
+    backend_file.write_text("""
 backend_options:
   local:
     profiling: false
@@ -70,17 +53,18 @@ metrics:
     extract: "grep cycles"
 """)
 
-        result = load_config(str(backend_file), BackendConfig)
+    result = load_config(str(backend_file), BackendConfig)
 
-        self.assertIsInstance(result, BackendConfig)
-        self.assertIn('local', result.backend_options)
-        self.assertEqual(result.backend_options['local'].command_template, "$CMD $ARGS")
-        self.assertIn('cycles', result.metrics)
+    assert isinstance(result, BackendConfig)
+    assert 'local' in result.backend_options
+    assert result.backend_options['local'].command_template == "$CMD $ARGS"
+    assert 'cycles' in result.metrics
 
-    def test_load_config_with_benchmark_schema(self):
-        """Test loading benchmark config with schema validation."""
-        benchmark_file = self.temp_dir / "benchmark.yaml"
-        benchmark_file.write_text("""
+
+def test_load_config_with_benchmark_schema(config_temp_dir):
+    """Test loading benchmark config with schema validation."""
+    benchmark_file = config_temp_dir / "benchmark.yaml"
+    benchmark_file.write_text("""
 benchmarks:
   test_bench:
     sources:
@@ -94,17 +78,18 @@ benchmarks:
 metrics: {}
 """)
 
-        result = load_config(str(benchmark_file), BenchmarkConfig)
+    result = load_config(str(benchmark_file), BenchmarkConfig)
 
-        self.assertIsInstance(result, BenchmarkConfig)
-        self.assertIn('test_bench', result.benchmarks)
-        self.assertEqual(result.benchmarks['test_bench'].entry_point, 'python3')
+    assert isinstance(result, BenchmarkConfig)
+    assert 'test_bench' in result.benchmarks
+    assert result.benchmarks['test_bench'].entry_point == 'python3'
 
-    def test_load_config_with_includes_merges_correctly(self):
-        """Test config with includes merges data correctly."""
-        # Create base config
-        base_file = self.temp_dir / "base.yaml"
-        base_file.write_text("""
+
+def test_load_config_with_includes_merges_correctly(config_temp_dir):
+    """Test config with includes merges data correctly."""
+    # Create base config
+    base_file = config_temp_dir / "base.yaml"
+    base_file.write_text("""
 backend_options:
   local:
     command_template: "$CMD $ARGS"
@@ -114,9 +99,9 @@ metrics:
     extract: "echo base"
 """)
 
-        # Create main config that includes base
-        main_file = self.temp_dir / "main.yaml"
-        main_file.write_text("""
+    # Create main config that includes base
+    main_file = config_temp_dir / "main.yaml"
+    main_file.write_text("""
 include:
   - base.yaml
 backend_options:
@@ -129,115 +114,112 @@ metrics:
     extract: "grep perf"
 """)
 
-        result = load_config(str(main_file), BackendConfig)
+    result = load_config(str(main_file), BackendConfig)
 
-        # Should have both backends
-        self.assertIn('local', result.backend_options)
-        self.assertIn('perf', result.backend_options)
-        # Should have both metrics
-        self.assertIn('base_metric', result.metrics)
-        self.assertIn('perf_metric', result.metrics)
+    # Should have both backends
+    assert 'local' in result.backend_options
+    assert 'perf' in result.backend_options
+    # Should have both metrics
+    assert 'base_metric' in result.metrics
+    assert 'perf_metric' in result.metrics
 
-    def test_load_config_validation_error_raises_config_error(self):
-        """Test schema validation failure raises ConfigError."""
-        bad_backend = self.temp_dir / "bad.yaml"
-        bad_backend.write_text("""
+
+def test_load_config_validation_error_raises_config_error(config_temp_dir):
+    """Test schema validation failure raises ConfigError."""
+    bad_backend = config_temp_dir / "bad.yaml"
+    bad_backend.write_text("""
 backend_options:
   broken:
     command_template: "missing placeholders"
 """)
 
-        with self.assertRaises(ConfigError) as context:
-            load_config(str(bad_backend), BackendConfig)
+    with pytest.raises(ConfigError) as context:
+        load_config(str(bad_backend), BackendConfig)
 
-        error_msg = str(context.exception)
-        self.assertIn("Validation failed", error_msg)
-        self.assertIn("BackendConfig", error_msg)
+    error_msg = str(context.value)
+    assert "Validation failed" in error_msg
+    assert "BackendConfig" in error_msg
 
-    def test_load_config_missing_file_raises_error(self):
-        """Test loading nonexistent file raises ConfigError."""
-        with self.assertRaises(ConfigError) as context:
-            load_config(str(self.temp_dir / "nonexistent.yaml"))
 
-        error_msg = str(context.exception)
-        self.assertIn("not found", error_msg.lower())
+def test_load_config_missing_file_raises_error(config_temp_dir):
+    """Test loading nonexistent file raises ConfigError."""
+    with pytest.raises(ConfigError) as context:
+        load_config(str(config_temp_dir / "nonexistent.yaml"))
 
-    def test_load_config_invalid_yaml_raises_error(self):
-        """Test invalid YAML raises ConfigError."""
-        bad_file = self.temp_dir / "bad.yaml"
-        # Actually invalid YAML - unterminated quote
-        bad_file.write_text("key: 'unterminated string\nother: value")
+    error_msg = str(context.value)
+    assert "not found" in error_msg.lower()
 
-        with self.assertRaises(ConfigError):
-            load_config(str(bad_file))
 
-    def test_load_config_resolves_relative_path(self):
-        """Test loader resolves relative paths correctly."""
-        config_file = self.temp_dir / "config.yaml"
-        config_file.write_text("key: value")
+def test_load_config_invalid_yaml_raises_error(config_temp_dir):
+    """Test invalid YAML raises ConfigError."""
+    bad_file = config_temp_dir / "bad.yaml"
+    # Actually invalid YAML - unterminated quote
+    bad_file.write_text("key: 'unterminated string\nother: value")
 
-        # Change to temp dir and use relative path
-        import os
-        original_cwd = os.getcwd()
-        try:
-            os.chdir(self.temp_dir)
-            result = load_config("config.yaml")
-            self.assertEqual(result['key'], 'value')
-        finally:
-            os.chdir(original_cwd)
+    with pytest.raises(ConfigError):
+        load_config(str(bad_file))
 
-    def test_load_config_type_hints_work_correctly(self):
-        """Test type hints allow proper IDE autocomplete."""
-        backend_file = self.temp_dir / "backend.yaml"
-        backend_file.write_text("""
+
+def test_load_config_resolves_relative_path(config_temp_dir):
+    """Test loader resolves relative paths correctly."""
+    config_file = config_temp_dir / "config.yaml"
+    config_file.write_text("key: value")
+
+    # Change to temp dir and use relative path
+    import os
+    original_cwd = os.getcwd()
+    try:
+        os.chdir(config_temp_dir)
+        result = load_config("config.yaml")
+        assert result['key'] == 'value'
+    finally:
+        os.chdir(original_cwd)
+
+
+def test_load_config_type_hints_work_correctly(config_temp_dir):
+    """Test type hints allow proper IDE autocomplete."""
+    backend_file = config_temp_dir / "backend.yaml"
+    backend_file.write_text("""
 backend_options:
   local:
     command_template: "$CMD $ARGS"
 metrics: {}
 """)
 
-        # With schema, should return typed object
-        typed_result = load_config(str(backend_file), BackendConfig)
-        self.assertIsInstance(typed_result, BackendConfig)
-        # IDE should know this has backend_options attribute
-        self.assertTrue(hasattr(typed_result, 'backend_options'))
+    # With schema, should return typed object
+    typed_result = load_config(str(backend_file), BackendConfig)
+    assert isinstance(typed_result, BackendConfig)
+    # IDE should know this has backend_options attribute
+    assert hasattr(typed_result, 'backend_options')
 
-        # Without schema, should return dict
-        untyped_result = load_config(str(backend_file))
-        self.assertIsInstance(untyped_result, dict)
+    # Without schema, should return dict
+    untyped_result = load_config(str(backend_file))
+    assert isinstance(untyped_result, dict)
 
 
-class TestDiscoverBenchmarks(unittest.TestCase):
-    """Test discover_benchmarks function."""
+@pytest.fixture
+def benchmarks_temp_dir(tmp_path):
+    """Create temporary directory for test benchmarks."""
+    benchmarks_dir = tmp_path / "benchmarks"
+    benchmarks_dir.mkdir()
+    return tmp_path, benchmarks_dir
 
-    def setUp(self):
-        """Create temporary directory for test benchmarks."""
-        self.temp_dir = Path(tempfile.mkdtemp())
-        self.benchmarks_dir = self.temp_dir / "benchmarks"
-        self.benchmarks_dir.mkdir()
 
-    def tearDown(self):
-        """Clean up temporary files."""
-        for file in self.temp_dir.rglob("*"):
-            if file.is_file():
-                file.unlink()
-        for dir in sorted(self.temp_dir.rglob("*"), reverse=True):
-            if dir.is_dir():
-                dir.rmdir()
-        self.temp_dir.rmdir()
+def test_discover_benchmarks_empty_directory(benchmarks_temp_dir):
+    """Test discovering benchmarks in empty directory returns empty dict."""
+    temp_dir, benchmarks_dir = benchmarks_temp_dir
+    result = discover_benchmarks(benchmarks_dir)
+    assert result == {}
 
-    def test_discover_benchmarks_empty_directory(self):
-        """Test discovering benchmarks in empty directory returns empty dict."""
-        result = discover_benchmarks(self.benchmarks_dir)
-        self.assertEqual(result, {})
 
-    def test_discover_benchmarks_single_benchmark(self):
-        """Test discovering single benchmark in directory."""
-        # Create a benchmark directory with benchmark.yaml
-        bench_dir = self.benchmarks_dir / "sleep"
-        bench_dir.mkdir()
-        config_file = bench_dir / "benchmark.yaml"
-        config_file.write_text("""
+def test_discover_benchmarks_single_benchmark(benchmarks_temp_dir):
+    """Test discovering single benchmark in directory."""
+    temp_dir, benchmarks_dir = benchmarks_temp_dir
+    # Create a benchmark directory with benchmark.yaml
+    bench_dir = benchmarks_dir / "sleep"
+    bench_dir.mkdir()
+    config_file = bench_dir / "benchmark.yaml"
+    config_file.write_text("""
 benchmarks:
   sleep:
     sources:
@@ -251,21 +233,23 @@ benchmarks:
 metrics: {}
 """)
 
-        result = discover_benchmarks(self.benchmarks_dir)
+    result = discover_benchmarks(benchmarks_dir)
 
-        self.assertEqual(len(result), 1)
-        self.assertIn('sleep', result)
-        config_path, bench_name = result['sleep']
-        self.assertEqual(config_path, config_file)
-        self.assertEqual(bench_name, 'sleep')
+    assert len(result) == 1
+    assert 'sleep' in result
+    config_path, bench_name = result['sleep']
+    assert config_path == config_file
+    assert bench_name == 'sleep'
 
-    def test_discover_benchmarks_multiple_benchmarks_per_file(self):
-        """Test discovering multiple benchmarks from single file."""
-        # Create one directory with multiple benchmarks
-        bench_dir = self.benchmarks_dir / "suite"
-        bench_dir.mkdir()
-        config_file = bench_dir / "benchmark.yaml"
-        config_file.write_text("""
+
+def test_discover_benchmarks_multiple_benchmarks_per_file(benchmarks_temp_dir):
+    """Test discovering multiple benchmarks from single file."""
+    temp_dir, benchmarks_dir = benchmarks_temp_dir
+    # Create one directory with multiple benchmarks
+    bench_dir = benchmarks_dir / "suite"
+    bench_dir.mkdir()
+    config_file = bench_dir / "benchmark.yaml"
+    config_file.write_text("""
 benchmarks:
   bench1:
     sources:
@@ -297,25 +281,27 @@ benchmarks:
 metrics: {}
 """)
 
-        result = discover_benchmarks(self.benchmarks_dir)
+    result = discover_benchmarks(benchmarks_dir)
 
-        self.assertEqual(len(result), 3)
-        self.assertIn('bench1', result)
-        self.assertIn('bench2', result)
-        self.assertIn('bench3', result)
+    assert len(result) == 3
+    assert 'bench1' in result
+    assert 'bench2' in result
+    assert 'bench3' in result
 
-        # All should point to same config file
-        for bench_name in ['bench1', 'bench2', 'bench3']:
-            config_path, name = result[bench_name]
-            self.assertEqual(config_path, config_file)
-            self.assertEqual(name, bench_name)
+    # All should point to same config file
+    for bench_name in ['bench1', 'bench2', 'bench3']:
+        config_path, name = result[bench_name]
+        assert config_path == config_file
+        assert name == bench_name
 
-    def test_discover_benchmarks_nested_directories(self):
-        """Test discovering benchmarks in nested directory structure."""
-        # Create nested structure
-        sleep_dir = self.benchmarks_dir / "microbenchmarks" / "sleep"
-        sleep_dir.mkdir(parents=True)
-        (sleep_dir / "benchmark.yaml").write_text("""
+
+def test_discover_benchmarks_nested_directories(benchmarks_temp_dir):
+    """Test discovering benchmarks in nested directory structure."""
+    temp_dir, benchmarks_dir = benchmarks_temp_dir
+    # Create nested structure
+    sleep_dir = benchmarks_dir / "microbenchmarks" / "sleep"
+    sleep_dir.mkdir(parents=True)
+    (sleep_dir / "benchmark.yaml").write_text("""
 benchmarks:
   sleep:
     sources:
@@ -328,9 +314,9 @@ benchmarks:
 metrics: {}
 """)
 
-        matmul_dir = self.benchmarks_dir / "microbenchmarks" / "matmul"
-        matmul_dir.mkdir(parents=True)
-        (matmul_dir / "benchmark.yaml").write_text("""
+    matmul_dir = benchmarks_dir / "microbenchmarks" / "matmul"
+    matmul_dir.mkdir(parents=True)
+    (matmul_dir / "benchmark.yaml").write_text("""
 benchmarks:
   matmul:
     sources:
@@ -343,61 +329,57 @@ benchmarks:
 metrics: {}
 """)
 
-        result = discover_benchmarks(self.benchmarks_dir)
+    result = discover_benchmarks(benchmarks_dir)
 
-        self.assertEqual(len(result), 2)
-        self.assertIn('sleep', result)
-        self.assertIn('matmul', result)
-
-    def test_discover_benchmarks_nonexistent_directory(self):
-        """Test discovering benchmarks in nonexistent directory returns empty."""
-        nonexistent = self.temp_dir / "does_not_exist"
-        result = discover_benchmarks(nonexistent)
-        self.assertEqual(result, {})
-
-    def test_discover_benchmarks_invalid_yaml_raises_error(self):
-        """Test invalid benchmark.yaml raises ConfigError."""
-        bench_dir = self.benchmarks_dir / "broken"
-        bench_dir.mkdir()
-        config_file = bench_dir / "benchmark.yaml"
-        # Missing required 'benchmarks' key
-        config_file.write_text("metrics: {}")
-
-        with self.assertRaises(ConfigError) as context:
-            discover_benchmarks(self.benchmarks_dir)
-
-        error_msg = str(context.exception)
-        self.assertIn("Failed to load benchmark config", error_msg)
+    assert len(result) == 2
+    assert 'sleep' in result
+    assert 'matmul' in result
 
 
-class TestDiscoverBackends(unittest.TestCase):
-    """Test discover_backends function."""
+def test_discover_benchmarks_nonexistent_directory(benchmarks_temp_dir):
+    """Test discovering benchmarks in nonexistent directory returns empty."""
+    temp_dir, benchmarks_dir = benchmarks_temp_dir
+    nonexistent = temp_dir / "does_not_exist"
+    result = discover_benchmarks(nonexistent)
+    assert result == {}
 
-    def setUp(self):
-        """Create temporary directory for test backends."""
-        self.temp_dir = Path(tempfile.mkdtemp())
-        self.backends_dir = self.temp_dir / "backends"
-        self.backends_dir.mkdir()
 
-    def tearDown(self):
-        """Clean up temporary files."""
-        for file in self.temp_dir.rglob("*"):
-            if file.is_file():
-                file.unlink()
-        for dir in sorted(self.temp_dir.rglob("*"), reverse=True):
-            if dir.is_dir():
-                dir.rmdir()
-        self.temp_dir.rmdir()
+def test_discover_benchmarks_invalid_yaml_raises_error(benchmarks_temp_dir):
+    """Test invalid benchmark.yaml raises ConfigError."""
+    temp_dir, benchmarks_dir = benchmarks_temp_dir
+    bench_dir = benchmarks_dir / "broken"
+    bench_dir.mkdir()
+    config_file = bench_dir / "benchmark.yaml"
+    # Missing required 'benchmarks' key
+    config_file.write_text("metrics: {}")
 
-    def test_discover_backends_empty_directory(self):
-        """Test discovering backends in empty directory returns empty dict."""
-        result = discover_backends([str(self.backends_dir)])
-        self.assertEqual(result, {})
+    with pytest.raises(ConfigError) as context:
+        discover_benchmarks(benchmarks_dir)
 
-    def test_discover_backends_single_backend(self):
-        """Test discovering single backend."""
-        local_file = self.backends_dir / "local.yaml"
-        local_file.write_text("""
+    error_msg = str(context.value)
+    assert "Failed to load benchmark config" in error_msg
+
+
+@pytest.fixture
+def backends_temp_dir(tmp_path):
+    """Create temporary directory for test backends."""
+    backends_dir = tmp_path / "backends"
+    backends_dir.mkdir()
+    return tmp_path, backends_dir
+
+
+def test_discover_backends_empty_directory(backends_temp_dir):
+    """Test discovering backends in empty directory returns empty dict."""
+    temp_dir, backends_dir = backends_temp_dir
+    result = discover_backends([str(backends_dir)])
+    assert result == {}
+
+
+def test_discover_backends_single_backend(backends_temp_dir):
+    """Test discovering single backend."""
+    temp_dir, backends_dir = backends_temp_dir
+    local_file = backends_dir / "local.yaml"
+    local_file.write_text("""
 backend_options:
   local:
     profiling: false
@@ -406,16 +388,18 @@ backend_options:
 metrics: {}
 """)
 
-        result = discover_backends([str(self.backends_dir)])
+    result = discover_backends([str(backends_dir)])
 
-        self.assertEqual(len(result), 1)
-        self.assertIn('local', result)
-        self.assertIsInstance(result['local'], BackendConfig)
+    assert len(result) == 1
+    assert 'local' in result
+    assert isinstance(result['local'], BackendConfig)
 
-    def test_discover_backends_multiple_backends(self):
-        """Test discovering multiple backends."""
-        # Create execution backend
-        (self.backends_dir / "local.yaml").write_text("""
+
+def test_discover_backends_multiple_backends(backends_temp_dir):
+    """Test discovering multiple backends."""
+    temp_dir, backends_dir = backends_temp_dir
+    # Create execution backend
+    (backends_dir / "local.yaml").write_text("""
 backend_options:
   local:
     profiling: false
@@ -423,8 +407,8 @@ backend_options:
 metrics: {}
 """)
 
-        # Create profiling backend
-        (self.backends_dir / "perf.yaml").write_text("""
+    # Create profiling backend
+    (backends_dir / "perf.yaml").write_text("""
 backend_options:
   perf:
     profiling: true
@@ -435,16 +419,18 @@ metrics:
     extract: "grep cycles"
 """)
 
-        result = discover_backends([str(self.backends_dir)])
+    result = discover_backends([str(backends_dir)])
 
-        self.assertEqual(len(result), 2)
-        self.assertIn('local', result)
-        self.assertIn('perf', result)
+    assert len(result) == 2
+    assert 'local' in result
+    assert 'perf' in result
 
-    def test_discover_backends_filter_profiling_only(self):
-        """Test filtering to profiling backends only."""
-        # Create execution backend
-        (self.backends_dir / "local.yaml").write_text("""
+
+def test_discover_backends_filter_profiling_only(backends_temp_dir):
+    """Test filtering to profiling backends only."""
+    temp_dir, backends_dir = backends_temp_dir
+    # Create execution backend
+    (backends_dir / "local.yaml").write_text("""
 backend_options:
   local:
     profiling: false
@@ -452,8 +438,8 @@ backend_options:
 metrics: {}
 """)
 
-        # Create profiling backends
-        (self.backends_dir / "perf.yaml").write_text("""
+    # Create profiling backends
+    (backends_dir / "perf.yaml").write_text("""
 backend_options:
   perf:
     profiling: true
@@ -461,7 +447,7 @@ backend_options:
 metrics: {}
 """)
 
-        (self.backends_dir / "strace.yaml").write_text("""
+    (backends_dir / "strace.yaml").write_text("""
 backend_options:
   strace:
     profiling: true
@@ -469,17 +455,19 @@ backend_options:
 metrics: {}
 """)
 
-        result = discover_backends([str(self.backends_dir)], profiling=True)
+    result = discover_backends([str(backends_dir)], profiling=True)
 
-        self.assertEqual(len(result), 2)
-        self.assertIn('perf', result)
-        self.assertIn('strace', result)
-        self.assertNotIn('local', result)
+    assert len(result) == 2
+    assert 'perf' in result
+    assert 'strace' in result
+    assert 'local' not in result
 
-    def test_discover_backends_filter_execution_only(self):
-        """Test filtering to execution backends only."""
-        # Create execution backends
-        (self.backends_dir / "local.yaml").write_text("""
+
+def test_discover_backends_filter_execution_only(backends_temp_dir):
+    """Test filtering to execution backends only."""
+    temp_dir, backends_dir = backends_temp_dir
+    # Create execution backends
+    (backends_dir / "local.yaml").write_text("""
 backend_options:
   local:
     profiling: false
@@ -487,7 +475,7 @@ backend_options:
 metrics: {}
 """)
 
-        (self.backends_dir / "ssh.yaml").write_text("""
+    (backends_dir / "ssh.yaml").write_text("""
 backend_options:
   ssh:
     profiling: false
@@ -495,8 +483,8 @@ backend_options:
 metrics: {}
 """)
 
-        # Create profiling backend
-        (self.backends_dir / "perf.yaml").write_text("""
+    # Create profiling backend
+    (backends_dir / "perf.yaml").write_text("""
 backend_options:
   perf:
     profiling: true
@@ -504,20 +492,22 @@ backend_options:
 metrics: {}
 """)
 
-        result = discover_backends([str(self.backends_dir)], profiling=False)
+    result = discover_backends([str(backends_dir)], profiling=False)
 
-        self.assertEqual(len(result), 2)
-        self.assertIn('local', result)
-        self.assertIn('ssh', result)
-        self.assertNotIn('perf', result)
+    assert len(result) == 2
+    assert 'local' in result
+    assert 'ssh' in result
+    assert 'perf' not in result
 
-    def test_discover_backends_multiple_search_paths(self):
-        """Test discovering backends from multiple search paths."""
-        # Create second backend directory
-        backends_dir2 = self.temp_dir / "custom_backends"
-        backends_dir2.mkdir()
 
-        (self.backends_dir / "local.yaml").write_text("""
+def test_discover_backends_multiple_search_paths(backends_temp_dir):
+    """Test discovering backends from multiple search paths."""
+    temp_dir, backends_dir = backends_temp_dir
+    # Create second backend directory
+    backends_dir2 = temp_dir / "custom_backends"
+    backends_dir2.mkdir()
+
+    (backends_dir / "local.yaml").write_text("""
 backend_options:
   local:
     profiling: false
@@ -525,7 +515,7 @@ backend_options:
 metrics: {}
 """)
 
-        (backends_dir2 / "custom.yaml").write_text("""
+    (backends_dir2 / "custom.yaml").write_text("""
 backend_options:
   custom:
     profiling: false
@@ -533,34 +523,34 @@ backend_options:
 metrics: {}
 """)
 
-        result = discover_backends([str(self.backends_dir), str(backends_dir2)])
+    result = discover_backends([str(backends_dir), str(backends_dir2)])
 
-        self.assertEqual(len(result), 2)
-        self.assertIn('local', result)
-        self.assertIn('custom', result)
+    assert len(result) == 2
+    assert 'local' in result
+    assert 'custom' in result
 
-    def test_discover_backends_nonexistent_directory(self):
-        """Test discovering backends in nonexistent directory returns empty."""
-        nonexistent = str(self.temp_dir / "does_not_exist")
-        result = discover_backends([nonexistent])
-        self.assertEqual(result, {})
 
-    def test_discover_backends_invalid_yaml_raises_error(self):
-        """Test invalid backend.yaml raises ConfigError."""
-        bad_file = self.backends_dir / "broken.yaml"
-        # Missing command template placeholders
-        bad_file.write_text("""
+def test_discover_backends_nonexistent_directory(backends_temp_dir):
+    """Test discovering backends in nonexistent directory returns empty."""
+    temp_dir, backends_dir = backends_temp_dir
+    nonexistent = str(temp_dir / "does_not_exist")
+    result = discover_backends([nonexistent])
+    assert result == {}
+
+
+def test_discover_backends_invalid_yaml_raises_error(backends_temp_dir):
+    """Test invalid backend.yaml raises ConfigError."""
+    temp_dir, backends_dir = backends_temp_dir
+    bad_file = backends_dir / "broken.yaml"
+    # Missing command template placeholders
+    bad_file.write_text("""
 backend_options:
   broken:
     command_template: "missing placeholders"
 """)
 
-        with self.assertRaises(ConfigError) as context:
-            discover_backends([str(self.backends_dir)])
+    with pytest.raises(ConfigError) as context:
+        discover_backends([str(backends_dir)])
 
-        error_msg = str(context.exception)
-        self.assertIn("Failed to load backend config", error_msg)
-
-
-if __name__ == '__main__':
-    unittest.main()
+    error_msg = str(context.value)
+    assert "Failed to load backend config" in error_msg
