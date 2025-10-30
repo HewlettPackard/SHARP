@@ -1,12 +1,13 @@
 [project]
 name = "sharp"
 version = "4.0.0"
-description = "Serverless and HPC Application Runtime Profiler"
+description = "Scalable Heterogeneous Architecture for Reproducible Performance"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "Proprietary"}
 authors = [
-    {name = "SHARP Team"}
+    {name = "Eitan Frachtenberg", email = "eitan.frachtenberg@hpe.com"},
+    {name = "Viyom Mittal", email = "viyom.mittal@hpe.com"}
 ]
 
 dependencies = [
