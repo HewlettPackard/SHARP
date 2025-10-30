@@ -4,7 +4,7 @@ Simple MPI peer-to-peer function that sends a number of messages up and down a r
 
 This function runs an MPI application in a single function instance.
 The MPI application is a Python program using the `mpi4py` library.
-It performs a synchronization in a ring using `N` ranks, all in the same 
+It performs a synchronization in a ring using `N` ranks, all in the same
 function/container. `N` is a parameter passed to the function.
 
 The function uses a binary environment with Python3 and OpenMPI installed.

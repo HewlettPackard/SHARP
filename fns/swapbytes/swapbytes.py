@@ -9,7 +9,7 @@ Each output is a copy of the input using reverse byte order.
 The program tries to disable the Linux buffer cache before reading to ensure actual disk I/O is performed and measured.
 This application can serve as a simple I/O micro-benchmark.
 Several example input files of different sizes can be used in the format `zeros-*m`.
-The code recreates these files (if not already present), without the need for 
+The code recreates these files (if not already present), without the need for
 any external package or initialization.
 
 © Copyright 2022--2025 Hewlett Packard Enterprise Development LP

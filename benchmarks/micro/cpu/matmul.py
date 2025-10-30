@@ -5,14 +5,14 @@ Square a random matrix of a given size on the CPU.
 This application creates a random matrix of size `N`x`N` and squares it.
 Returns (prints) the time taken by the squaring.
 
-The code uses `numpy` and therefore requires a custom-built environment that 
+The code uses `numpy` and therefore requires a custom-built environment that
 installs it.
 
-The code can use up all available cores if the version of `numpy` supports it. The default python builder for Fission (using Alpine) does not support it. 
-But if you create a custom builder/environment as described 
+The code can use up all available cores if the version of `numpy` supports it. The default python builder for Fission (using Alpine) does not support it.
+But if you create a custom builder/environment as described
 [here](../../docs/setup/fission.md), you can use multithreaded `numpy`.
 
-The parameter `N` is passed either by argv[1] or in the body of the HTTP 
+The parameter `N` is passed either by argv[1] or in the body of the HTTP
 request.  The run time is somwhere between O(N<sup>2</sup>) and O(N<sup>3</sup>).
 On a 24-core E5-2680 v3, this yields about 50s for `N`=20000.
 

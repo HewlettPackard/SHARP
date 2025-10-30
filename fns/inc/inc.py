@@ -3,20 +3,20 @@
 A simple CPU-stressor function.
 
 This application creates an array in RAM and incmrements all the values in it
-sequentially. It runs on the CPU and tests the performance of the memory 
+sequentially. It runs on the CPU and tests the performance of the memory
 bandwidth on a single thread.
-The array size is drawn randomly from a gaussian distribution with a given 
+The array size is drawn randomly from a gaussian distribution with a given
 mean and scale.
 Returns (prints) the time taken by the process.
 
 The code uses `numpy` and therefore requires a custom-built environment that installs it.
 
 It takes two integer optional parameters in order.
-The first parameter is the mean size of the array. If you want the array to be 
+The first parameter is the mean size of the array. If you want the array to be
 a constant size, just pass it as an only parameter.
-If the second parameter is given, it is used as the scale of the Gaussian 
+If the second parameter is given, it is used as the scale of the Gaussian
 distribution (again, you can pass 0 for a constant size).
-More details on the distribution can be found 
+More details on the distribution can be found
 [here](https://numpy.org/doc/stable/reference/random/generated/numpy.random.normal.html).
 
 The parameters are passed either by argv, stdin, or in the body of the HTTP request.

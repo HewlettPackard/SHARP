@@ -25,8 +25,8 @@ Below is the list of all the available benchmarks with their default parameters 
     * srad_v2: 2048 2048 0 127 0 127 0.5 2
 
 ## Note: For executing the binaries locally, you need to compile the
-[Rodinia benchmarks](https://github.com/yuhc/gpu-rodinia) on your system in 
-the folder `/usr/local/rodinia/`. It assumes that the binaries are combiled 
+[Rodinia benchmarks](https://github.com/yuhc/gpu-rodinia) on your system in
+the folder `/usr/local/rodinia/`. It assumes that the binaries are combiled
 using the Makefile and are present in `/usr/local/rodinia/bin/linux/omp/`.
 The launcher can be used for local execution as shown below:
 

@@ -3,7 +3,7 @@
 In addition to the default `outer_time` metric that is measured for all benchmarks and functions, the user can add arbitrary metrics to their benchmarks.
 These metrics are logged into the CSV files in `runlogs`, described in the corresponding .md file, and can be imported into the resulting .pdf report.
 
-To add metrics to your run, you need to add a configuration subsection called `metrics` (configuration can be modified via the `-f` or `-j` flags to `launcher.py` and visualized with `-v`, as described [here](./launcher.md)).
+To add metrics to your run, you need to add a configuration subsection called `metrics` (configuration can be modified via the `-f` or `-j` flags to launch and visualized with `-v`, as described [here](./launch.md)).
 The `metrics` section includes one or more metric sections (dictionaries), each including the following variables:
 
  * `description` (string): a text explaining what is being measured.
@@ -49,16 +49,16 @@ The following JSON file is an example with three metrics (can be done in YAML fo
 SHARP also lets you define a backend with a single metric named 'auto'.
 This metric can actually expand to numerous metrics when parsing the
 application's output using the 'extract' command.
-Each line in that output is assumed to have two columns, the first with the 
+Each line in that output is assumed to have two columns, the first with the
 metric's name and the second with the metric's value.
-It is assumed that there is only one 'auto' metric in all the backend files 
+It is assumed that there is only one 'auto' metric in all the backend files
 included in a single experiment. It's also assumed that all the metrics that
 have a value in one run (copy/rank) will have the same metrics for all the other runs.
 
 To see an example in action, examine the backend file `backends/strace.yaml`.
 Run it with the command:
 ```sh
-./launcher/launch.py -f launcher/default_config.yaml -f backends/strace.yaml -b strace /bin/ls
+./launcher/launch.py -f backends/strace.yaml -b strace /bin/ls
 ```
 Then, examine the content of the files `runlogs/misc/ls.*`.
 

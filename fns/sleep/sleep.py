@@ -4,10 +4,10 @@ A function to idly wait.
 
 This function suspends execution for a given amount of seconds (given as
 command-line argument, in stdin, or in the request body).
-It is useful for creating a cool-down period between other functions, possibly 
+It is useful for creating a cool-down period between other functions, possibly
 flushing the framework's caches.
 
-Caution: most frameworks time out for long functions (the default for Fission 
+Caution: most frameworks time out for long functions (the default for Fission
 is 60s).
 If you plan to sleep for longer periods, you must adjust the timeout period.
 

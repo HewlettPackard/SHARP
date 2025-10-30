@@ -14,7 +14,6 @@ To run this benchmark, you'll need one or more hosts (physical or virtual), runn
         g++ \
         golang \
         python3-pip \
-        python3-venv \
         apt-transport-https \
         libopenmpi-dev \
         libev-dev \
@@ -111,13 +110,18 @@ Choose one or more of the following FaaS frameworks and install it:
 
 ## Install Python packages
 
-SHARP requires a few Python packages to be installed, found in the `requirements.txt` file. You can install them all using:
+SHARP uses `uv` for Python package management. Install dependencies using:
 
 ```sh
 cd sharp
-python3 -m venv venv-sharp
-source venv-sharp/bin/activate
-venv-sharp/bin/pip3 install -r requirements.txt
+uv sync --extra dev
+```
+
+This will create a virtual environment in `.venv/` and install all required packages from `pyproject.toml` using the locked versions in `uv.lock`.
+
+**Note**: If you don't have `uv` installed, install it first:
+```sh
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
 In addition, some of the benchmarking functions have their own prerequisites that need to be installed *at all the hosts you are benchmarking*, that is, not necessarily the same host you're running SHARP from. Depending on which functions and which backend you're planning to run in your benchmarks, you may need to install some or all of the prerequisites.

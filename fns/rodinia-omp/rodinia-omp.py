@@ -28,15 +28,15 @@ Below is the list of all the available benchmarks with their default parameters 
 
     1. nn: The binary returns error while trying to read an input file.
 
-## Note: For executing the binaries locally, you need to compile the 
+## Note: For executing the binaries locally, you need to compile the
 [Rodinia benchmarks](https://github.com/yuhc/gpu-rodinia) on your system in the
-folder `/usr/local/rodinia/`. It assumes that the binaries are combiled using 
+folder `/usr/local/rodinia/`. It assumes that the binaries are combiled using
 the Makefile and are present in `/usr/local/rodinia/bin/linux/omp/`.
 The launcher can be used for local execution as shown below:
 
     `./launcher/launch.py -b local rodinia-omp 'backprop 65536'`
 
-The input parameters can be passed either by argv, stdin, or in the body of 
+The input parameters can be passed either by argv, stdin, or in the body of
 the HTTP request.
 
 © Copyright 2022--2025 Hewlett Packard Enterprise Development LP

@@ -61,7 +61,7 @@ improve_locality:
   description: |
     Rearrange the data structures in the code to improve locality,
     so that more related data resides together on the same page,
-    or that fewer pages are used overall (for example, by using smaller basic 
+    or that fewer pages are used overall (for example, by using smaller basic
     datatypes, int16 instead of int32, etc.). Experiment with sparse arrays vs.
     dense arrays. Consider compressing your data structures (e.g., using bit vectors).
   references:

@@ -254,4 +254,4 @@ Common errors and their meanings:
 
 - [Backend Configuration Schema](backend.md)
 - [Benchmark Configuration Schema](benchmark.md)
-- [Configuration Loading Guide](../launcher.md)
+- [Configuration Loading Guide](../launch.md)

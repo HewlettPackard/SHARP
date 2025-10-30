@@ -14,12 +14,12 @@ More details about ollama and LLMs can be found [here](https://github.com/ollama
 ## Running Ollama locally
 To run the LLM model locally, you need to install
 [Ollama](https://github.com/ollama/ollama) on your system and run its service.
-It assumes that the Llama2 model is pulled after running the service. 
+It assumes that the Llama2 model is pulled after running the service.
 The launcher can be used for local execution as shown below:
 
     `./launcher/launch.py -v -b local ollama 'Who are you'`
 
-The input parameters can be passed either by argv, stdin, or in the body of 
+The input parameters can be passed either by argv, stdin, or in the body of
 the HTTP request.
 
 © Copyright 2023--2025 Hewlett Packard Enterprise Development LP

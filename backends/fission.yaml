@@ -1,7 +1,7 @@
 # Configuration excerpt to use Knative backend
 backend_options:
   fission:
-    reset: | 
+    reset: |
       pod_name=$(fission fn pods --name $FN | grep -oE "^poolmgr[a-zA-Z0-9-]+")
       if [ -n "$pod_name" ]; then
         kubectl delete pod $pod_name --force --grace-period=0

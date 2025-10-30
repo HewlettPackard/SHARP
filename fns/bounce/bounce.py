@@ -2,11 +2,11 @@
 """
 Bounce-back the request body.
 
-This application reads in the entire body of the request and returns it as a 
+This application reads in the entire body of the request and returns it as a
 string, together with the time it took to read the request.
-This "kernel" time measures only the overhead of reading the request data 
+This "kernel" time measures only the overhead of reading the request data
 through flask.
-The complete two-way overhead of sending the request and reading it back can 
+The complete two-way overhead of sending the request and reading it back can
 be measured as the roundtrip time from launching the function to completion.
 
 © Copyright 2022--2025 Hewlett Packard Enterprise Development LP

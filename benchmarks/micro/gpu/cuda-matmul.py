@@ -7,11 +7,11 @@ It's the CUDA version of `matmul`.
 The fast matrix-multiply code is adapted from [here](https://numba.readthedocs.io/en/stable/cuda/examples.html#id30).
 
 The parameter `N` is passed either by argv[1] or in the body of the HTTP request.
-The run time grows approximately as O(N<sup>3</sup>) and can therefore get too 
+The run time grows approximately as O(N<sup>3</sup>) and can therefore get too
 long for a function for `N`>10,000 or so.
 Returns (prints) the time taken by the squaring.
 
-The code uses `numba` and therefore requires a custom-built environment that 
+The code uses `numba` and therefore requires a custom-built environment that
 installs it.  The code requires CUDA support and a custom environment and builder.
 See more setup instructions [here](../setup/CUDA.md).
 

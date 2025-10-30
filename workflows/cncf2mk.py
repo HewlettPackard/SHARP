@@ -3,7 +3,7 @@
 Convert CNCF workflow to Makefile.
 
 This script reads in a single workflow file in JSON format, conforming to a
-subset of CNCF Serverless Workflow Format v. 0.8, and creates a Makefile out 
+subset of CNCF Serverless Workflow Format v. 0.8, and creates a Makefile out
 of the workflow, representing the state transitions as calls to `launch.py`.
 Simply call it with a single filename argument.
 

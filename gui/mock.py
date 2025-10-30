@@ -1,4 +1,4 @@
-#!/usr/bin/env python3 
+#!/usr/bin/env python3
 #
 # Mock program to pretend to be SHARP's launcher, for testing.
 # Takes number of iterations as argument.
