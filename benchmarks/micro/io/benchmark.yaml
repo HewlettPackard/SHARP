@@ -6,8 +6,8 @@ include:
 
 benchmarks:
   swapbytes:
-    entry_point: python3
-    args: [swapbytes.py]
+    entry_point: ./swapbytes.py
+    args: []
     tags: [io, memory]
 
 sources: []  # Local I/O Python file

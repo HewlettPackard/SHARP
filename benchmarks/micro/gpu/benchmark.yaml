@@ -6,13 +6,13 @@ include:
 
 benchmarks:
   cuda-inc:
-    entry_point: python3
-    args: [cuda-inc.py, "10000", "0"]
+    entry_point: ./cuda-inc.py
+    args: ["10000", "0"]
     tags: [memory]
 
   cuda-matmul:
-    entry_point: python3
-    args: [cuda-matmul.py, "1024"]
+    entry_point: ./cuda-matmul.py
+    args: ["1024"]
     tags: [compute]
 
 sources: []  # Local CUDA Python files

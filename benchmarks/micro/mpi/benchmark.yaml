@@ -6,8 +6,8 @@ include:
 
 benchmarks:
   mpi-pingpong-single:
-    entry_point: python3
-    args: [mpi-pingpong-single.py]
+    entry_point: ./mpi-pingpong-single.py
+    args: []
     tags: [communication, mpi]
 
 sources: []  # Local MPI Python file

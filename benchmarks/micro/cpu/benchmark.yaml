@@ -6,28 +6,28 @@ include:
 
 benchmarks:
   sleep:
-    entry_point: python3
-    args: [sleep.py, "1.0"]
+    entry_point: ./sleep.py
+    args: ["1.0"]
     tags: [latency]
 
   nope:
-    entry_point: python3
-    args: [nope.py]
+    entry_point: ./nope.py
+    args: []
     tags: [overhead]
 
   inc:
-    entry_point: python3
-    args: [inc.py, "1000", "0"]
+    entry_point: ./inc.py
+    args: ["1000", "0"]
     tags: [memory]
 
   matmul:
-    entry_point: python3
-    args: [matmul.py, "100"]
+    entry_point: ./matmul.py
+    args: ["100"]
     tags: [compute]
 
   bounce:
-    entry_point: python3
-    args: [bounce.py]
+    entry_point: ./bounce.py
+    args: []
     tags: [network]
 
 sources: []  # Local files in same directory
