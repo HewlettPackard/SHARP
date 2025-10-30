@@ -4,7 +4,7 @@ version = "4.0.0"
 description = "Scalable Heterogeneous Architecture for Reproducible Performance"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "Proprietary"}
+license = {file = "LICENSE.md"}
 authors = [
     {name = "Eitan Frachtenberg", email = "eitan.frachtenberg@hpe.com"},
     {name = "Viyom Mittal", email = "viyom.mittal@hpe.com"}
@@ -12,26 +12,23 @@ authors = [
 
 dependencies = [
     "pyyaml>=6.0.0",
-    "pyyaml-include>=2.0",
     "numpy>=2.0.0",
     "scipy>=1.15.0",
     "scikit-learn>=1.5.0",
-    "parameterized>=0.9.0",
     "isodate>=0.6.0",
     "arviz>=0.21.0",
-    "flask>=2.2.0",
-    "werkzeug>=3.0.0",
-    "requests>=2.31.0",
-    "gevent>=24.2.0",
-    "mpi4py>=4.0.0",
-    "numba>=0.61.0",
     "pydantic>=2.0.0",
 ]
+
+[project.scripts]
+sharp = "src.cli.sharp:main"
+launch = "src.cli.launch:main"
+build = "src.cli.build:main"
+compare = "src.cli.compare:main"
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0.0",
-    "pytest-asyncio>=0.21.0",
     "mypy>=1.0.0",
     "flask>=2.2.0",
     "werkzeug>=3.0.0",
@@ -50,6 +47,7 @@ packages = ["src"]
 managed = true
 
 [tool.pytest.ini_options]
+pythonpath = ["src"]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
@@ -59,7 +57,6 @@ markers = [
     "integration: Integration tests (slower, multiple components)",
     "smoke: Smoke tests (minimal end-to-end validation)",
     "slow: Slow tests (profiling, large datasets)",
-    "asyncio: Tests requiring asyncio support",
     "performance: Performance regression tests",
 ]
 addopts = "-v --tb=short"
@@ -70,3 +67,8 @@ warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
 ignore_missing_imports = true
+
+[dependency-groups]
+dev = [
+    "types-pyyaml>=6.0.12.20250915",
+]
