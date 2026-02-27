@@ -282,6 +282,9 @@ select_tree_predictors <- function(data, metric, exclude, max_predictors = MAX_P
   all_exclude <- unique(c(exclude, constant_cols, metric, "cat"))
   potential_predictors <- setdiff(names(data), all_exclude)
 
+  # Early return if no predictors remain after exclusion
+  if (length(potential_predictors) == 0) return(character(0))
+
   # Separate numeric and non-numeric predictors
   is_numeric_col <- sapply(data[potential_predictors], is.numeric)
   numeric_predictors <- potential_predictors[is_numeric_col]
@@ -625,7 +628,7 @@ render_optimize <- function(input, output, session) {
       data.frame()
     }
   })
-  mitfn <- reactive(gsub(".md", sprintf("-%s.csv", input$mitigationSelector), mdfn()))
+  mitfn <- reactive(gsub(".md", sprintf("-%s.csv", input$mitigationSelector), get_mdfn()))
 
   observeEvent(input$profileFile, {
     req(nrow(dataset()) > 0)
@@ -922,7 +925,7 @@ render_optimize <- function(input, output, session) {
       # Use data.table for faster variance checking on large datasets
       dt <- as.data.table(temp_filtered)
       variance_check <- dt[, lapply(.SD, function(x) length(unique(na.omit(x))) > 1)]
-      variance_check <- as.logical(variance_check[1,])
+      variance_check <- unlist(variance_check[1,], use.names = FALSE)
     } else {
       variance_check <- sapply(temp_filtered, function(x) length(unique(na.omit(x))) > 1)
     }
