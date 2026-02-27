@@ -56,15 +56,14 @@ render_explore <- function(input, output, session) {
 
   # Dynamic file button that shows filename when loaded
   output$exploreFileButton <- renderUI({
-    # Render initial button
     if (is.null(data$raw)) {
       shinyFilesButton('exploreFile', label="Load dataset", title="Select log file to explore", multiple=FALSE, icon=icon('file-lines'))
     } else {
-      # Show filename after data is loaded
+      # Show filename after data is loaded, but keep it as a shinyFilesButton so clicking re-opens the chooser
       file_path <- get_cfn()
       fname <- basename(file_path)
       with_tooltip(
-        actionButton('exploreFileLoaded', label=fname, icon=icon('file-lines'), class='btn-primary'),
+        shinyFilesButton('exploreFile', label=fname, title="Select log file to explore", multiple=FALSE, icon=icon('file-lines'), class='btn-primary'),
         file_path
       )
     }
