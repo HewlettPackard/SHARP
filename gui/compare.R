@@ -105,7 +105,7 @@ narrative_comparison <- function(baseline, treatment, metric)
 }
 
 #####################
-render_compare <- function(input, output) {
+render_compare <- function(input, output, session) {
   digits <- 4
   data <- reactiveValues()
 

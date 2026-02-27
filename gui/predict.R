@@ -239,7 +239,7 @@ plot_memory_prediction <- function(perf, input)
 
 
 ################################################
-render_predict <- function(input, output)
+render_predict <- function(input, output, session)
 {
   output$sharpLogo <- renderImage({
     filename <- normalizePath(file.path('./www', 'sharp.png'))

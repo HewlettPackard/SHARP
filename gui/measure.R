@@ -185,7 +185,7 @@ getMetadata <- function(fn)
 }
 
 #################################################
-render_measure <- function(input, output) {
+render_measure <- function(input, output, session) {
   observeEvent(input$runButton, {
     if (input$func == "") {
       showModal(modalDialog("Function or executable required"))

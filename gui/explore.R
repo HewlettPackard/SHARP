@@ -45,7 +45,7 @@ explorePanel <- tabPanel("Explore",
 
 
 #####################
-render_explore <- function(input, output) {
+render_explore <- function(input, output, session) {
   digits <- 4
   shinyFileChoose(input, 'exploreFile', roots=c(logdir='../runlogs'), filetypes=c('csv'))
   cfn <- reactive(parseFilePaths(roots=c(logdir='../runlogs'), input$exploreFile)$datapath)
