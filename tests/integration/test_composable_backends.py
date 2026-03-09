@@ -96,7 +96,7 @@ def _verify_markdown_output(helper, expected_content: Optional[List[str]] = None
         content = f.read()
 
     # Always check for system configuration section
-    assert "## System configuration" in content, \
+    assert "## Initial system configuration" in content, \
         "System configuration section not found in markdown output"
 
     # Check for additional expected content

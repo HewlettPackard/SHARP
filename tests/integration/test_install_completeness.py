@@ -10,6 +10,7 @@ that all of its built-in functions can be run with all of its backends.
 """
 
 import os
+import shutil
 import subprocess
 import pytest
 from pathlib import Path
@@ -75,6 +76,16 @@ def setup_test(launcher_helper, request):
     yield launcher_helper
 
 
+def _knative_available() -> bool:
+    """Return True if the knative CLI (kn) is installed."""
+    return shutil.which("kn") is not None
+
+
+def _fission_available() -> bool:
+    """Return True if the fission CLI is installed."""
+    return shutil.which("fission") is not None
+
+
 @pytest.mark.parametrize(
     "name,backend,fn,args",
     all_combinations,
@@ -83,6 +94,11 @@ def setup_test(launcher_helper, request):
 def test_install(setup_test, name, backend, fn, args):
     """Launcher can run for a given combination of backend and function."""
     helper = setup_test
+
+    if backend == "knative" and not _knative_available():
+        pytest.skip("knative CLI (kn) is not installed")
+    if backend == "fission" and not _fission_available():
+        pytest.skip("fission CLI is not installed")
 
     # Check if Docker container exists when using docker backend
     if backend == "docker" and not check_docker_container(fn):

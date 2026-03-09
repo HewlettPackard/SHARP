@@ -4,6 +4,7 @@ datafile
 *.swp
 *.zip
 runlogs
+!src/core/runlogs/
 reports
 mpi-test
 benchmarks.md

@@ -79,9 +79,9 @@ def load_repro_file(filepath: str) -> Dict[str, Any]:
 
     with open(path, 'r') as f:
         for line in f:
-            if line.strip() == "## Runtime options":
+            if line.strip() == "## Initial runtime options":
                 copy_now = True
-            elif line.strip() == "## Field description":
+            elif copy_now and line.startswith("## "):
                 break
             elif copy_now:
                 # Skip code block markers

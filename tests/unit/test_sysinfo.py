@@ -7,7 +7,7 @@ Uses actual shell commands to catch real bugs in subprocess handling.
 © Copyright 2025--2025 Hewlett Packard Enterprise Development LP
 """
 
-from src.core.logging.sysinfo import collect_sysinfo
+from src.core.runlogs import collect_sysinfo
 
 
 def test_real_commands_execute_and_strip_whitespace():
@@ -29,7 +29,7 @@ def test_real_commands_execute_and_strip_whitespace():
 
 
 def test_failed_commands_return_empty_not_exception():
-    """Nonexistent or failing commands return empty string without raising exceptions."""
+    """Nonexistent or failing commands return empty dict when all fail (post-processed)."""
     commands = {
         'failures': {
             'nonexistent': '/nonexistent/command/xyz',
@@ -38,12 +38,11 @@ def test_failed_commands_return_empty_not_exception():
         }
     }
 
-    # Should not raise, should return empty strings
+    # Should not raise, should return empty dict for group with all failures
     result = collect_sysinfo(commands)
 
-    assert result['failures']['nonexistent'] == '', "Nonexistent command should return empty"
-    assert result['failures']['bad_exit'] == '', "Non-zero exit should return empty"
-    assert result['failures']['stderr_only'] == '', "stderr output should not be captured"
+    # After post-processing, groups with all empty/"NA" values become empty dict
+    assert result['failures'] == {}, "Group with all failures should become empty dict"
 
 
 def test_unicode_escape_sequences_decoded():

@@ -12,10 +12,18 @@ import pytest
 import csv
 import json
 import os
+import re
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from src.core.logging.writer import RunLogger
+from src.core.runlogs import RunLogger
+
+
+def _extract_invariants(md_path: Path) -> dict:
+    content = md_path.read_text()
+    match = re.search(r"## Invariant parameters.*?```json\s+(.*?)\s+```", content, re.DOTALL)
+    assert match, "Invariant block missing in markdown"
+    return json.loads(match.group(1))
 
 
 # ========== Test RunLogger basic functionality ==========
@@ -36,24 +44,24 @@ def test_init_nested_experiment_directory(tmp_path) -> None:
     assert exp_dir.exists(), "Nested experiment directory should be created"
 
 
-def test_add_column_single(tmp_path) -> None:
-    """Test adding a single column."""
+def test_add_invariant_single(tmp_path) -> None:
+    """Test adding a single invariant."""
     logger = RunLogger(str(tmp_path), "test_exp", "test_task", {})
-    logger.add_column("runtime", "45.3", "float", "Total runtime in seconds")
+    logger.add_invariant("runtime", "45.3", "float", "Total runtime in seconds")
 
-    assert len(logger._columns) == 1
-    assert logger._columns["runtime"] == "45.3"
+    assert len(logger._constants) == 1
+    assert logger._constants["runtime"]["value"] == "45.3"
 
 
-def test_add_column_multiple(tmp_path) -> None:
-    """Test adding multiple columns."""
+def test_add_invariant_multiple(tmp_path) -> None:
+    """Test adding multiple invariants."""
     logger = RunLogger(str(tmp_path), "test_exp", "test_task", {})
-    logger.add_column("backend", "docker", "string", "Execution backend")
-    logger.add_column("version", "1.2", "string", "Software version")
+    logger.add_invariant("backend", "docker", "string", "Execution backend")
+    logger.add_invariant("version", "1.2", "string", "Software version")
 
-    assert len(logger._columns) == 2
-    assert logger._columns["backend"] == "docker"
-    assert logger._columns["version"] == "1.2"
+    assert len(logger._constants) == 2
+    assert logger._constants["backend"]["value"] == "docker"
+    assert logger._constants["version"]["value"] == "1.2"
 
 
 def test_add_row_data_single_row(tmp_path) -> None:
@@ -85,27 +93,27 @@ def test_add_row_data_multiple_rows(tmp_path) -> None:
 
 
 def test_clear_rows(tmp_path) -> None:
-    """Test that clear_rows resets row data but keeps columns."""
+    """Test that clear_rows resets row data but keeps constants."""
     logger = RunLogger(str(tmp_path), "test_exp", "test_task", {})
-    logger.add_column("backend", "docker", "string", "Backend")
+    logger.add_invariant("backend", "docker", "string", "Backend")
     logger.add_row_data("iteration", 1, "int", "Iteration")
 
     assert len(logger._rows) == 1
-    assert len(logger._columns) == 1
+    assert len(logger._constants) == 1
 
     logger.clear_rows()
 
     assert len(logger._rows) == 0
-    assert len(logger._columns) == 1, "Columns should persist"
-    assert logger._columns["backend"] == "docker"
+    assert len(logger._constants) == 1, "Invariants should persist"
+    assert logger._constants["backend"]["value"] == "docker"
 
 
 def test_save_csv_basic(tmp_path) -> None:
-    """Test CSV generation with columns and rows."""
+    """Test CSV generation with invariants and rows."""
     logger = RunLogger(str(tmp_path), "test_exp", "test_task", {})
 
-    # Add shared column
-    logger.add_column("backend", "docker", "string", "Execution backend")
+    # Add constant (should NOT be in CSV)
+    logger.add_invariant("backend", "docker", "string", "Execution backend")
 
     # Add two rows
     logger.add_row_data("iteration", 1, "int", "Iteration number")
@@ -125,7 +133,8 @@ def test_save_csv_basic(tmp_path) -> None:
         rows = list(reader)
 
     assert len(rows) == 2, "CSV should have 2 rows"
-    assert rows[0]["backend"] == "docker"
+    assert "launch_id" in rows[0], "CSV should have launch_id"
+    assert "backend" not in rows[0], "CSV should NOT have invariants"
     assert rows[0]["iteration"] == "1"
     assert rows[0]["latency"] == "10.5"
     assert rows[1]["iteration"] == "2"
@@ -135,7 +144,7 @@ def test_save_csv_basic(tmp_path) -> None:
 def test_save_csv_append_mode(tmp_path) -> None:
     """Test CSV append mode."""
     logger = RunLogger(str(tmp_path), "test_exp", "test_task", {})
-    logger.add_column("backend", "docker", "string", "Backend")
+    logger.add_invariant("backend", "docker", "string", "Backend")
     logger.add_row_data("iteration", 1, "int", "Iteration")
     logger.add_row_data("latency", 10.5, "float", "Latency")
 
@@ -154,6 +163,7 @@ def test_save_csv_append_mode(tmp_path) -> None:
         rows = list(reader)
 
     assert len(rows) == 2, "CSV should have 2 rows after append"
+    assert rows[0]["launch_id"] == rows[1]["launch_id"], "Launch ID should be same for same logger instance"
 
 
 def test_save_md_basic(tmp_path) -> None:
@@ -161,7 +171,7 @@ def test_save_md_basic(tmp_path) -> None:
     options = {"verbose": False, "backend": "docker"}
     logger = RunLogger(str(tmp_path), "test_exp", "test_task", options)
 
-    logger.add_column("backend", "docker", "string", "Execution backend")
+    logger.add_invariant("backend", "docker", "string", "Execution backend")
     logger.add_row_data("iteration", 1, "int", "Iteration number")
     logger.add_row_data("latency", 10.5, "float", "Latency in ms")
 
@@ -175,10 +185,22 @@ def test_save_md_basic(tmp_path) -> None:
         content = f.read()
 
     # Verify key sections
-    assert "Field description" in content
-    assert "`backend` (string)" in content
+    assert "CSV field description" in content
+    assert "`launch_id` (string)" in content
     assert "`iteration` (int)" in content
     assert "`latency` (float)" in content
+
+    # Verify invariant sections
+    assert "Invariant field description" in content
+    assert "Invariant parameters" in content
+
+    # Backend should be in invariant field description, not CSV field description
+    csv_section = content.split("## Invariant field description")[0]
+    invariant_section = content.split("## Invariant field description")[1].split("## Invariant parameters")[0]
+    assert "`backend` (string)" not in csv_section, "Invariants should not be in CSV field description"
+    assert "`backend` (string)" in invariant_section, "Invariants should be in Invariant field description"
+
+    assert "Initial runtime options" in content
 
 
 def test_save_md_with_system_specs(tmp_path) -> None:
@@ -198,35 +220,40 @@ def test_save_md_with_system_specs(tmp_path) -> None:
     with open(md_path, "r") as f:
         content = f.read()
 
-    assert "System configuration" in content
+    assert "Initial system configuration" in content
     assert "Intel Xeon" in content
     assert "256" in content
 
 
-def test_save_md_skip_append_if_exists(tmp_path) -> None:
-    """Test that append mode skips writing if file exists."""
+def test_save_md_appends_invariants(tmp_path) -> None:
+    """Test that append mode updates invariants."""
     logger = RunLogger(str(tmp_path), "test_exp", "test_task", {})
+    logger.add_invariant("run", "1", "int", "Run 1")
 
     # Write initial markdown
     logger.save_md(mode="w")
     md_path = f"{logger._base_path}.md"
 
-    # Get initial size
-    initial_size = os.path.getsize(md_path)
+    # Create new logger (simulating new run)
+    logger2 = RunLogger(str(tmp_path), "test_exp", "test_task", {})
+    logger2.add_invariant("run", "2", "int", "Run 2")
 
-    # Append (should do nothing)
-    logger.save_md(mode="a")
+    # Append
+    logger2.save_md(mode="a")
 
-    # Size should not change
-    final_size = os.path.getsize(md_path)
-    assert initial_size == final_size, "Append should not write if file exists"
+    invariants = _extract_invariants(Path(md_path))
+    # New structure: { launch_id: { param: value, ... }, ... }
+    assert logger._launch_id in invariants
+    assert logger2._launch_id in invariants
+    assert invariants[logger._launch_id]["run"] == "1"
+    assert invariants[logger2._launch_id]["run"] == "2"
 
 
 def test_metadata_tracking(tmp_path) -> None:
-    """Test that metadata is tracked for columns and rows."""
+    """Test that metadata is tracked for invariants and rows."""
     logger = RunLogger(str(tmp_path), "test_exp", "test_task", {})
 
-    logger.add_column("backend", "docker", "string", "Execution backend")
+    logger.add_invariant("backend", "docker", "string", "Execution backend")
     logger.add_row_data("iteration", 1, "int", "Iteration number")
 
     assert "backend" in logger._metadata
@@ -241,9 +268,9 @@ def test_duplicate_field_updates_metadata(tmp_path) -> None:
     """Test that redefining a field updates metadata consistently."""
     logger = RunLogger(str(tmp_path), "test_exp", "test_task", {})
 
-    logger.add_column("backend", "docker", "string", "Original description")
+    logger.add_invariant("backend", "docker", "string", "Original description")
     # Add same field again (metadata should be from first definition)
-    logger.add_column("backend", "singularity", "string", "Different description")
+    logger.add_invariant("backend", "singularity", "string", "Different description")
 
     assert logger._metadata["backend"]["desc"] == "Original description"
 
@@ -263,7 +290,7 @@ def test_preamble_includes_options(tmp_path) -> None:
     assert "sys_spec_commands" not in logger._preamble
 
 
-@patch("src.core.logging.writer.subprocess.run")
+@patch("src.core.runlogs.writer.subprocess.run")
 def test_preamble_includes_git_hash(mock_run: MagicMock, tmp_path) -> None:
     """Test that preamble includes git hash when available."""
     mock_run.return_value.returncode = 0
@@ -277,7 +304,7 @@ def test_preamble_includes_git_hash(mock_run: MagicMock, tmp_path) -> None:
 
 def test_preamble_handles_missing_git(tmp_path) -> None:
     """Test that preamble handles missing git gracefully."""
-    with patch("src.core.logging.writer.subprocess.run", side_effect=FileNotFoundError):
+    with patch("src.core.runlogs.writer.subprocess.run", side_effect=FileNotFoundError):
         options = {}
         logger = RunLogger(str(tmp_path), "test_exp", "test_task", options)
 
@@ -300,7 +327,7 @@ def test_task_name_extraction_from_path(tmp_path) -> None:
 def test_save_csv_fails_with_no_rows(tmp_path) -> None:
     """Test that save_csv raises AssertionError with no rows."""
     logger = RunLogger(str(tmp_path), "test_exp", "test_task", {})
-    logger.add_column("backend", "docker", "string", "Backend")
+    logger.add_invariant("backend", "docker", "string", "Backend")
 
     with pytest.raises(AssertionError):
         logger.save_csv()
@@ -318,8 +345,48 @@ def test_add_row_data_creates_new_row_when_field_repeated(tmp_path) -> None:
     assert len(logger._rows) == 2
 
 
+def test_repeated_field_records_distinct_values(tmp_path) -> None:
+    """Ensure repeated columns keep their values across multiple rows."""
+    logger = RunLogger(str(tmp_path), "test_exp", "test_task", {})
+
+    # First row: rank 0, measurement 1
+    logger.add_row_data("rank", 0, "int", "MPI rank")
+    logger.add_row_data("value", 1, "int", "Sample value")
+
+    # Second row: rank 1, measurement 2 (should be a new row)
+    logger.add_row_data("rank", 1, "int", "MPI rank")
+    logger.add_row_data("value", 2, "int", "Sample value")
+
+    assert logger._rows[0]["rank"] == 0
+    assert logger._rows[1]["rank"] == 1
+
+
 def test_empty_experiment_name(tmp_path) -> None:
     """Test that empty experiment name works (creates topdir directly)."""
     logger = RunLogger(str(tmp_path), "", "test_task", {})
     # Should still create base_path successfully
     assert logger._base_path is not None
+
+
+def test_markdown_includes_row_count(tmp_path) -> None:
+    """Test that markdown includes total rows count in summary line."""
+    logger = RunLogger(str(tmp_path), "test_exp", "test_task", {})
+
+    # Add multiple rows
+    logger.add_row_data("iteration", 1, "int", "Iteration")
+    logger.add_row_data("latency", 10.5, "float", "Latency")
+
+    logger.add_row_data("iteration", 2, "int", "Iteration")
+    logger.add_row_data("latency", 11.2, "float", "Latency")
+
+    logger.add_row_data("iteration", 3, "int", "Iteration")
+    logger.add_row_data("latency", 12.0, "float", "Latency")
+
+    logger.save_md()
+
+    md_path = f"{logger._base_path}.md"
+    with open(md_path, "r") as f:
+        content = f.read()
+
+    # Verify row count appears in summary line
+    assert "total rows: 3" in content, "Markdown should include row count"

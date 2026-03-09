@@ -7,8 +7,6 @@ for inclusion in experiment metadata and markdown output.
 © Copyright 2025--2025 Hewlett Packard Enterprise Development LP
 """
 
-from __future__ import annotations
-
 import subprocess
 from typing import Any
 
@@ -59,17 +57,11 @@ def collect_sysinfo(
 
     result: dict[str, dict[str, str]] = {}
 
-    # If backends are provided, create composer
-    # For sys specs, we create a minimal benchmark_spec with the command as entry_point
-    composer = None
-    if backend_options is not None and backend_names is not None:
-        composer = CommandComposer(backend_options, benchmark_spec=None)
-
     for group, commands in sys_spec_commands.items():
         result[group] = {}
         for key, command in commands.items():
             try:
-                if composer and backend_names:
+                if backend_options and backend_names:
                     # Treat sys spec command like a regular command
                     # entry_point becomes the sys spec command, args is empty
                     temp_spec = {"entry_point": command, "args": "", "task": ""}
@@ -108,5 +100,11 @@ def collect_sysinfo(
             except Exception:
                 # Any other error (command not found, etc.)
                 result[group][key] = ""
+
+    # Post-process: Replace groups with all empty/"NA" values with empty dict
+    for group in list(result.keys()):
+        values = result[group].values()
+        if values and all(v in ("", "NA") for v in values):
+            result[group] = {}
 
     return result

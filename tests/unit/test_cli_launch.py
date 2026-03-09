@@ -227,7 +227,7 @@ def test_load_repro_file(tmp_path):
     """Load configuration from markdown repro file correctly."""
     markdown_content = """# Previous Run
 
-## Runtime options
+## Initial runtime options
 ```json
 {
   "experiment": "old_test",
@@ -236,7 +236,7 @@ def test_load_repro_file(tmp_path):
 }
 ```
 
-## Field description
+## CSV field description
 Other content here...
 """
     repro_file = tmp_path / "repro.md"
@@ -252,11 +252,11 @@ Other content here...
 
 def test_build_config_from_repro_only(tmp_path):
     """Build config from repro file only."""
-    markdown = """## Runtime options
+    markdown = """## Initial runtime options
 ```json
 {"timeout": 400}
 ```
-## Field description
+## CSV field description
 """
     repro_file = tmp_path / "repro.md"
     repro_file.write_text(markdown)
@@ -273,11 +273,11 @@ def test_build_config_from_repro_only(tmp_path):
 def test_build_config_priority(tmp_path):
     """Config priority works correctly: repro < files < json < CLI."""
     # Create repro file
-    markdown = """## Runtime options
+    markdown = """## Initial runtime options
 ```json
 {"timeout": 100, "verbose": false, "copies": 1}
 ```
-## Field description
+## CSV field description
 """
     repro_file = tmp_path / "repro.md"
     repro_file.write_text(markdown)

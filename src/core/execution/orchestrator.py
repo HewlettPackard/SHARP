@@ -25,8 +25,7 @@ from src.core.execution.runner import Runner
 from src.core.repeaters.base import Repeater
 from src.core.rundata import RunData
 from src.core.metrics.extractor import MetricExtractor
-from src.core.logging.writer import RunLogger
-from src.core.logging.sysinfo import collect_sysinfo
+from src.core.runlogs import RunLogger, collect_sysinfo
 
 
 @dataclass
@@ -192,7 +191,7 @@ class ExecutionOrchestrator:
                 self.collected_metrics.append(metrics_with_iteration)
 
                 # Add to logger: iteration number and metrics
-                self.logger.add_column("iteration", str(self.iteration_count), "int", "Iteration number")
+                self.logger.add_invariant("iteration", str(self.iteration_count), "int", "Iteration number")
                 self.logger.add_row_data("start", self.start, "string", "Warm, cold, or normal start")
                 for field_name, values in rundata.perf.items():
                     # Handle both single values and lists

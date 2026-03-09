@@ -13,6 +13,7 @@ authors = [
 dependencies = [
     "pyyaml>=6.0.0",
     "numpy>=2.0.0",
+    "polars>=1.0.0",
     "scipy>=1.15.0",
     "scikit-learn>=1.5.0",
     "isodate>=0.6.0",
