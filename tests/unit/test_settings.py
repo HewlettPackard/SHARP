@@ -8,8 +8,8 @@ Unit tests for Settings singleton.
 import pytest
 from pathlib import Path
 
-from src.core.shared.settings import Settings
-from src.core.shared.singleton import singleton
+from src.core.config.settings import Settings
+from src.core.singleton import singleton
 
 
 @pytest.fixture

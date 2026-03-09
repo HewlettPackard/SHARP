@@ -10,17 +10,8 @@ Used by CLI tools (launch, build, etc.) to discover available resources.
 
 import yaml
 from pathlib import Path
-from typing import Dict, List, Set
-
-
-def get_project_root() -> Path:
-    """
-    Get the project root directory.
-
-    Returns:
-        Path to project root (parent of src/)
-    """
-    return Path(__file__).parent.parent.parent
+from typing import Dict, List
+from src.core.config.include_resolver import get_project_root
 
 
 def get_benchmark_names() -> Dict[str, Path]:

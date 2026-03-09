@@ -119,27 +119,31 @@ def repeater_factory(options: Dict[str, Any]) -> Repeater:
     if type(opt) is int:
         options["repeater_options"]["max"] = opt
         return CountRepeater(options)
+
+    # Handle string-based repeater types
     assert type(opt) is str
+
     if opt.isdigit():
         options["repeater_options"]["max"] = int(opt)
         return CountRepeater(options)
-    elif opt == "MAX":
-        return CountRepeater(options)
 
-    # Handle all other repeaters
-    elif opt == "RSE":
-        return RSERepeater(options)
-    elif opt == "CI":
-        return CIRepeater(options)
-    elif opt == "HDI":
-        return HDIRepeater(options)
-    elif opt == "BB":
-        return BBRepeater(options)
-    elif opt == "GMM":
-        return GaussianMixtureRepeater(options)
-    elif opt == "DC":
-        return DecisionRepeater(options)
-    elif opt == "KS":
-        return KSRepeater(options)
-    else:
-        raise Exception(f"Unrecognized repeater {opt}")
+    # Pattern match on repeater type
+    match opt:
+        case "MAX" | "COUNT":
+            return CountRepeater(options)
+        case "RSE":
+            return RSERepeater(options)
+        case "CI":
+            return CIRepeater(options)
+        case "HDI":
+            return HDIRepeater(options)
+        case "BB":
+            return BBRepeater(options)
+        case "GMM":
+            return GaussianMixtureRepeater(options)
+        case "DC":
+            return DecisionRepeater(options)
+        case "KS":
+            return KSRepeater(options)
+        case _:
+            raise Exception(f"Unrecognized repeater {opt}")

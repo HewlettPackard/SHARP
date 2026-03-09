@@ -28,10 +28,6 @@ compare = "src.cli.compare:main"
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.0.0",
-    "mypy>=1.0.0",
-    "flask>=2.2.0",
-    "werkzeug>=3.0.0",
     "numba>=0.61.0",
     "mpi4py>=4.0.0",
 ]
@@ -70,5 +66,9 @@ ignore_missing_imports = true
 
 [dependency-groups]
 dev = [
+    "pytest>=7.0.0",
+    "mypy>=1.0.0",
+    "flask>=2.2.0",
+    "werkzeug>=3.0.0",
     "types-pyyaml>=6.0.12.20250915",
 ]

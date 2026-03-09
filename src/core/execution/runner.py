@@ -11,10 +11,9 @@ from __future__ import annotations
 
 import subprocess
 import tempfile
-import io
 import time
 import warnings
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 
 class Runner:

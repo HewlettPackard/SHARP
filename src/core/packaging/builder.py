@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from src.core.config.include_resolver import get_project_root
 from src.core.config.schema import BenchmarkConfig, BenchmarkSource
 from src.core.packaging.errors import BuildError, SourceError
 
@@ -49,7 +50,7 @@ def fetch_sources(sources: list[BenchmarkSource],
 
     # Determine sources directory
     if base_dir is None:
-        project_root = Path(__file__).parent.parent.parent.parent
+        project_root = get_project_root()
         base_dir = project_root / "benchmarks" / "_sources"
 
     sources_dir = base_dir / benchmark_name

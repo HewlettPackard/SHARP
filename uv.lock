@@ -1664,39 +1664,41 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
-    { name = "flask" },
     { name = "mpi4py" },
-    { name = "mypy" },
     { name = "numba" },
-    { name = "pytest" },
-    { name = "werkzeug" },
 ]
 
 [package.dev-dependencies]
 dev = [
+    { name = "flask" },
+    { name = "mypy" },
+    { name = "pytest" },
     { name = "types-pyyaml" },
+    { name = "werkzeug" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "arviz", specifier = ">=0.21.0" },
-    { name = "flask", marker = "extra == 'dev'", specifier = ">=2.2.0" },
     { name = "isodate", specifier = ">=0.6.0" },
     { name = "mpi4py", marker = "extra == 'dev'", specifier = ">=4.0.0" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0.0" },
     { name = "numba", marker = "extra == 'dev'", specifier = ">=0.61.0" },
     { name = "numpy", specifier = ">=2.0.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0.0" },
     { name = "pyyaml", specifier = ">=6.0.0" },
     { name = "scikit-learn", specifier = ">=1.5.0" },
     { name = "scipy", specifier = ">=1.15.0" },
-    { name = "werkzeug", marker = "extra == 'dev'", specifier = ">=3.0.0" },
 ]
 provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "types-pyyaml", specifier = ">=6.0.12.20250915" }]
+dev = [
+    { name = "flask", specifier = ">=2.2.0" },
+    { name = "mypy", specifier = ">=1.0.0" },
+    { name = "pytest", specifier = ">=7.0.0" },
+    { name = "types-pyyaml", specifier = ">=6.0.12.20250915" },
+    { name = "werkzeug", specifier = ">=3.0.0" },
+]
 
 [[package]]
 name = "six"

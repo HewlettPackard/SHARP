@@ -108,16 +108,15 @@ def test_backend_option_defaults():
 
 
 def test_backend_config_requires_backend_options():
-    """BackendConfig requires at least backend_options field."""
-    # Valid minimal config
+    """BackendConfig has default empty backend_options."""
+    # Valid minimal config with explicit backend_options
     BackendConfig(backend_options={
         "local": BackendOptionConfig(command_template="$CMD $ARGS")
     })
 
-    # Missing backend_options raises ValidationError
-    with pytest.raises(ValidationError) as exc_info:
-        BackendConfig()  # type: ignore
-    assert "backend_options" in str(exc_info.value).lower()
+    # BackendConfig() is valid with default empty backend_options
+    config = BackendConfig()
+    assert config.backend_options == {}
 
 
 def test_backend_config_empty_backend_options():

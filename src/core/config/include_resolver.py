@@ -9,13 +9,34 @@ detection, and configurable depth limits.
 """
 
 import json
-import os
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 from .errors import ConfigError
+from src.core.singleton import singleton
+
+
+@singleton
+class ProjectRoot:
+    """
+    Singleton class to compute and store the project root path.
+    """
+    def __init__(self):
+        self._project_root = Path(__file__).resolve().parent.parent.parent.parent
+
+    @property
+    def path(self) -> Path:
+        return self._project_root
+
+project_root_instance = ProjectRoot()
+
+def get_project_root() -> Path:
+    """
+    Returns the project root path using the singleton instance.
+    """
+    return project_root_instance.path
 
 
 def merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -95,7 +116,7 @@ def resolve_include_path(include_path: str, current_file: str) -> str:
         return str(candidate.resolve())
 
     # Determine project root (4 levels up from this file: src/core/config/include_resolver.py)
-    project_root = Path(__file__).parent.parent.parent.parent
+    project_root = get_project_root()
 
     # Try relative to benchmarks/
     candidate = project_root / "benchmarks" / include_path

@@ -7,7 +7,6 @@ or shell commands defined in benchmark/backend configurations.
 © Copyright 2025--2025 Hewlett Packard Enterprise Development LP
 """
 
-import re
 import subprocess
 import warnings
 from typing import Any, Dict, List, Optional
@@ -85,12 +84,15 @@ class MetricExtractor:
                     warnings.warn(
                         f"Failed to extract metric {name}: {result.stderr or 'No output'}"
                     )
-                    metrics[name] = ["NA"]
+                    # Don't add 'auto' itself to metrics - it's a placeholder for expanded metrics
+                    if name != "auto":
+                        metrics[name] = ["NA"]
                     continue
 
                 # Parse output
                 if name == "auto":
                     # Auto-metrics: each line is "name value"
+                    # Don't add 'auto' itself, only the expanded metrics
                     auto_metrics = self._parse_auto_metrics(result.stdout)
                     metrics.update(auto_metrics)
                 else:
@@ -99,10 +101,14 @@ class MetricExtractor:
 
             except subprocess.TimeoutExpired:
                 warnings.warn(f"Extraction timeout for metric {name}")
-                metrics[name] = ["NA"]
+                # Don't add 'auto' itself to metrics
+                if name != "auto":
+                    metrics[name] = ["NA"]
             except Exception as e:
                 warnings.warn(f"Extraction error for metric {name}: {e}")
-                metrics[name] = ["NA"]
+                # Don't add 'auto' itself to metrics
+                if name != "auto":
+                    metrics[name] = ["NA"]
 
         # Validate all metrics have same number of values
         if metrics:

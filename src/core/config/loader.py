@@ -15,8 +15,8 @@ from typing import Any, Type, TypeVar, Union, overload
 from pydantic import BaseModel, ValidationError
 
 from .errors import ConfigError
-from .include_resolver import resolve_includes
-from .schema import BackendConfig, BackendOptionConfig, BenchmarkConfig
+from .include_resolver import resolve_includes, get_project_root
+from .schema import BackendConfig, BenchmarkConfig
 
 # Type variable for generic schema types
 T = TypeVar('T', bound=BaseModel)
@@ -70,7 +70,7 @@ def load_config(
             config_path = config_path.resolve()
         else:
             # Try relative to project root
-            project_root = Path(__file__).parent.parent.parent.parent
+            project_root = get_project_root()
             candidate = project_root / path
             if candidate.exists():
                 config_path = candidate.resolve()
@@ -132,7 +132,7 @@ def discover_benchmarks(
 
     # Make path absolute if relative
     if not base_path.is_absolute():
-        project_root = Path(__file__).parent.parent.parent.parent
+        project_root = get_project_root()
         base_path = project_root / search_path
 
     # If path doesn't exist, return empty dict
@@ -207,7 +207,7 @@ def discover_backends(
 
         # Make path absolute if relative
         if not base_path.is_absolute():
-            project_root = Path(__file__).parent.parent.parent.parent
+            project_root = get_project_root()
             base_path = project_root / search_path
 
         # Skip if path doesn't exist

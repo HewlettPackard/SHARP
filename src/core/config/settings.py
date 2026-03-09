@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 import yaml
 
-from .singleton import singleton
+from src.core.singleton import singleton
 
 
 @singleton
@@ -28,7 +28,7 @@ class Settings:
 
     Example:
         settings = Settings()
-        runlogs_dir = settings.get('sharp.runlogs_dir', 'runlogs')
+        runlogs_dir = settings.get('data.runlogs_dir', 'runlogs')
         default_backend = settings.get('cli.default_backend', 'local')
     """
 
@@ -48,7 +48,9 @@ class Settings:
         config_file = Path(config_path)
         if not config_file.is_absolute():
             # Assume relative to project root (where settings.yaml lives)
-            project_root = Path(__file__).parent.parent.parent.parent
+            # Lazy import to avoid circular dependency
+            from src.core.config.include_resolver import get_project_root
+            project_root = get_project_root()
             config_file = project_root / config_file
 
         self._config_path = config_file
@@ -70,7 +72,7 @@ class Settings:
         Get nested setting value via dot notation.
 
         Args:
-            key_path: Dot-separated path to setting (e.g., 'sharp.runlogs_dir')
+            key_path: Dot-separated path to setting (e.g., 'data.runlogs_dir')
             default: Default value if key not found
 
         Returns:
@@ -79,7 +81,7 @@ class Settings:
 
         Example:
             >>> settings = Settings()
-            >>> settings.get('sharp.runlogs_dir', 'runlogs')
+            >>> settings.get('data.runlogs_dir', 'runlogs')
             'runlogs'
         """
         keys = key_path.split('.')

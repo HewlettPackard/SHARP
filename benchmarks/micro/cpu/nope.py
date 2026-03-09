@@ -17,7 +17,7 @@ _app = Flask(__name__)
 @_app.route("/", methods=["POST"])
 def do_nothing() -> str:
     """Return a constant string with zero run time."""
-    return "@@@ Do nothing time: 0"
+    return "@@@ Time (sec) to do nothing: 0"
 
 
 def main() -> str:

@@ -16,7 +16,6 @@ Usage:
 """
 
 import sys
-from typing import NoReturn
 
 
 def print_version() -> None:
