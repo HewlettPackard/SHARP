@@ -11,8 +11,11 @@ import pytest
 import shutil
 import subprocess
 import tempfile
+import json
+import re
 from pathlib import Path
 from typing import Tuple
+from src.core.config.include_resolver import get_project_root
 
 
 @pytest.fixture
@@ -108,6 +111,8 @@ class LauncherTestHelper:
         Returns:
             Tuple of (stdout, stderr, returncode)
         """
+        # Prepend directory option to use test's temporary directory
+        args = f"-d {self.runlogs_dir} {args}"
         # Prepend --skip-sys-specs if enabled (for faster testing)
         if self.skip_sys_specs and "--skip-sys-specs" not in args:
             args = f"--skip-sys-specs {args}"
@@ -116,6 +121,9 @@ class LauncherTestHelper:
 
     def read_csv_column(self, experiment_name: str, column_name: str, line_number: int = 0) -> str:
         """Read a specific column from a CSV results file.
+
+        If the column is not in the CSV, it attempts to read it from the Markdown metadata
+        (Invariant parameters) using the run_id from the CSV row.
 
         Args:
             experiment_name: Name of the experiment (used in CSV filename)
@@ -127,14 +135,37 @@ class LauncherTestHelper:
 
         Raises:
             FileNotFoundError: If the CSV file doesn't exist
-            KeyError: If the column doesn't exist in the CSV
+            KeyError: If the column doesn't exist in the CSV or MD
             IndexError: If line_number is out of range
         """
         csv_path = self.runlogs_path / f"{experiment_name}.csv"
+        md_path = self.runlogs_path / f"{experiment_name}.md"
+
         with open(csv_path, newline='') as csvfile:
             reader = csv.DictReader(csvfile)
             rows = list(reader)
-            return rows[line_number][column_name]
+            row = rows[line_number]
+
+            if column_name in row:
+                return row[column_name]
+
+            # If not in CSV, check MD invariants
+            if "launch_id" in row and md_path.exists():
+                launch_id = row["launch_id"]
+                try:
+                    content = md_path.read_text(encoding="utf-8")
+                    match = re.search(r"##Invariant paramaters\s+.*?```json\s+(.*?)\s+```", content, re.DOTALL)
+                    if match:
+                        invariants = json.loads(match.group(1))
+                        param_data = invariants.get(column_name, {})
+                        values = param_data.get("values", {})
+                        if launch_id in values:
+                            return str(values[launch_id])
+                except Exception:
+                    pass
+
+            # Fallback to KeyError if not found
+            raise KeyError(column_name)
 
     def count_csv_rows(self, experiment_name: str) -> int:
         """Count the number of data rows in a CSV file (excluding header).
@@ -170,13 +201,18 @@ def launcher_helper(tmp_path, monkeypatch):
         LauncherTestHelper instance configured for testing
     """
     # Get project root (go up from tests/ to project root)
-    project_root = Path(__file__).parent.parent
+    project_root = get_project_root()
 
     # Create helper
     helper = LauncherTestHelper(project_root)
 
     # Change to project root for test execution
     monkeypatch.chdir(project_root)
+
+    # Set runlogs to use temporary directory instead of project's runlogs/
+    # This ensures tests don't delete the project's runlogs when cleaning up
+    helper.runlogs_dir = str(tmp_path / "runlogs")
+    helper.runlogs_path = tmp_path / "runlogs"
 
     yield helper
 

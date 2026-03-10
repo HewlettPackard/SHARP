@@ -23,9 +23,10 @@ from src.core.execution.orchestrator import (
 )
 from src.core.execution.runner import Runner
 from src.core.metrics.extractor import MetricExtractor
-from src.core.repeaters.base import Repeater
 from src.core.rundata import RunData
+from src.core.repeaters.base import Repeater
 from src.core.repeaters.count import CountRepeater
+from src.core.runlogs import RunLogger
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -136,6 +137,83 @@ def test_mock_repeater_tracks_calls() -> None:
     repeater(rundata)
 
     assert len(repeater.received_rundata) == 2
+
+
+def test_log_run_data_records_per_rank_rows(tmp_path) -> None:
+    """Ensure orchestrator logs a row per metric entry (per parallel process)."""
+    options = {
+        "entry_point": "echo",
+        "args": [],
+        "task": "rank_test",
+        "backend_names": ["local"],
+        "backend_options": {"local": {"command_template": "echo"}},
+        "metrics": {},
+        "repeats": 1,
+        "directory": str(tmp_path / "runlogs")
+    }
+
+    orchestrator = ExecutionOrchestrator(options, experiment_name="rank_test")
+    orchestrator.logger = RunLogger(str(tmp_path), "rank_test", "task", options)
+    orchestrator.iteration_count = 3
+
+    # Simulate metrics from 2 parallel processes (MPL=2)
+    metrics = {
+        "outer_time": ["0.1", "0.2"],
+        "latency": ["10.0", "20.0"]
+    }
+    rundata = RunData(metrics)
+
+    orchestrator._log_run_data(rundata)
+
+    rows = orchestrator.logger._rows
+    assert len(rows) == 2, "Should have 2 rows (one per process)"
+    assert rows[0]["rank"] == "0"
+    assert rows[1]["rank"] == "1"
+    assert rows[0]["latency"] == "10.0"
+    assert rows[1]["latency"] == "20.0"
+
+
+def test_extract_metrics_from_multiple_output_files(tmp_path) -> None:
+    """Ensure _extract_metrics processes all output files from parallel processes."""
+    import tempfile
+
+    options = {
+        "entry_point": "echo",
+        "args": [],
+        "task": "multi_test",
+        "backend_names": ["local"],
+        "backend_options": {"local": {"command_template": "echo"}},
+        "metrics": {
+            "value": {"extract": "cat", "type": "float"}
+        },
+        "repeats": 1,
+        "directory": str(tmp_path / "runlogs")
+    }
+
+    orchestrator = ExecutionOrchestrator(options, experiment_name="multi_test")
+
+    # Create mock output files (simulating 2 parallel processes)
+    output_files = []
+    for i, val in enumerate([100, 200]):
+        tmp = tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix=f'_{i}.txt')
+        # For a named metric, the extract command outputs just the value
+        content = f"{val}\n"
+        tmp.write(content)
+        tmp.flush()
+        tmp.seek(0)
+        output_files.append(tmp)
+
+    # Extract metrics from both files
+    rundata = orchestrator._extract_metrics(output_files, elapsed_time=1.5)
+
+    # Should have values from both processes
+    assert len(rundata.perf["outer_time"]) == 2
+    assert len(rundata.perf["value"]) == 2
+    assert rundata.perf["value"] == [100.0, 200.0]
+
+    # Cleanup
+    for f in output_files:
+        f.close()
 
 
 @pytest.fixture
@@ -256,7 +334,7 @@ def test_validate_metrics() -> None:
 
 
 @pytest.fixture
-def orchestrator_setup():
+def orchestrator_setup(tmp_path):
     """Set up test fixtures for ExecutionOrchestrator tests."""
     backend_name = "local"
     backend_options = {
@@ -276,6 +354,10 @@ def orchestrator_setup():
     options = {
         "backend_names": backend_names,
         "backend_options": backend_options,
+        "benchmark_spec": benchmark_spec,
+        "repeats": 2,
+        "repeater_options": {"CR": {"max": 2}},
+        "directory": str(tmp_path / "runlogs"),
     }
 
     repeater = CountRepeater({"repeater_options": {"CR": {"max": 2}}})
@@ -296,9 +378,8 @@ def test_orchestrator_initialization(orchestrator_setup) -> None:
     """Test ExecutionOrchestrator initializes correctly."""
     setup = orchestrator_setup
     orchestrator = ExecutionOrchestrator(
-        setup["options"],
-        setup["benchmark_spec"],
-        setup["repeater"]
+        options=setup["options"],
+        experiment_name="test_exp"
     )
     assert orchestrator is not None
 
@@ -335,7 +416,7 @@ def test_progress_callbacks_dataclass() -> None:
 
 
 @pytest.fixture
-def orchestrator_flow_setup():
+def orchestrator_flow_setup(tmp_path):
     """Set up test fixtures for orchestrator flow tests."""
     backend_name = "local"
     backend_options = {
@@ -355,6 +436,10 @@ def orchestrator_flow_setup():
     options = {
         "backend_names": backend_names,
         "backend_options": backend_options,
+        "benchmark_spec": benchmark_spec,
+        "repeats": 2,
+        "repeater_options": {"CR": {"max": 2}},
+        "directory": str(tmp_path / "runlogs"),
     }
 
     return {
@@ -374,9 +459,8 @@ def test_full_experiment_flow(orchestrator_flow_setup) -> None:
 
     try:
         orchestrator = ExecutionOrchestrator(
-            setup["options"],
-            setup["benchmark_spec"],
-            repeater
+            options=setup["options"],
+            experiment_name="test_exp"
         )
         # Don't actually run orchestrator.run() yet - just test initialization
         # In full implementation, would verify:
@@ -393,9 +477,8 @@ def test_orchestrator_loop_with_tracking_repeater(orchestrator_flow_setup) -> No
     """Test orchestrator iteration loop with tracking repeater."""
     setup = orchestrator_flow_setup
     orchestrator = ExecutionOrchestrator(
-        setup["options"],
-        setup["benchmark_spec"],
-        TrackingRepeater(max_iterations=2)
+        options=setup["options"],
+        experiment_name="test_exp"
     )
 
     # Mock the Runner and MetricExtractor
@@ -429,11 +512,9 @@ def test_orchestrator_loop_with_tracking_repeater(orchestrator_flow_setup) -> No
 def test_orchestrator_metrics_aggregation(orchestrator_flow_setup) -> None:
     """Test orchestrator aggregates metrics correctly."""
     setup = orchestrator_flow_setup
-    tracking_repeater = TrackingRepeater(max_iterations=3)
     orchestrator = ExecutionOrchestrator(
-        setup["options"],
-        setup["benchmark_spec"],
-        tracking_repeater
+        options=setup["options"],
+        experiment_name="test_exp"
     )
 
     orchestrator.runner = MockRunner()
@@ -449,19 +530,17 @@ def test_orchestrator_metrics_aggregation(orchestrator_flow_setup) -> None:
     # Verify metrics were collected
     assert result.success
     assert len(result.metrics) > 0
-    # Each metric should have iteration and collected values
+    # Each metric dict contains metrics for that iteration
     for metric_dict in result.metrics:
-        assert "iteration" in metric_dict
+        assert len(metric_dict) > 0  # Should have at least one metric
 
 
 def test_orchestrator_callback_flow(orchestrator_flow_setup) -> None:
     """Test orchestrator callbacks are triggered correctly."""
     setup = orchestrator_flow_setup
-    tracking_repeater = TrackingRepeater(max_iterations=2)
     orchestrator = ExecutionOrchestrator(
-        setup["options"],
-        setup["benchmark_spec"],
-        tracking_repeater
+        options=setup["options"],
+        experiment_name="test_exp"
     )
 
     orchestrator.runner = MockRunner()
@@ -502,12 +581,14 @@ def test_orchestrator_callback_flow(orchestrator_flow_setup) -> None:
 def test_orchestrator_repeater_receives_rundata(orchestrator_flow_setup) -> None:
     """Test orchestrator passes RunData to repeater."""
     setup = orchestrator_flow_setup
-    tracking_repeater = TrackingRepeater(max_iterations=2)
     orchestrator = ExecutionOrchestrator(
-        setup["options"],
-        setup["benchmark_spec"],
-        tracking_repeater
+        options=setup["options"],
+        experiment_name="test_exp"
     )
+
+    # Replace repeater with TrackingRepeater after initialization
+    tracking_repeater = TrackingRepeater(max_iterations=2)
+    orchestrator.repeater = tracking_repeater
 
     orchestrator.runner = MockRunner()
     orchestrator.metric_extractor.extract = Mock(
@@ -530,11 +611,9 @@ def test_orchestrator_repeater_receives_rundata(orchestrator_flow_setup) -> None
 def test_orchestrator_error_handling(orchestrator_flow_setup) -> None:
     """Test orchestrator error handling and callbacks."""
     setup = orchestrator_flow_setup
-    tracking_repeater = TrackingRepeater(max_iterations=2)
     orchestrator = ExecutionOrchestrator(
-        setup["options"],
-        setup["benchmark_spec"],
-        tracking_repeater
+        options=setup["options"],
+        experiment_name="test_exp"
     )
 
     orchestrator.runner = MockRunner()
@@ -556,3 +635,37 @@ def test_orchestrator_error_handling(orchestrator_flow_setup) -> None:
     assert not result.success
     assert result.error_message is not None
     assert "Missing required metric" in result.error_message
+
+
+def test_orchestrator_mpl_generates_multiple_commands(orchestrator_flow_setup) -> None:
+    """Test that orchestrator generates multiple commands when mpl > 1."""
+    setup = orchestrator_flow_setup
+    # Set mpl to 2
+    setup["options"]["mpl"] = 2
+
+    orchestrator = ExecutionOrchestrator(
+        options=setup["options"],
+        experiment_name="test_exp"
+    )
+
+    # Mock the Runner
+    mock_runner = MockRunner()
+    orchestrator.runner = mock_runner
+
+    # Mock MetricExtractor to avoid errors
+    orchestrator.metric_extractor.extract = Mock(
+        side_effect=lambda _, outer_metrics={}: RunData({
+            "outer_time": ["1.5"],
+            "metric_a": ["100.0"]
+        })
+    )
+
+    orchestrator.run()
+
+    # Check the commands passed to runner
+    # commands_run is a list of lists (one list of commands per iteration)
+    assert len(mock_runner.commands_run) > 0
+    first_iteration_commands = mock_runner.commands_run[0]
+
+    # Should have 2 commands because mpl=2
+    assert len(first_iteration_commands) == 2

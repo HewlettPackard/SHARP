@@ -7,16 +7,24 @@ Uses sleep benchmark for predictable, fast testing.
 © Copyright 2025--2025 Hewlett Packard Enterprise Development LP
 """
 
+import copy
+import csv
+import tempfile
+
 import pytest
 import warnings
 from pathlib import Path
 from typing import Dict, Any
+from unittest.mock import Mock
+import yaml
 
+from src.core.config.include_resolver import get_project_root
 from src.core.execution.orchestrator import (
     ExecutionOrchestrator,
     ProgressCallbacks,
 )
 from src.core.repeaters.count import CountRepeater
+from src.core.rundata import RunData
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -38,17 +46,19 @@ def orchestrator_config(tmp_path):
     }
 
     # Set up orchestrator options with minimal configuration
+    # Use temp_path for directory to avoid polluting runlogs/
     options = {
         "backend_names": backend_names,
         "backend_options": backend_options,
         "timeout": 30,
         "verbose": False,
+        "directory": str(tmp_path / "runlogs"),
     }
 
     return {
         "options": options,
         "temp_dir": tmp_path,
-        "project_root": Path(__file__).parent.parent.parent
+        "project_root": get_project_root()
     }
 
 
@@ -78,14 +88,15 @@ def test_orchestrator_runs_sleep_benchmark(orchestrator_config) -> None:
         }
     }
 
-    # Create repeater that stops after 2 iterations
-    repeater = CountRepeater({"repeater_options": {"CR": {"max": 2}}})
+    # Set repeater options to stop after 2 iterations
+    options["repeats"] = 2
+    options["repeater_options"] = {"CR": {"max": 2}}
+    options["benchmark_spec"] = test_spec
 
     # Create orchestrator with test configurations
     orchestrator = ExecutionOrchestrator(
-        options,
-        test_spec,
-        repeater
+        options=options,
+        experiment_name="test_sleep_benchmark"
     )
 
     # Run experiment
@@ -116,7 +127,10 @@ def test_orchestrator_callback_flow(orchestrator_config) -> None:
         }
     }
 
-    repeater = CountRepeater({"repeater_options": {"CR": {"max": 2}}})
+    # Set repeater options to stop after 2 iterations
+    options["repeats"] = 2
+    options["repeater_options"] = {"CR": {"max": 2}}
+    options["benchmark_spec"] = test_spec
 
     # Track callback invocations
     callback_log = {
@@ -146,9 +160,8 @@ def test_orchestrator_callback_flow(orchestrator_config) -> None:
     )
 
     orchestrator = ExecutionOrchestrator(
-        options,
-        test_spec,
-        repeater
+        options=options,
+        experiment_name="test_callback_flow"
     )
 
     result = orchestrator.run(callbacks)
@@ -177,7 +190,9 @@ def test_orchestrator_error_handling_missing_command(orchestrator_config) -> Non
         "args": ["arg1"],
     }
 
-    repeater = CountRepeater({"repeater_options": {"CR": {"max": 1}}})
+    options["repeats"] = 1
+    options["repeater_options"] = {"CR": {"max": 1}}
+    options["benchmark_spec"] = invalid_spec
 
     # Track errors
     error_log = []
@@ -188,9 +203,8 @@ def test_orchestrator_error_handling_missing_command(orchestrator_config) -> Non
     callbacks = ProgressCallbacks(on_error=track_error)
 
     orchestrator = ExecutionOrchestrator(
-        options,
-        invalid_spec,
-        repeater
+        options=options,
+        experiment_name="test_error_handling"
     )
 
     # Suppress expected warning about command exit code
@@ -222,12 +236,13 @@ def test_metrics_extraction_from_sleep_output(orchestrator_config) -> None:
         }
     }
 
-    repeater = CountRepeater({"repeater_options": {"CR": {"max": 1}}})
+    options["repeats"] = 1
+    options["repeater_options"] = {"CR": {"max": 1}}
+    options["benchmark_spec"] = test_spec
 
     orchestrator = ExecutionOrchestrator(
-        options,
-        test_spec,
-        repeater
+        options=options,
+        experiment_name="test_metrics_extraction"
     )
 
     result = orchestrator.run()
@@ -236,10 +251,182 @@ def test_metrics_extraction_from_sleep_output(orchestrator_config) -> None:
     assert result.success
     assert len(result.metrics) > 0
 
-    # Each metric should have iteration and values
+    # Each metric dict should have metrics for that iteration
     for metric_dict in result.metrics:
-        assert "iteration" in metric_dict, "Metric dict should have iteration key"
         # outer_time should be extracted from command output
-        if "outer_time" in metric_dict:
-            assert len(metric_dict["outer_time"]) > 0
+        assert "outer_time" in metric_dict
+        assert len(metric_dict["outer_time"]) > 0
+
+
+def test_local_rows_include_rank_and_repeat(orchestrator_config, tmp_path) -> None:
+    """Verify CLI-style local runs log correct rank/repeat ordering and counts."""
+    options = copy.deepcopy(orchestrator_config["options"])
+
+    test_spec = {
+        "task": "row_test",
+        "entry_point": "/bin/echo",
+        "args": ["outer_time 0.1"],
+    }
+
+    options["metrics"] = {
+        "outer_time": {
+            "extract": "awk '{print $NF}'",
+            "type": "numeric",
+        }
+    }
+    options["benchmark_spec"] = test_spec
+    options["repeats"] = 2
+    options["repeater_options"] = {"CR": {"max": 2}}
+    options["mpl"] = 2
+    options["directory"] = str(tmp_path / "runlogs")
+
+    orchestrator = ExecutionOrchestrator(options=options, experiment_name="row_test")
+    result = orchestrator.run()
+
+    with open(result.output_paths["csv"], newline="") as csv_file:
+        reader = csv.DictReader(csv_file)
+        rows = list(reader)
+        repeat_idx = reader.fieldnames.index("repeat")
+        rank_idx = reader.fieldnames.index("rank")
+        assert repeat_idx < rank_idx, "repeat column should be left of rank"
+
+    assert len(rows) == 4, "Two repeats * two ranks should produce four rows"
+    expected_pairs = [("1", "0"), ("1", "1"), ("2", "0"), ("2", "1")]
+    actual_pairs = [(row["repeat"], row["rank"]) for row in rows]
+    assert actual_pairs == expected_pairs
+
+
+class _DummyRunner:
+    def run_commands(self, commands):
+        tmp_file = tempfile.NamedTemporaryFile(mode="w+", delete=False)
+        tmp_file.write("outer_time 0.4\n")
+        tmp_file.flush()
+        tmp_file.seek(0)
+        return True, [tmp_file], 0.4
+
+
+def test_mpi_rows_include_rank_and_repeat(orchestrator_config, tmp_path) -> None:
+    """Simulate MPI backend logging to verify rank/repeat columns."""
+    options = copy.deepcopy(orchestrator_config["options"])
+
+    mpi_config_path = orchestrator_config["project_root"] / "backends" / "mpi.yaml"
+    with open(mpi_config_path, "r", encoding="utf-8") as f:
+        mpi_config = yaml.safe_load(f)
+
+    options["backend_names"] = ["mpi"]
+    options["backend_options"] = mpi_config["backend_options"]
+    options["metrics"] = {"hostname": {"extract": "cat", "type": "string"}}
+    options["benchmark_spec"] = {
+        "task": "mpi_row_test",
+        "entry_point": "/bin/echo",
+        "args": ["done"],
+    }
+    options["repeats"] = 2
+    options["repeater_options"] = {"CR": {"max": 2}}
+    options["mpl"] = 2
+    options["directory"] = str(tmp_path / "runlogs_mpi")
+
+    orchestrator = ExecutionOrchestrator(options=options, experiment_name="mpi_row_test")
+    orchestrator.runner = _DummyRunner()
+
+    orchestrator.metric_extractor.extract = Mock(
+        side_effect=lambda *_args, **_kwargs: RunData({
+            "outer_time": ["0.4", "0.4"],
+            "hostname": ["node0", "node1"],
+        })
+    )
+
+    result = orchestrator.run()
+
+    with open(result.output_paths["csv"], newline="") as csv_file:
+        rows = list(csv.DictReader(csv_file))
+
+    assert len(rows) == 4, "MPI scenario should produce two rows per repeat"
+    expected_pairs = [("1", "0"), ("1", "1"), ("2", "0"), ("2", "1")]
+    actual_pairs = [(row["repeat"], row["rank"]) for row in rows]
+    assert actual_pairs == expected_pairs
+
+
+def test_orchestrator_mpl_2_produces_multiple_rows(orchestrator_config) -> None:
+    """Test that mpl=2 produces multiple rows of data (one per process)."""
+    options = orchestrator_config["options"].copy()
+
+    # Use echo to output a metric value
+    test_spec = {
+        "task": "test",
+        "entry_point": "/bin/echo",
+        "args": ["val 100"],
+    }
+
+    # Add metrics to options
+    options["metrics"] = {
+        "val": {
+            "extract": "awk '/val/{print $NF}'",
+            "type": "float"
+        }
+    }
+
+    options["repeats"] = 1
+    options["repeater_options"] = {"CR": {"max": 1}}
+    options["benchmark_spec"] = test_spec
+    options["mpl"] = 2  # Request 2 parallel copies
+
+    orchestrator = ExecutionOrchestrator(
+        options=options,
+        experiment_name="test_mpl_rows"
+    )
+
+    result = orchestrator.run()
+
+    assert result.success
+    assert len(result.metrics) == 1  # 1 iteration
+
+    # Check that we have 2 values for 'val' (one from each process)
+    vals = result.metrics[0]["val"]
+    assert len(vals) == 2, f"Expected 2 values for mpl=2, got {len(vals)}: {vals}"
+
+    # Check logger rows
+    # We can't easily access logger rows here without reading the file or mocking
+    # But checking result.metrics confirms _extract_metrics worked correctly
+    # And _log_run_data uses the same data structure length to determine rows
+
+def test_orchestrator_handles_exit_code_1_with_output(orchestrator_config) -> None:
+    """Test that metrics are extracted even if command exits with code 1."""
+    options = orchestrator_config["options"].copy()
+
+    # Use sh to echo output then exit 1
+    # Note: We must quote the command string so it's treated as a single argument to -c
+    test_spec = {
+        "task": "test",
+        "entry_point": "sh",
+        "args": ["-c", "'echo \"val 100\"; exit 1'"],
+    }
+
+    options["metrics"] = {
+        "val": {
+            "extract": "awk '/val/{print $NF}'",
+            "type": "float"
+        }
+    }
+
+    options["repeats"] = 1
+    options["repeater_options"] = {"CR": {"max": 1}}
+    options["benchmark_spec"] = test_spec
+    options["mpl"] = 2
+
+    orchestrator = ExecutionOrchestrator(
+        options=options,
+        experiment_name="test_exit_1"
+    )
+
+    # Suppress warning about exit code 1
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        result = orchestrator.run()
+
+    assert result.success  # Should succeed despite exit code 1
+
+    # Check that we still got metrics
+    vals = result.metrics[0]["val"]
+    assert len(vals) == 2, f"Expected 2 values despite exit code 1, got {len(vals)}: {vals}"
 

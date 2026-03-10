@@ -250,6 +250,7 @@ def test_rse_repeater_continues_before_starting_sample(repeater_tester, rse_repe
 
 def test_rse_repeater_does_not_converge_on_high_variance_data(repeater_tester):
     """RSERepeater should not converge prematurely on high-variance data."""
+    numpy.random.seed(42)
     repeater = RSERepeater(make_repeater_options(
         "RSE", max_repeats=100, threshold_value=0.02, starting_sample=5
     ))
@@ -304,6 +305,7 @@ def test_ci_repeater_continues_before_starting_sample(repeater_tester, ci_repeat
 
 def test_ci_repeater_does_not_converge_on_high_variance_data(repeater_tester):
     """CIRepeater should not converge prematurely on high-variance data."""
+    numpy.random.seed(42)
     repeater = CIRepeater(make_repeater_options(
         "CI", max_repeats=50, threshold_value=0.02, starting_sample=10
     ))
@@ -358,6 +360,7 @@ def test_hdi_repeater_continues_before_starting_sample(repeater_tester, hdi_repe
 
 def test_hdi_repeater_does_not_converge_on_high_variance_data(repeater_tester):
     """HDIRepeater should not converge prematurely on high-variance data."""
+    numpy.random.seed(42)
     repeater = HDIRepeater(make_repeater_options(
         "HDI", max_repeats=50, threshold_value=0.02, starting_sample=10
     ))
@@ -537,6 +540,7 @@ def test_ks_repeater_continues_before_starting_sample(repeater_tester, ks_repeat
 
 def test_ks_repeater_does_not_converge_on_high_variance_data(repeater_tester):
     """KSRepeater should not converge prematurely on high-variance data."""
+    numpy.random.seed(42)
     repeater = KSRepeater(make_repeater_options(
         "KS", max_repeats=50, threshold_value=0.05, starting_sample=10
     ))

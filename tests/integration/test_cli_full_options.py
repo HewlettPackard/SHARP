@@ -13,12 +13,12 @@ import pytest
 import subprocess
 from pathlib import Path
 import yaml
+from src.core.config.include_resolver import get_project_root
 
 
 @pytest.fixture
 def project_root():
-    """Get project root directory."""
-    return Path(__file__).parent.parent.parent
+    return get_project_root()
 
 
 @pytest.fixture
@@ -136,10 +136,14 @@ def test_cli_with_config_file(project_root, temp_config_dir):
     with open(config_path, 'w') as f:
         yaml.dump(config, f)
 
+    # Create a temporary runlogs directory for this test
+    runlogs_path = temp_config_dir / "runlogs"
+
     # This will fail because we don't have a real benchmark setup,
     # but we can verify the config file is being read by checking error message
     result = subprocess.run(
         ["uv", "run", "launch",
+         "-d", str(runlogs_path),
          "-e", "test_config",
          "-f", str(config_path),
          "-v",
@@ -155,12 +159,16 @@ def test_cli_with_config_file(project_root, temp_config_dir):
     assert "Config file not found" not in result.stderr
 
 
-def test_cli_with_json_override(project_root):
+def test_cli_with_json_override(project_root, temp_config_dir):
     """Test inline JSON configuration override."""
     json_config = json.dumps({"timeout": 100})
 
+    # Create a temporary runlogs directory for this test
+    runlogs_path = temp_config_dir / "runlogs"
+
     result = subprocess.run(
         ["uv", "run", "launch",
+         "-d", str(runlogs_path),
          "-e", "test_json",
          "-j", json_config,
          "-v",
@@ -175,10 +183,13 @@ def test_cli_with_json_override(project_root):
     assert "JSON" not in result.stderr
 
 
-def test_cli_mutually_exclusive_cold_warm(project_root):
+def test_cli_mutually_exclusive_cold_warm(project_root, temp_config_dir):
     """Test that --cold and --warm are mutually exclusive."""
+    runlogs_path = temp_config_dir / "runlogs"
+
     result = subprocess.run(
         ["uv", "run", "launch",
+         "-d", str(runlogs_path),
          "-e", "test",
          "--cold",
          "--warm",
@@ -192,10 +203,13 @@ def test_cli_mutually_exclusive_cold_warm(project_root):
     assert "not allowed with argument" in result.stderr
 
 
-def test_cli_timeout_type_validation(project_root):
+def test_cli_timeout_type_validation(project_root, temp_config_dir):
     """Test that --timeout requires integer value."""
+    runlogs_path = temp_config_dir / "runlogs"
+
     result = subprocess.run(
         ["uv", "run", "launch",
+         "-d", str(runlogs_path),
          "-e", "test",
          "--timeout", "not_a_number",
          "sleep"],
@@ -208,10 +222,13 @@ def test_cli_timeout_type_validation(project_root):
     assert "invalid int value" in result.stderr
 
 
-def test_cli_copies_type_validation(project_root):
+def test_cli_copies_type_validation(project_root, temp_config_dir):
     """Test that --copies requires integer value."""
+    runlogs_path = temp_config_dir / "runlogs"
+
     result = subprocess.run(
         ["uv", "run", "launch",
+         "-d", str(runlogs_path),
          "-e", "test",
          "--copies", "invalid",
          "sleep"],
@@ -237,11 +254,14 @@ def test_cli_via_sharp_wrapper(project_root):
     assert "SHARP benchmark launcher" in result.stdout
 
 
-def test_cli_benchmark_args_passthrough(project_root):
+def test_cli_benchmark_args_passthrough(project_root, temp_config_dir):
     """Test that benchmark args are passed as positional arguments."""
+    runlogs_path = temp_config_dir / "runlogs"
+
     # We can't fully test execution, but we can verify arg parsing doesn't fail
     result = subprocess.run(
         ["uv", "run", "launch",
+         "-d", str(runlogs_path),
          "-e", "test",
          "-v",
          "sleep",
@@ -273,8 +293,11 @@ def test_cli_multiple_config_files(project_root, temp_config_dir):
     with open(config2_path, 'w') as f:
         yaml.dump(config2, f)
 
+    runlogs_path = temp_config_dir / "runlogs"
+
     result = subprocess.run(
         ["uv", "run", "launch",
+         "-d", str(runlogs_path),
          "-e", "test_multi",
          "-f", str(config1_path),
          "-f", str(config2_path),

@@ -3,6 +3,7 @@
 # be replace by "NA".
 backend_options:
   perf:
+    profiling: true
     reset:
     run: perf stat -e cache-misses,context-switches,branch-misses,cpu-migrations,page-faults,dTLB-load-misses,iTLB-load-misses,emulation-faults,L1-icache-load-misses,L1-dcache-load-misses,LLC-load-misses,node-load-misses,cpu-clock,cycles $CMD $ARGS
     run_sys_spec: |

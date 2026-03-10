@@ -17,9 +17,8 @@ def settings_file(tmp_path):
     """Create a temporary settings file with test data."""
     settings_path = tmp_path / "test_settings.yaml"
     settings_path.write_text("""
-sharp:
+data:
   runlogs_dir: "/tmp/runlogs"
-  version: "4.0.0"
 
 cli:
   default_backend: "mpi"
@@ -105,16 +104,14 @@ class TestSettings:
         settings = Settings(config_path=str(settings_file))
 
         # Verify multiple keys at different nesting levels
-        assert settings.get('sharp.runlogs_dir') == '/tmp/runlogs'
-        assert settings.get('sharp.version') == '4.0.0'
+        assert settings.get('data.runlogs_dir') == '/tmp/runlogs'
         assert settings.get('cli.default_backend') == 'mpi'
         assert settings.get('gui.theme') == 'dark'
 
         # Verify structure preservation (can get intermediate dict)
-        sharp_config = settings.get('sharp')
-        assert isinstance(sharp_config, dict)
-        assert 'runlogs_dir' in sharp_config
-        assert 'version' in sharp_config
+        data_config = settings.get('data')
+        assert isinstance(data_config, dict)
+        assert 'runlogs_dir' in data_config
 
     def test_nested_access(self, settings_file):
         """Dot-notation correctly traverses deep nested structures."""
@@ -141,7 +138,7 @@ class TestSettings:
         assert settings.get('nonexistent', 'default_top') == 'default_top'
 
         # Non-existent nested key
-        assert settings.get('sharp.missing_key', 'default_nested') == 'default_nested'
+        assert settings.get('data.missing_key', 'default_nested') == 'default_nested'
 
         # Non-existent deep path
         assert settings.get('nonexistent.key.path', 'default_deep') == 'default_deep'
@@ -150,31 +147,29 @@ class TestSettings:
         assert settings.get('another.missing.key') is None
 
         # Existing key should ignore default
-        assert settings.get('sharp.version', 'default_ignored') == '4.0.0'
+        assert settings.get('data.runlogs_dir', 'default_ignored') == '/tmp/runlogs'
 
     def test_immutability(self, settings_file):
         """Settings data cannot be mutated through returned references."""
         settings = Settings(config_path=str(settings_file))
 
         # Get original value
-        original_runlogs = settings.get('sharp.runlogs_dir')
+        original_runlogs = settings.get('data.runlogs_dir')
         assert original_runlogs == '/tmp/runlogs'
 
         # Attempt mutation through .all property
         all_settings = settings.all
-        all_settings['sharp']['runlogs_dir'] = 'MUTATED'
-        all_settings['sharp']['version'] = 'MUTATED'
+        all_settings['data']['runlogs_dir'] = 'MUTATED'
 
         # Settings should be unchanged (deep copy protection)
-        assert settings.get('sharp.runlogs_dir') == '/tmp/runlogs'
-        assert settings.get('sharp.version') == '4.0.0'
+        assert settings.get('data.runlogs_dir') == '/tmp/runlogs'
 
         # Attempt mutation through get() of nested dict
-        sharp_dict = settings.get('sharp')
-        sharp_dict['runlogs_dir'] = 'MUTATED_AGAIN'  # type: ignore
+        data_dict = settings.get('data')
+        data_dict['runlogs_dir'] = 'MUTATED_AGAIN'  # type: ignore
 
         # Should still be unchanged
-        assert settings.get('sharp.runlogs_dir') == '/tmp/runlogs'
+        assert settings.get('data.runlogs_dir') == '/tmp/runlogs'
 
     def test_missing_file(self, tmp_path):
         """Gracefully handle when settings file is missing or unreadable."""
@@ -195,11 +190,11 @@ class TestSettings:
     def test_singleton_behavior(self, settings_file, tmp_path):
         """Singleton pattern prevents multiple Settings instances."""
         settings1 = Settings(config_path=str(settings_file))
-        initial_runlogs = settings1.get('sharp.runlogs_dir')
+        initial_runlogs = settings1.get('data.runlogs_dir')
 
         # Second instantiation should return same instance, ignoring new path
         other_file = tmp_path / "other.yaml"
-        other_file.write_text("sharp:\n  runlogs_dir: '/other/path'\n")
+        other_file.write_text("data:\n  runlogs_dir: '/other/path'\n")
 
         settings2 = Settings(config_path=str(other_file))
 
@@ -210,7 +205,7 @@ class TestSettings:
         assert settings1.config_path == settings2.config_path
 
         # Data should be from first file, not second
-        assert settings2.get('sharp.runlogs_dir') == initial_runlogs
+        assert settings2.get('data.runlogs_dir') == initial_runlogs
 
     def test_config_path_property(self, settings_file):
         """config_path property returns correct Path object."""

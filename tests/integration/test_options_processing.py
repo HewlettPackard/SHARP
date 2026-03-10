@@ -10,6 +10,7 @@ of command-line options, configuration files, and JSON overrides.
 
 import json
 import pytest
+import re
 import yaml  # type: ignore
 import subprocess
 import tempfile
@@ -88,7 +89,8 @@ def test_default_config(helper) -> None:
         assert '"timeout": 3600' in content, "Expected timeout:3600 in configuration"
         assert '"start": "normal"' in content, "Expected normal start in configuration"
         assert '"verbose": false' in content, "Expected verbose:false in configuration"
-        assert '"directory": "runlogs"' in content, "Expected directory in configuration"
+        # Directory is now stored as absolute path in options
+        assert '"directory":' in content, "Expected directory in configuration"
 
 def test_json_override(helper) -> None:
     """Test JSON override of task name."""
@@ -192,6 +194,27 @@ def test_append_mode(helper) -> None:
     # Verify task4.csv has two observations
     assert helper.count_csv_rows(f"{helper.experiment_name}/task4") == 2, "Expected two observations in CSV"
 
+
+def test_cli_append_overrides_config(helper) -> None:
+    """Test that CLI -a flag overrides config file mode setting."""
+    # Config says write mode, CLI says append
+    with open(helper.task4_path, "w") as f:
+        json.dump({"task": "task4", "mode": "w"}, f)
+
+    # First run without -a (should write)
+    cmd = f'-d {helper.runlogs_dir} -e {helper.experiment_name} -f {helper.task4_path} nope'
+    helper.run_launcher(cmd)
+    assert helper.count_csv_rows(f"{helper.experiment_name}/task4") == 1
+
+    # Second run WITH -a (should append despite config saying "w")
+    cmd_with_append = f'-a {cmd}'
+    stdout, stderr, returncode = helper.run_launcher(cmd_with_append)
+    assert returncode == 0, f"Command failed with code {returncode}"
+    assert stderr == "", "Expected empty stderr"
+
+    # Verify task4.csv now has two observations (appended)
+    assert helper.count_csv_rows(f"{helper.experiment_name}/task4") == 2, "CLI -a should override config mode=w"
+
 def test_warm_start_with_multiple_configs(helper) -> None:
     """Test warm start with multiple config files."""
     # First run with append mode to get initial observations
@@ -213,15 +236,23 @@ def test_warm_start_with_multiple_configs(helper) -> None:
     assert returncode == 0, f"Command failed with code {returncode}"
     assert stderr == "", "Expected empty stderr"
 
-    # Verify task4.csv has three observations with last being warm
+    # Verify task4.csv has three observations
     assert helper.count_csv_rows(f"{helper.experiment_name}/task4") == 3, "Expected three observations in CSV"
-    assert helper.read_csv_column(f"{helper.experiment_name}/task4", "start", 2) == "warm"
 
-    # Verify task4.md still shows normal start
+    # Verify task4.md shows warm start in invariants (start is now an invariant, not a CSV column)
     md_path = helper.runlogs_path / helper.experiment_name / "task4.md"
-    with open(md_path) as f:
-        content = f.read()
-        assert '"start": "normal"' in content
+    content = md_path.read_text()
+    match = re.search(r"## Invariant parameters.*?```json\s+(.*?)\s+```", content, re.DOTALL)
+    assert match, "Invariant block missing in markdown"
+    invariants = json.loads(match.group(1))
+    # New structure: { launch_id: { param: value, ... }, ... }
+    # Should have both "normal" and "warm" starts from different runs
+    start_values = set()
+    for launch_id, params in invariants.items():
+        if "start" in params:
+            start_values.add(params["start"])
+    assert "warm" in start_values, "warm start should be in invariants"
+    assert "normal" in start_values, "normal start should be in invariants"
 
 def test_single_config_warm_start(helper) -> None:
     """Test warm start with single config file."""
@@ -235,13 +266,16 @@ def test_single_config_warm_start(helper) -> None:
 
     # Verify task4.csv has one warm observation
     assert helper.count_csv_rows(f"{helper.experiment_name}/task4") == 1, "Expected one observation in CSV"
-    assert helper.read_csv_column(f"{helper.experiment_name}/task4", "start", 0) == "warm"
 
-    # Verify task4.md shows warm start
+    # Verify task4.md shows warm start in invariants (start is now an invariant, not a CSV column)
     md_path = helper.runlogs_path / helper.experiment_name / "task4.md"
-    with open(md_path) as f:
-        content = f.read()
-        assert '"start": "warm"' in content, "Expected warm start in MD file"
+    content = md_path.read_text()
+    match = re.search(r"## Invariant parameters.*?```json\s+(.*?)\s+```", content, re.DOTALL)
+    assert match, "Invariant block missing in markdown"
+    invariants = json.loads(match.group(1))
+    # New structure: { launch_id: { param: value, ... }, ... }
+    start_values = {params["start"] for params in invariants.values() if "start" in params}
+    assert "warm" in start_values, "warm start should be in invariants"
 
 def test_repro_basic(helper) -> None:
     """Test basic reproduction of experiments."""
@@ -267,7 +301,16 @@ def test_repro_basic(helper) -> None:
     with open(csv_path) as f:
         lines = list(f)
         assert len(lines) - 1 == 1, "Expected one observation in CSV"
-        assert helper.read_csv_column(f"{helper.experiment_name}/task4", "start", 0) == "warm"
+
+    # Verify start is in invariants (not CSV column)
+    md_path = helper.runlogs_path / helper.experiment_name / "task4.md"
+    content = md_path.read_text()
+    match = re.search(r"## Invariant parameters.*?```json\s+(.*?)\s+```", content, re.DOTALL)
+    assert match, "Invariant block missing in markdown"
+    invariants = json.loads(match.group(1))
+    # New structure: { launch_id: { param: value, ... }, ... }
+    start_values = {params["start"] for params in invariants.values() if "start" in params}
+    assert "warm" in start_values, "warm start should be in invariants"
 
 def test_repro_with_task_override(helper) -> None:
     """Test reproduction with task name override."""
@@ -289,7 +332,16 @@ def test_repro_with_task_override(helper) -> None:
 
     # Verify task5.csv has one warm observation
     assert helper.count_csv_rows(f"{helper.experiment_name}/task5") == 1, "Expected one observation in CSV"
-    assert helper.read_csv_column(f"{helper.experiment_name}/task5", "start", 0) == "warm"
+
+    # Verify start is in invariants (not CSV column)
+    md_path = helper.runlogs_path / helper.experiment_name / "task5.md"
+    content = md_path.read_text()
+    match = re.search(r"## Invariant parameters.*?```json\s+(.*?)\s+```", content, re.DOTALL)
+    assert match, "Invariant block missing in markdown"
+    invariants = json.loads(match.group(1))
+    # New structure: { launch_id: { param: value, ... }, ... }
+    start_values = {params["start"] for params in invariants.values() if "start" in params}
+    assert "warm" in start_values, "warm start should be in invariants"
 
 def test_time_backend(helper) -> None:
     """Test time backend metrics."""
@@ -345,6 +397,20 @@ def test_repro_with_backend_override(helper) -> None:
     stdout, stderr, returncode = helper.run_launcher(
         f'-d {helper.runlogs_dir} -e {helper.experiment_name} --repro {md_path} -f backends/uname.yaml -b uname -t task6')
     assert returncode == 0, f"Command failed with code {returncode}"
+
+    # Verify backend order: new CLI backend (uname) should come before repro backend (bintime)
+    task6_md = helper.runlogs_path / helper.experiment_name / "task6.md"
+    md_content = task6_md.read_text()
+    # Extract backend_names line from JSON
+    import json
+    # Find the JSON block
+    json_start = md_content.find('```json')
+    json_end = md_content.find('```', json_start + 7)
+    json_str = md_content[json_start + 7:json_end].strip()
+    config = json.loads(json_str)
+    backend_names = config.get('backend_names', [])
+    assert backend_names == ['uname', 'bintime'], \
+        f"Expected backend_names in order ['uname', 'bintime'], got: {backend_names}"
 
     # Verify task6.csv has both time and uname metrics
     hostname = helper.read_csv_column(f"{helper.experiment_name}/task6", "hostname", 0)
@@ -424,13 +490,17 @@ def test_cold_start_executes_reset_command(helper) -> None:
     import subprocess
     from pathlib import Path
 
-    # Create a temporary file to track reset executions
-    reset_marker = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.txt')
-    reset_marker_path = reset_marker.name
-    reset_marker.close()
+    # Use a single absolute reset marker path inside the test's config directory
+    # so the launcher subprocess can create/touch it. Quote the path for the
+    # shell when building the reset command.
+    import shlex
+
+    reset_marker = Path(getattr(helper, "config_dir", helper.project_root)) / "reset_marker.txt"
+    reset_marker.parent.mkdir(parents=True, exist_ok=True)
+    reset_marker_path = str(reset_marker.resolve())
 
     # Remove it so we can count how many times it's created
-    Path(reset_marker_path).unlink()
+    reset_marker.unlink(missing_ok=True)
 
     try:
         # Use -j to override backend reset command and set cold start
@@ -441,7 +511,8 @@ def test_cold_start_executes_reset_command(helper) -> None:
             "repeater_options": {"CR": {"max": 3}},
             "backend_options": {
                 "local": {
-                    "reset": f"touch {reset_marker_path}"
+                    "run": "$CMD $ARGS",
+                    "reset": f"touch {shlex.quote(reset_marker_path)}"
                 }
             }
         }
@@ -449,6 +520,7 @@ def test_cold_start_executes_reset_command(helper) -> None:
         # Run with new CLI (not old launcher)
         cmd = [
             "src/cli/launch.py",
+            "-d", helper.runlogs_dir,
             "-e", helper.experiment_name,
             "-t", "cold_start_test",
             "-j", json.dumps(json_config),
@@ -458,21 +530,26 @@ def test_cold_start_executes_reset_command(helper) -> None:
 
         assert result.returncode == 0, "Expected zero exit code"
 
-        # Verify CSV has cold start markers
-        for i in range(3):
-            start_type = helper.read_csv_column(f"{helper.experiment_name}/cold_start_test", "start", i)
-            assert start_type == "cold", f"Iteration {i} should have cold start"
+        # Verify start is in invariants (not CSV column)
+        md_path = helper.runlogs_path / helper.experiment_name / "cold_start_test.md"
+        content = md_path.read_text()
+        match = re.search(r"## Invariant parameters.*?```json\s+(.*?)\s+```", content, re.DOTALL)
+        assert match, "Invariant block missing in markdown"
+        invariants = json.loads(match.group(1))
+        # New structure: { launch_id: { param: value, ... }, ... }
+        start_values = {params["start"] for params in invariants.values() if "start" in params}
+        assert "cold" in start_values, "cold start should be in invariants"
 
         # Verify reset command was executed (marker file exists)
         # Note: The reset command runs before the benchmark, and we run 3 iterations,
         # so the file should have been touched at least once
         assert Path(reset_marker_path).exists(), \
-            "Reset marker file should exist (reset command was executed)"
+            f"Reset marker file should exist (reset command was executed): {reset_marker_path}"
 
     finally:
         # Cleanup
-        if Path(reset_marker_path).exists():
-            Path(reset_marker_path).unlink()
+        if reset_marker.exists():
+            reset_marker.unlink()
 
 
 

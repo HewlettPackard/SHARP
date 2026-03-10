@@ -8,8 +8,11 @@ The SHARP GUI includes automatic change point detection to identify warm-up peri
 
 ### Algorithm: PELT (Pruned Exact Linear Time)
 
-- **Method**: PELT change point detection from the R `changepoint` package
-- **Cost function**: Mean and variance changes (`cpt.meanvar`) by default
+- **Method**: PELT change point detection from the Python `ruptures` package
+- **Cost function**: Adaptive selection based on sample size:
+  - **RBF (Radial Basis Function)**: Used for smaller datasets (N ≤ `AUTO_MODEL_THRESHOLD`) for higher accuracy.
+  - **L2 (Least Squares)**: Used for larger datasets (N > `AUTO_MODEL_THRESHOLD`) for better performance (O(N log N)).
+  - The threshold is controlled by `AUTO_MODEL_THRESHOLD` constant (default: 500).
 - **Penalty**: Conservative penalty of `3 * log(n)` to avoid over-segmentation
 - **Minimum segment size**: 5% of total samples (minimum 3)
 
@@ -34,29 +37,36 @@ The change point analysis is integrated into `characterize_distribution()` and a
 
 ### API
 
-```r
+```python
+from src.core.stats.distribution import (
+    detect_change_points,
+    characterize_changepoints,
+    estimate_acf_lag,
+    AUTO_MODEL_THRESHOLD,
+)
+
 # Main function (called automatically by characterize_distribution)
-characterize_changepoints(x, model="rbf", pen=NULL, min_size=NULL,
+characterize_changepoints(x, model="auto", pen=None, min_size=None,
                          acf_threshold=0.2, warmup_pct=0.3, cooldown_pct=0.7)
 
 # Helper functions
-detect_change_points(x, model="rbf", pen=NULL, min_size=NULL)
-estimate_acf_lag(x, threshold=0.2, max_lag=NULL)
+detect_change_points(x, model="auto", pen=None, min_size=None,
+                    auto_threshold=AUTO_MODEL_THRESHOLD)
+estimate_acf_lag(x, threshold=0.2, max_lag=None)
 ```
 
 ### Parameters
 
 - `x`: Numeric vector (time series data)
-- `model`: Cost function - "rbf" or "meanvar" for distributional changes, "mean" for mean-only
+- `model`: Cost function - "auto" (default), "rbf", "l2", or "normal".
+  - "auto": Selects "rbf" for N ≤ `auto_threshold`, "l2" for N > `auto_threshold`.
 - `pen`: Penalty value (default: `3 * log(n)` for conservative detection)
 - `min_size`: Minimum segment length (default: 5% of sample size)
+- `auto_threshold`: Sample size threshold for automatic model selection (default: `AUTO_MODEL_THRESHOLD` = 500)
 - `acf_threshold`: Threshold for ACF analysis (default: 0.2)
 - `warmup_pct`: Threshold for early change points (default: 0.3 = first 30%)
 - `cooldown_pct`: Threshold for late change points (default: 0.7 = last 30%)
 
-### Example Output
-
-```
 ### Example Output
 
 ```
@@ -65,7 +75,6 @@ Distribution appears to be bimodal, unskewed. Strong autocorrelation detected
 or the system preserves state between runs. Potential warm-up period detected:
 first 20 samples (20% of data); median difference = 4.86 (94.9%), p<10^{-9}.
 Single change point suggests a phase transition in the data.
-```
 ```
 
 ## Interpretation
@@ -86,8 +95,9 @@ To adjust sensitivity:
 
 - **More conservative** (fewer change points): Increase `pen` parameter
 - **More sensitive** (more change points): Decrease `pen` parameter or `min_size`
-- **Focus on mean shifts only**: Use `model="mean"` instead of "rbf"/"meanvar"
+- **Focus on mean shifts only**: Use `model="l2"` or `model="normal"` instead of "rbf"
+- **Adjust auto-selection threshold**: Pass `auto_threshold` to control when L2 is used over RBF
 
 ## Dependencies
 
-Requires R package: `changepoint` (automatically installed if missing)
+Requires Python package: `ruptures` (automatically installed if missing)

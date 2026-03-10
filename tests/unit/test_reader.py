@@ -6,13 +6,11 @@ Tests verify:
 - Merging invariant parameters from Markdown metadata
 """
 
+import pytest
 import json
 import polars as pl
-import pytest
 from pathlib import Path
-
 from src.core.runlogs.reader import load_runlog, load_csv
-
 
 def test_load_csv_basic(tmp_path):
     """Test basic CSV loading."""
@@ -23,7 +21,6 @@ def test_load_csv_basic(tmp_path):
     assert df.shape == (2, 2)
     assert df["col1"][0] == 1
 
-
 def test_load_runlog_legacy(tmp_path):
     """Test loading legacy CSV (no launch_id)."""
     csv_path = tmp_path / "test.csv"
@@ -32,7 +29,6 @@ def test_load_runlog_legacy(tmp_path):
     df = load_runlog(csv_path)
     assert df.shape == (2, 2)
     assert "launch_id" not in df.columns
-
 
 def test_load_runlog_with_invariants(tmp_path):
     """Test loading runlog with invariants in MD."""
@@ -88,7 +84,6 @@ Parameters are listed by name, with values keyed by launch ID.
     assert run2_df["backend"][0] == "singularity"
     assert run2_df["cores"][0] == 8
 
-
 def test_load_runlog_missing_md(tmp_path):
     """Test loading runlog when MD file is missing."""
     csv_path = tmp_path / "test.csv"
@@ -98,7 +93,6 @@ def test_load_runlog_missing_md(tmp_path):
     assert "launch_id" in df.columns
     assert "metric" in df.columns
     # Should not fail, just no extra columns
-
 
 def test_load_runlog_malformed_md(tmp_path):
     """Test loading runlog with malformed MD."""

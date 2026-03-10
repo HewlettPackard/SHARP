@@ -1,6 +1,7 @@
 # Configuration excerpt to measure CPU package temeperature
 backend_options:
   temps:
+    profiling: true
     run: (bash -c '$CMD $ARGS'; /usr/bin/sensors) 2>&1
 metrics:
   auto:

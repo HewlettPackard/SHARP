@@ -40,6 +40,7 @@
 #
 backend_options:
   mpi:
+    composable: false
     tmp_path: "/tmp/"            # Base path for temp dirs (unique subdir created per execution)
     mpiflags: ""                 # MPI flags (--mpl controls -np, don't include -np here)
     reset: ''                    # MPI can't really reset jobs

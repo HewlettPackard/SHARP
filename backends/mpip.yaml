@@ -54,6 +54,8 @@
 # - Prevents conflicts between concurrent MPI runs
 backend_options:
   mpip:
+    profiling: true
+    composable: false
     tmp_path: "/tmp/"
     mpiflags: ""  # Optional: thingss like -H or --hostfile
     reset: ""

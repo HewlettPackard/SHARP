@@ -390,3 +390,4 @@ def test_markdown_includes_row_count(tmp_path) -> None:
 
     # Verify row count appears in summary line
     assert "total rows: 3" in content, "Markdown should include row count"
+

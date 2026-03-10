@@ -1,6 +1,7 @@
 # Configuration excerpt to measure time spent in various system calls
 backend_options:
   strace:
+    profiling: true
     reset: ''      # Defaults to '' anyway if not defined
     run: /usr/bin/strace -c $CMD $ARGS
 metrics:

@@ -47,29 +47,87 @@ class CommandComposer:
         self.func = benchmark_spec.get("entry_point", "")
         args_value = benchmark_spec.get("args", [])
         self.args = " ".join(args_value) if isinstance(args_value, list) else str(args_value)
+
+        # If hosts not provided, extract from backend_options (any backend can have hosts)
+        if hosts is None:
+            hosts = self._extract_hosts_from_backend_options(backend_options)
         self.hosts = hosts or [platform.node()]
 
         # Will be set when compose() is called with backend_names
         self.mpiflags = ""
         self.tmp_path = "/tmp/"
 
-        # Create unique temporary directory for MPI outputs if needed later
-        self.unique_tmp_dir = tempfile.mkdtemp(prefix="mpi-stats-")
+        # Lazily created temporary directory for MPI outputs
+        self.unique_tmp_dir = None
 
-    def _get_command_template(self, config: Dict[str, Any], default: str = "", template_key: str = "run") -> str:
+    def _extract_hosts_from_backend_options(self, backend_options: Dict[str, Dict[str, Any]]) -> List[str]:
+        """
+        Extract hosts from any backend that has a 'hosts' option.
+
+        Searches all backends for 'hosts' configuration and returns the first found.
+        Handles comma-separated string format and list format.
+
+        Args:
+            backend_options: Backend options dict
+
+        Returns:
+            List of hostnames, or empty list if none found
+        """
+        for backend_config in backend_options.values():
+            if isinstance(backend_config, dict) and "hosts" in backend_config:
+                hosts_value = backend_config["hosts"]
+                if isinstance(hosts_value, list):
+                    return hosts_value
+                elif isinstance(hosts_value, str):
+                    # Handle comma-separated hosts
+                    return [h.strip() for h in hosts_value.split(",")]
+        return []
+
+    def _guess_backend_name(self, config: Dict[str, Any]) -> str:
+        """
+        Attempt to identify which backend this config belongs to.
+
+        Searches backend_options to find a key whose value matches this config.
+        Falls back to 'unknown' if no match found.
+
+        Args:
+            config: Backend configuration dict
+
+        Returns:
+            Backend name or 'unknown'
+        """
+        for name, backend_config in self.backend_options.items():
+            if backend_config is config:
+                return name
+        return "unknown"
+
+    def _get_command_template(self, config: Dict[str, Any], template_key: str = "run") -> str:
         """Get command template from backend config with backward compatibility.
 
         Args:
             config: Backend configuration dict
-            default: Default template if none found
             template_key: Which template to use ('run' for normal commands, 'run_sys_spec' for system specs)
 
         Returns:
             Command template string
+
+        Raises:
+            ValueError: If required template is missing from backend config
         """
         # For backward compatibility, try command_template first, then the specified key
-        result = config.get("command_template") or config.get(template_key, default)
-        return str(result) if result else default
+        result = config.get("command_template") or config.get(template_key)
+
+        # Validate: all backends passed to CommandComposer MUST have the required template
+        # Metric-only backends should never be passed to CommandComposer
+        if not result and config:
+            backend_name = self._guess_backend_name(config)
+            raise ValueError(
+                f"Backend '{backend_name}' is missing required '{template_key}' template. "
+                f"Did you forget to load backends/{backend_name}.yaml? "
+                f"Use: -f backends/{backend_name}.yaml -f your_config.yaml"
+            )
+
+        return str(result) if result else ""
 
     def compose(self, backend_names: List[str], copies: int = 1, template_key: str = "run") -> List[str]:
         """
@@ -102,10 +160,12 @@ class CommandComposer:
 
         if len(backend_names) == 1:
             # Single backend: direct execution (MPI or parallel)
-            return self._build_direct(copies)
+            result = self._build_direct(copies)
+        else:
+            # Multiple backends: compose via chaining
+            result = self._build_chained(copies)
 
-        # Multiple backends: compose via chaining
-        return self._build_chained(copies)
+        return result
 
     def _build_direct(self, copies: int, nested: str = "") -> List[str]:
         """
@@ -165,14 +225,22 @@ class CommandComposer:
         nested_cmd = inner_commands[0] if inner_commands else ""
 
         # Wrap with outer backends (right-to-left)
+        # Outer backends should NOT have args - they just wrap the nested command
+        empty_benchmark_spec: Dict[str, Any] = {
+            "task": "",
+            "entry_point": "",
+            "args": [],
+        }
+
         for i in range(len(self.backend_names) - 2, -1, -1):
             outer_name = self.backend_names[i]
             outer_config = self.backend_options.get(outer_name, {})
 
             # Create a temporary composer just for the outer backend
+            # Use empty benchmark_spec so outer backends don't duplicate args
             outer_composer = CommandComposer(
                 self.backend_options,
-                benchmark_spec,
+                empty_benchmark_spec,
                 self.hosts
             )
             # Set backend_names and template_key for outer composer
@@ -201,7 +269,7 @@ class CommandComposer:
         innermost_name = self.backend_names[-1]
         config = self.backend_options.get(innermost_name, {})
         template_key = getattr(self, 'template_key', 'run')
-        template = self._get_command_template(config, "", template_key=template_key)
+        template = self._get_command_template(config, template_key=template_key)
 
         return "mpirun" in template or "mpiexec" in template or "$MPL" in template
 
@@ -220,7 +288,7 @@ class CommandComposer:
         innermost_name = self.backend_names[-1]
         config = self.backend_options.get(innermost_name, {})
         template_key = getattr(self, 'template_key', 'run')
-        run_cmd = self._get_command_template(config, "$CMD", template_key=template_key)
+        run_cmd = self._get_command_template(config, template_key=template_key)
 
         # Determine which placeholder to use based on template key
         placeholder = "$SPEC_COMMAND" if template_key == "run_sys_spec" else "$CMD"
@@ -238,8 +306,8 @@ class CommandComposer:
             # (contains no path separators and isn't meant to be in PATH)
             # For benchmarks, they should explicitly use "./script.py"
             func_path = self.func
-            func_call = f"{func_path} {self.args}".strip()
-            cmd = run_cmd.replace(placeholder, func_call)
+            # Don't include args here - they will be added via $ARGS placeholder expansion
+            cmd = run_cmd.replace(placeholder, func_path)
 
         # Placeholder for MPL (MPI concurrency) - will be replaced in _expand_macros
         cmd = cmd.replace("$MPL", str(copies))
@@ -262,7 +330,7 @@ class CommandComposer:
             .replace("$FN", self.func)
             .replace("$ARGS", self.args)
             .replace("$MPIFLAGS", self.mpiflags)
-            .replace("$TMP_PATH", self.unique_tmp_dir)
+            .replace("$TMP_PATH", self._resolve_tmp_path(src))
             .replace("$MPL", str(mpl))
         )
 
@@ -276,3 +344,31 @@ class CommandComposer:
             result = result.replace(f"$HOST{i}", host)
 
         return result
+
+    def _resolve_tmp_path(self, command: str) -> str:
+        """Ensure $TMP_PATH expands to an existing directory path ending with os.sep.
+
+        Backend templates such as the MPI runner expect $TMP_PATH to reference a
+        concrete directory (not just the configured base path) because they write
+        per-rank files like ``$TMP_PATH$OMPI_COMM_WORLD_RANK`` and later run
+        commands like ``cat $TMP_PATH*`` and ``rm -rf $TMP_PATH``. This helper
+        therefore:
+
+        1. Creates (or recreates) a unique temporary directory beneath the
+           backend's configured ``tmp_path`` when the placeholder is used.
+        2. Returns that directory with a trailing path separator so template
+           expansions such as ``$TMP_PATH$OMPI_COMM_WORLD_RANK`` produce valid
+           file paths without having to worry about missing slashes.
+        """
+        if "$TMP_PATH" not in command:
+            return ""
+
+        needs_dir = self.unique_tmp_dir is None or not os.path.isdir(self.unique_tmp_dir)
+        if needs_dir:
+            base_dir = (self.tmp_path or "/tmp/").rstrip(os.sep) or "/tmp"
+            self.unique_tmp_dir = tempfile.mkdtemp(prefix="mpi-stats-", dir=base_dir)
+
+        if not self.unique_tmp_dir.endswith(os.sep):
+            self.unique_tmp_dir = f"{self.unique_tmp_dir}{os.sep}"
+
+        return self.unique_tmp_dir

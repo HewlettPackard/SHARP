@@ -31,7 +31,6 @@
 # ✓ Support for both hosts string and hostfile options
 # ✓ Automatic fallback to localhost when no hosts specified
 # ✓ System specification commands run on first host
-# ✓ No virtual environment dependency (removed as requested)
 #
 # The $HOST macro automatically selects hosts in round-robin fashion:
 # - Copy 0 -> hosts[0]
