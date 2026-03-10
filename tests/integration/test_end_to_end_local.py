@@ -297,7 +297,7 @@ def test_local_rows_include_rank_and_repeat(orchestrator_config, tmp_path) -> No
 
 
 class _DummyRunner:
-    def run_commands(self, commands):
+    def run_commands(self, commands, env=None):
         tmp_file = tempfile.NamedTemporaryFile(mode="w+", delete=False)
         tmp_file.write("outer_time 0.4\n")
         tmp_file.flush()
@@ -337,6 +337,10 @@ def test_mpi_rows_include_rank_and_repeat(orchestrator_config, tmp_path) -> None
     )
 
     result = orchestrator.run()
+
+    # Debug: check result status
+    assert result.success, f"Orchestrator failed: {result.error_message}"
+    assert "csv" in result.output_paths, f"CSV path missing. Available keys: {list(result.output_paths.keys())}"
 
     with open(result.output_paths["csv"], newline="") as csv_file:
         rows = list(csv.DictReader(csv_file))

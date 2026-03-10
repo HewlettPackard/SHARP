@@ -49,16 +49,6 @@ all_combinations = [
 ]
 
 
-def _knative_available() -> bool:
-    """Return True if the kn CLI is installed."""
-    return shutil.which("kn") is not None
-
-
-def _fission_available() -> bool:
-    """Return True if the fission CLI is installed."""
-    return shutil.which("fission") is not None
-
-
 def check_docker_container(fn: str) -> bool:
     """Check if a Docker container with exact name is running.
 
@@ -123,12 +113,6 @@ def test_install(setup_test, name, backend, fn, args):
             f"Docker container '{fn}' is not running. "
             f"Start it with: cd fns/{fn} && make prep-docker"
         )
-
-    # Skip knative/fission tests if the required CLI is not installed
-    if backend == "knative" and not _knative_available():
-        pytest.skip("knative CLI (kn) is not installed")
-    if backend == "fission" and not _fission_available():
-        pytest.skip("fission CLI is not installed")
 
     # Use parameterized test name as part of task name for uniqueness
     unique_task = f"{helper.task_name}_{name}"

@@ -6,6 +6,7 @@ Tests verify:
 - CSV generation with merged columns + rows
 - Markdown generation with metadata and system specs
 - Directory creation and file handling
+- Executable checksum computation
 """
 
 import pytest
@@ -17,6 +18,7 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 from src.core.runlogs import RunLogger
+from src.core.runlogs.writer import compute_executable_checksum
 
 
 def _extract_invariants(md_path: Path) -> dict:
@@ -390,4 +392,66 @@ def test_markdown_includes_row_count(tmp_path) -> None:
 
     # Verify row count appears in summary line
     assert "total rows: 3" in content, "Markdown should include row count"
+
+
+# ========== Test executable checksum functionality ==========
+
+def test_compute_executable_checksum_regular_file(tmp_path) -> None:
+    """Test checksum computation for a regular file."""
+    test_file = tmp_path / "test_binary"
+    test_file.write_bytes(b"Hello, World!")
+
+    checksum_type, checksum_value = compute_executable_checksum(str(test_file))
+
+    assert checksum_type == "sha256"
+    # SHA-256 produces 64 hex characters
+    assert len(checksum_value) == 64
+    # Verify it's a valid hex string
+    assert all(c in "0123456789abcdef" for c in checksum_value)
+
+
+def test_compute_executable_checksum_nonexistent_file() -> None:
+    """Test checksum computation returns unavailable for nonexistent file."""
+    checksum_type, checksum_value = compute_executable_checksum("/nonexistent/path/to/file")
+
+    assert checksum_type == "unavailable"
+    assert "file not found" in checksum_value
+
+
+def test_compute_executable_checksum_same_content_same_hash(tmp_path) -> None:
+    """Test that same content produces same checksum."""
+    file1 = tmp_path / "file1"
+    file2 = tmp_path / "file2"
+
+    content = b"Identical content for both files"
+    file1.write_bytes(content)
+    file2.write_bytes(content)
+
+    _, checksum1 = compute_executable_checksum(str(file1))
+    _, checksum2 = compute_executable_checksum(str(file2))
+
+    assert checksum1 == checksum2
+
+
+def test_compute_executable_checksum_different_content_different_hash(tmp_path) -> None:
+    """Test that different content produces different checksum."""
+    file1 = tmp_path / "file1"
+    file2 = tmp_path / "file2"
+
+    file1.write_bytes(b"Content A")
+    file2.write_bytes(b"Content B")
+
+    _, checksum1 = compute_executable_checksum(str(file1))
+    _, checksum2 = compute_executable_checksum(str(file2))
+
+    assert checksum1 != checksum2
+
+
+def test_compute_executable_checksum_docker_reference() -> None:
+    """Test checksum computation handles Docker image references gracefully."""
+    # Docker images with ':' are detected as docker references
+    checksum_type, checksum_value = compute_executable_checksum("docker:alpine:latest")
+    # Without Docker available, should return unavailable or docker-digest
+    assert checksum_type in ("unavailable", "docker-digest")
+    assert isinstance(checksum_value, str)
 

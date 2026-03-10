@@ -255,6 +255,9 @@ def _extract_from_json_block(content: str) -> dict[str, Any]:
     metadata: dict[str, Any] = {}
 
     try:
+        import json
+        import re
+
         # Find JSON block between ```json and ```
         json_match = re.search(r'```json\s*\n(.*?)\n```', content, re.DOTALL)
         if not json_match:
@@ -484,6 +487,7 @@ def _extract_row_count_from_summary(content: str) -> int | None:
         return int(row_match.group(1))
     except (ValueError, AttributeError, TypeError):
         return None
+
 
 
 def _parse_timestamp(ts_value: Any) -> datetime | None:

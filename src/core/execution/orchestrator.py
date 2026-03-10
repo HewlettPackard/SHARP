@@ -16,13 +16,19 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
+import os
 import subprocess
 import tempfile
 import warnings
 
 import yaml
 
-from src.core.config.backend_loader import load_backend_configs, resolve_backend_paths
+from src.core.config.backend_loader import (
+    load_backend_configs,
+    resolve_backend_paths,
+    validate_backend_chain,
+    BackendChainError
+)
 from src.core.execution.command_composer import CommandComposer
 from src.core.execution.runner import Runner
 from src.core.repeaters import repeater_factory
@@ -127,6 +133,11 @@ class ExecutionOrchestrator:
         # Extract optional parameters with defaults
         self.backend_options = options.get("backend_options", {})
 
+        # Extract environment variables (inherit parent + add config.environment)
+        self.environment = os.environ.copy()
+        if "environment" in options:
+            self.environment.update(options["environment"])
+
         # If we're using backends but don't have their options loaded, load them now
         # This handles the case where backend_names defaults to ["local"] but
         # backend_options was empty (e.g., from a --repro run)
@@ -140,6 +151,14 @@ class ExecutionOrchestrator:
             for backend_name in missing_backends:
                 if backend_name in temp_config.get("backend_options", {}):
                     self.backend_options[backend_name] = temp_config["backend_options"][backend_name]
+
+        # Validate backend chain for composability constraints
+        is_valid, error_message = validate_backend_chain(
+            self.backend_names,
+            self.backend_options
+        )
+        if not is_valid:
+            raise BackendChainError(error_message)
 
         self.timeout = options.get("timeout")
         self.verbose = options.get("verbose", False)
@@ -168,13 +187,22 @@ class ExecutionOrchestrator:
 
         task_name = self.benchmark_spec.get("task", self.experiment_name)
         topdir = options.get("directory", "runlogs")
+        launch_id = options.get("launch_id")  # Optional launch_id for sweep runs
 
         self.logger = RunLogger(
             topdir=topdir,
             experiment=self.experiment_name,
             task=task_name,
-            options=options  # Pass complete options dict directly
+            options=options,  # Pass complete options dict directly
+            launch_id=launch_id
         )
+
+        # Add sweep params as regular invariants if provided
+        if "sweep_params" in options:
+            for key, value in options["sweep_params"].items():
+                # Convert value to string for invariant display
+                value_str = str(value) if not isinstance(value, list) else ", ".join(str(v) for v in value)
+                self.logger.add_invariant(key, value_str, "string", f"Sweep parameter: {key}")
 
         # Add invariant parameters (constants for this run)
         self.logger.add_invariant("task", task_name, "string", "Task/benchmark name")
@@ -213,7 +241,7 @@ class ExecutionOrchestrator:
             # Warm start: run benchmark once before measurements
             if self.start == "warm":
                 commands = composer.compose(self.backend_names, copies=self.mpl)
-                self.runner.run_commands(commands)  # Run once, discard results
+                self.runner.run_commands(commands, env=self.environment)  # Run once, discard results
 
             # Main iteration loop
             should_continue = True
@@ -233,7 +261,7 @@ class ExecutionOrchestrator:
                 )
 
                 # Run commands and measure wall-clock time
-                success, output_files, elapsed_time = self.runner.run_commands(commands)
+                success, output_files, elapsed_time = self.runner.run_commands(commands, env=self.environment)
                 if not success:
                     raise RuntimeError("Command execution timeout or failure")
 

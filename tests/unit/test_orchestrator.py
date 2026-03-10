@@ -94,7 +94,7 @@ class MockRunner:
         self.commands_run: List[str] = []
         self.run_count = 0
 
-    def run_commands(self, commands: List[str]) -> tuple:
+    def run_commands(self, commands: List[str], env=None) -> tuple:
         """Simulate command execution."""
         self.commands_run.append(commands)
         self.run_count += 1

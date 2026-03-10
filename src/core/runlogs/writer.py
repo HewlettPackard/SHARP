@@ -9,6 +9,7 @@ Records experiment metadata and run results to:
 """
 
 import csv
+import hashlib
 import json
 import os
 import platform
@@ -24,10 +25,66 @@ from src.core.config.include_resolver import get_project_root
 from src.core.config.settings import Settings
 
 
+def compute_executable_checksum(entry_point: str) -> tuple[str, str]:
+    """
+    Compute SHA-256 checksum of executable for reproducibility.
+
+    For scripts/binaries, computes hash of the file contents.
+    For Docker images, uses docker inspect to get image digest.
+    For AppImages, computes hash of the AppImage file.
+
+    Args:
+        entry_point: Path to executable, script, or container reference
+
+    Returns:
+        Tuple of (checksum_type, checksum_value):
+        - checksum_type: "sha256", "docker-digest", or "unavailable"
+        - checksum_value: The checksum string or error message
+    """
+    path = Path(entry_point)
+
+    # Handle Docker image references (e.g., "sharp-matmul:latest")
+    if ":" in entry_point and not path.exists():
+        try:
+            result = subprocess.run(
+                ["docker", "inspect", "--format", "{{.Id}}", entry_point],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if result.returncode == 0:
+                digest = result.stdout.strip()
+                # Docker ID format: sha256:abc123...
+                return ("docker-digest", digest)
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+        return ("unavailable", f"docker image not found: {entry_point}")
+
+    # Handle file-based executables (scripts, binaries, AppImages)
+    if path.exists() and path.is_file():
+        try:
+            sha256 = hashlib.sha256()
+            with open(path, "rb") as f:
+                # Read in chunks for large files (AppImages can be 100MB+)
+                for chunk in iter(lambda: f.read(8192), b""):
+                    sha256.update(chunk)
+            return ("sha256", sha256.hexdigest())
+        except (IOError, PermissionError) as e:
+            return ("unavailable", f"cannot read file: {e}")
+
+    # Handle directories (shouldn't happen for entry_point, but be safe)
+    if path.exists() and path.is_dir():
+        return ("unavailable", "entry_point is a directory")
+
+    # File doesn't exist yet or is a system command
+    return ("unavailable", f"file not found: {entry_point}")
+
+
 class RunLogger:
     """Records experiment data to CSV and Markdown files."""
 
-    def __init__(self, topdir: str, experiment: str, task: str, options: Dict[str, Any]) -> None:
+    def __init__(self, topdir: str, experiment: str, task: str, options: Dict[str, Any],
+                 launch_id: str | None = None) -> None:
         """
         Initialize logger for a single task/benchmark run.
 
@@ -36,6 +93,7 @@ class RunLogger:
             experiment: Experiment subdirectory name (e.g., 'matmul_perf')
             task: Base filename for CSV/MD files (e.g., 'matmul', not 'path/to/matmul')
             options: Experiment options dict (for preamble, excludes sys_spec_commands)
+            launch_id: Optional launch identifier for sweep runs
 
         Raises:
             ValueError: If topdir does not exist or cannot create experiment directory
@@ -43,9 +101,10 @@ class RunLogger:
         self.clear_rows()
         self._constants: Dict[str, Dict[str, Any]] = {}
         self._metadata: Dict[str, Dict[str, str]] = {}
+        self._sweep_invariants: Dict[str, Any] = {}  # Sweep parameter invariants
         self._task: str = task
         self._start_time: float = time.perf_counter()
-        self._launch_id: str = uuid.uuid4().hex[:8]
+        self._launch_id: str = launch_id if launch_id else uuid.uuid4().hex[:8]
 
         # Create experiment directory if needed
         exp_dir = Path(topdir) / experiment
@@ -86,6 +145,9 @@ class RunLogger:
         """
         Generate markdown preamble with metadata and runtime options.
 
+        Includes executable checksum for reproducibility when entry_point
+        is available.
+
         Args:
             task: Task/benchmark name
             options: Experiment options dict
@@ -119,18 +181,35 @@ class RunLogger:
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass  # git not available or timed out
 
+        # Compute executable checksum for reproducibility
+        entry_point = options.get("entry_point", "")
+        checksum_type, checksum_value = "", ""
+        if entry_point:
+            checksum_type, checksum_value = compute_executable_checksum(entry_point)
+            checksum_value = checksum_value[1:10] + "..." if len(checksum_value) > 12 else checksum_value
+
         now = datetime.now(timezone.utc)
-        preamble = f"This file describes the fields in the file {task}.csv. "
+        preamble = f"This file describes the conditions for the runs captured in {task}.csv. "
         preamble += f"The measurements were run on {platform.node()}, starting at {now} (UTC).\n"
 
         preamble += f"SHARP version: {version}\n"
         if git_hash:
-            preamble += f"The source code version used was from git hash: {git_hash}\n"
+            preamble += f"SHARP's source code version used was from git hash: {git_hash}\n"
+
+        # Add executable checksum for reproducibility
+        if checksum_type and checksum_type != "unavailable":
+            preamble += f"Executable checksum ({checksum_type}): {checksum_value}\n"
+        elif checksum_type == "unavailable" and entry_point:
+            preamble += f"Executable checksum: {checksum_value}\n"
 
         preamble += "\n## Initial runtime options\n\n```json\n"
 
-        # Exclude sys_spec_commands from output (shown in System configuration section)
-        options_filtered = {k: v for k, v in options.items() if k != "sys_spec_commands"}
+        # Exclude internal fields from output
+        # - sys_spec_commands: shown in System configuration section
+        # - sweep_params: shown as invariants per launch_id
+        # - launch_id: shown in CSV and invariants sections
+        options_filtered = {k: v for k, v in options.items()
+                           if k not in ("sys_spec_commands", "sweep_params", "launch_id")}
         preamble += json.dumps(options_filtered, indent=2)
         preamble += "\n```"
 
@@ -180,6 +259,15 @@ class RunLogger:
             "type": typ,
             "description": desc
         }
+
+    def add_sweep_invariants(self, params: Dict[str, Any]) -> None:
+        """
+        Add sweep parameter invariants (for parameter sweep runs).
+
+        Args:
+            params: Dictionary of sweep parameters and their values
+        """
+        self._sweep_invariants = params
 
     def add_row_data(
         self, field: str, value: Union[str, int, float], typ: str, desc: str
@@ -288,6 +376,15 @@ class RunLogger:
     def _merge_invariants(self, base: Dict[str, Any]) -> Dict[str, Any]:
         """Merge current run's constants into existing invariants structure."""
         # Structure: { launch_id: { param_name: value, ... }, ... }
+
+        # Check for duplicate launch_id
+        if self._launch_id in base:
+            raise ValueError(
+                f"Launch ID '{self._launch_id}' already exists in output file. "
+                f"This indicates a duplicate sweep run. "
+                f"Use a different experiment name or remove --amend flag."
+            )
+
         launch_entry = base.setdefault(self._launch_id, {})
         for param, details in self._constants.items():
             launch_entry[param] = details["value"]
@@ -321,7 +418,16 @@ class RunLogger:
         content = md_path.read_text(encoding="utf-8")
         invariants_block = self._render_invariants_block(invariants)
 
-        if "## Invariant parameters" in content:
+        if "## Invariant field description" in content:
+            # Replace entire invariants section (field descriptions + parameters)
+            content = re.sub(
+                r"## Invariant field description.*?```json\s+.*?\s+```",
+                invariants_block,
+                content,
+                flags=re.DOTALL
+            )
+        elif "## Invariant parameters" in content:
+            # Fallback for old format without field descriptions
             content = re.sub(
                 r"## Invariant parameters.*?```json\s+.*?\s+```",
                 invariants_block,
@@ -370,6 +476,9 @@ class RunLogger:
             f.write("\n\n")
             f.write(invariants_block)
             f.write("\n")
+
+            # Sweep parameters are now tracked as regular invariants per launch_id
+            # No separate sweep section needed
 
             if sys_specs:
                 f.write("\n## Initial system configuration\n\n")

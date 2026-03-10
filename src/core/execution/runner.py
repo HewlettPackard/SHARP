@@ -41,7 +41,7 @@ class Runner:
         self.verbose = verbose
         self.stdin_fd = stdin_fd if stdin_fd >= 0 else None
 
-    def run_commands(self, commands: List[str]) -> Tuple[bool, List[tempfile._TemporaryFileWrapper[bytes]], float]:
+    def run_commands(self, commands: List[str], env: Optional[dict[str, str]] = None) -> Tuple[bool, List[tempfile._TemporaryFileWrapper[bytes]], float]:
         """
         Execute commands in parallel and wait for completion.
 
@@ -51,6 +51,7 @@ class Runner:
 
         Args:
             commands: List of shell commands to execute in parallel
+            env: Environment variables to set for subprocess (default: inherit parent)
 
         Returns:
             Tuple of (success: bool, output_files: List[TemporaryFile], elapsed_time: float)
@@ -63,17 +64,18 @@ class Runner:
             RuntimeError: If command fails catastrophically (not found, segfault, etc.)
         """
         t0 = time.perf_counter()
-        popens, output_files = self._launch_commands(commands)
+        popens, output_files = self._launch_commands(commands, env)
         success = self._wait_for_commands(popens, commands, t0)
         elapsed_time = time.perf_counter() - t0
         return success, output_files, elapsed_time
 
-    def _launch_commands(self, commands: List[str]) -> Tuple[List[subprocess.Popen], List[tempfile._TemporaryFileWrapper[bytes]]]:
+    def _launch_commands(self, commands: List[str], env: Optional[dict[str, str]] = None) -> Tuple[List[subprocess.Popen], List[tempfile._TemporaryFileWrapper[bytes]]]:
         """
         Launch all commands in parallel.
 
         Args:
             commands: List of shell commands to execute
+            env: Environment variables to set for subprocess (default: inherit parent)
 
         Returns:
             Tuple of (popens, output_files)
@@ -95,6 +97,7 @@ class Runner:
                 stderr=subprocess.STDOUT,
                 text=True,
                 shell=True,
+                env=env,
             )
             popens.append(popen)
 

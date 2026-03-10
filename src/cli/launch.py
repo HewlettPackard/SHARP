@@ -33,12 +33,85 @@ from typing import Any, Dict
 import yaml
 
 from src.core.repeaters import repeater_factory
-from src.core.config.backend_loader import load_backend_configs, resolve_backend_paths, merge_config
+from src.core.config.backend_loader import (
+    load_backend_configs,
+    resolve_backend_paths,
+    merge_config,
+    BackendChainError
+)
+from src.core.config.include_resolver import get_project_root
 
 from src.cli import discovery
 from src.core.execution.orchestrator import ExecutionOrchestrator, ProgressCallbacks, ExperimentResult
 from src.core.config.benchmarks import load_benchmark_data
 from src.core.runlogs import extract_runtime_options_from_markdown
+
+
+def _resolve_entry_point_for_backend(benchmark_name: str, benchmark_data: Dict[str, Any],
+                                      backends: list[str]) -> str:
+    """
+    Resolve the appropriate entry point based on selected backends.
+
+    Priority:
+    1. If entry_points.appimage exists and backend is local/ssh/mpi, use AppImage
+    2. If entry_points.docker exists and backend is docker, use Docker image
+    3. Auto-discover built artifacts in build/appimages/ or build/docker/
+    4. Fall back to default entry_point
+
+    Args:
+        benchmark_name: Name of the benchmark
+        benchmark_data: Benchmark definition from YAML
+        backends: List of selected backend names
+
+    Returns:
+        Resolved entry point path or image name
+    """
+    entry_points = benchmark_data.get("entry_points", {})
+    default_entry = benchmark_data.get("entry_point", "./benchmark")
+
+    # Determine backend type for entry point selection
+    # Docker backend needs container entry point, others use AppImage or default
+    uses_docker = "docker" in backends
+    uses_container = any(b in backends for b in ["knative", "fission"])
+
+    if uses_docker:
+        # Check for explicit docker entry point
+        if entry_points.get("docker"):
+            return entry_points["docker"]
+        # Auto-discover built Docker image
+        docker_image = f"sharp-{benchmark_name}:latest"
+        # Check if image exists (don't fail if docker not available)
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["docker", "images", "-q", docker_image],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return docker_image
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+    elif uses_container:
+        # Check for explicit container entry point
+        if entry_points.get("container"):
+            return entry_points["container"]
+
+    else:
+        # Local/SSH/MPI backends - prefer AppImage if available
+        if entry_points.get("appimage"):
+            appimage_path = entry_points["appimage"]
+            if Path(appimage_path).exists():
+                return appimage_path
+
+        # Auto-discover built AppImage
+        project_root = get_project_root()
+        appimage_path = project_root / "build" / "appimages" / f"{benchmark_name}-x86_64.AppImage"
+        if appimage_path.exists():
+            return str(appimage_path)
+
+    # Fall back to default entry point
+    return default_entry
 
 
 def _resolve_benchmark_path(benchmark_name: str) -> Dict[str, Any]:
@@ -103,7 +176,7 @@ def _coalesce_option(cli_value: Any, config_value: Any, default: Any = None,
 def _resolve_repeats(cli_repeater: str | None, config: Dict[str, Any]) -> str:
     """Resolve repeater priority: CLI > config > default (MAX)."""
     cli_value = cli_repeater.upper() if cli_repeater else None
-    config_value = config.get("repeats")
+    config_value = config.get("repeater")
     if isinstance(config_value, str):
         config_value = config_value.upper()
     return _coalesce_option(cli_value, config_value, "MAX")
@@ -201,12 +274,16 @@ def build_config_from_sources(args: argparse.Namespace) -> Dict[str, Any]:
 
     Priority (lowest to highest): --repro < --config files < --json < CLI args
 
+    Config files are resolved with includes before merging.
+
     Args:
         args: Parsed command-line arguments
 
     Returns:
         Merged configuration dictionary
     """
+    from src.core.config.include_resolver import resolve_includes
+
     config: Dict[str, Any] = {}
 
     # 1. Load from --repro file (lowest priority) - loads entire options dict
@@ -214,9 +291,11 @@ def build_config_from_sources(args: argparse.Namespace) -> Dict[str, Any]:
         config = load_repro_file(args.repro)
 
     # 2. Load from --config files (can specify multiple, naturally override repro)
+    # Files are resolved with includes before merging
     if args.config:
         for config_file in args.config:
-            merge_config(config, load_config_file(config_file))
+            resolved_config = resolve_includes(config_file)
+            merge_config(config, resolved_config)
 
     # 4. Load from --json inline string (naturally overrides config files)
     if args.json:
@@ -231,7 +310,11 @@ def build_config_from_sources(args: argparse.Namespace) -> Dict[str, Any]:
 
 def load_backend_options(backend_names: list[str], config: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Load backend options, auto-loading YAML files for backends not in config.
+    Load backend options, auto-loading YAML files for all backends.
+
+    Backend YAML files are loaded first, then user-provided options (from -j or config files)
+    are merged on top. This allows users to override specific options (like hosts) while
+    keeping the base configuration (like run template) from the YAML files.
 
     Args:
         backend_names: List of backend names
@@ -240,9 +323,23 @@ def load_backend_options(backend_names: list[str], config: Dict[str, Any]) -> Di
     Returns:
         Backend options dictionary
     """
-    # Only load backends not already in config
-    missing = [name for name in backend_names if name not in config.get("backend_options", {})]
-    return load_backend_configs(resolve_backend_paths(missing), config)
+    # Save user-provided backend options to merge on top of YAML configs
+    user_backend_options = config.get("backend_options", {}).copy()
+
+    # Clear backend_options so YAML files are loaded fresh
+    config["backend_options"] = {}
+
+    # Load all backend YAML files
+    load_backend_configs(resolve_backend_paths(backend_names), config)
+
+    # Merge user options on top (user options take priority)
+    for backend_name, user_options in user_backend_options.items():
+        if backend_name in config["backend_options"]:
+            merge_config(config["backend_options"][backend_name], user_options)
+        else:
+            config["backend_options"][backend_name] = user_options
+
+    return config.get("backend_options", {})
 
 
 def build_orchestrator_options(args: argparse.Namespace, config: Dict[str, Any]) -> Dict[str, Any]:
@@ -270,8 +367,10 @@ def build_orchestrator_options(args: argparse.Namespace, config: Dict[str, Any])
     options["verbose"] = _coalesce_option(True if args.verbose else None, config.get("verbose"), False,
                                             cli_is_set=args.verbose)
 
-    # Output directory - CLI flag > config > default
-    options["directory"] = _coalesce_option(args.directory, config.get("directory"), "runlogs")
+    # Output directory - CLI flag > config.options.directory > config.directory > default
+    # Check both locations for backward compatibility
+    config_directory = config.get("options", {}).get("directory") or config.get("directory")
+    options["directory"] = _coalesce_option(args.directory, config_directory, "runlogs")
 
     # Start type (cold, warm, or normal)
     cli_start = "cold" if args.cold else "warm" if args.warm else None
@@ -325,15 +424,22 @@ def build_orchestrator_options(args: argparse.Namespace, config: Dict[str, Any])
     config_copies = config.get("copies") or config.get("mpl")
     options["mpl"] = _coalesce_option(args.copies, config_copies, 1)
 
+    # Environment variables (from config)
+    options["environment"] = config.get("environment", {})
+
     return options, benchmark_data
 
 
 def build_benchmark_spec(args: argparse.Namespace, benchmark_data: Dict[str, Any],
-                         config: Dict[str, Any]) -> Dict[str, Any]:
+                         config: Dict[str, Any], backends: list[str] | None = None) -> Dict[str, Any]:
     """
     Build benchmark specification from CLI args, config, and benchmark data.
 
-    The entry_point in YAML should be the executable path (with shebang).
+    The entry_point is resolved based on selected backends:
+    - For docker backend: uses Docker image name
+    - For local/ssh/mpi: prefers AppImage if available, else source script
+    - Auto-discovers built artifacts in build/ directory
+
     Args in YAML are default arguments, used only if no CLI args provided.
 
     Example:
@@ -345,16 +451,34 @@ def build_benchmark_spec(args: argparse.Namespace, benchmark_data: Dict[str, Any
         args: Parsed command-line arguments
         benchmark_data: Benchmark definition from YAML
         config: Configuration from files/JSON
+        backends: List of selected backend names (default: ["local"])
 
     Returns:
         Benchmark spec dictionary for ExecutionOrchestrator
     """
     benchmark_spec: Dict[str, Any] = {}
 
-    # Task name priority: config "task" > benchmark name > experiment name
+    # Default backends if not provided
+    if backends is None:
+        backends = ["local"]
+
+    # Task name: use benchmark name (not full path)
+    # Priority: config "task" > benchmark name from CLI > experiment name
     benchmark_spec["task"] = config.get("task") or args.benchmark or args.experiment
 
-    benchmark_spec["entry_point"] = benchmark_data.get("entry_point", "./benchmark")
+    # Resolve entry point based on backend
+    # Priority: config "entry_point" (via -j) > auto-resolve based on backend
+    # This allows overriding the entry point for remote backends (SSH, SLURM)
+    # where the executable may be at a different path than on the local system.
+    # Example: -j '{"entry_point": "/remote/path/to/benchmark.AppImage"}'
+    if config.get("entry_point"):
+        benchmark_spec["entry_point"] = config["entry_point"]
+    else:
+        benchmark_spec["entry_point"] = _resolve_entry_point_for_backend(
+            args.benchmark or "benchmark",
+            benchmark_data,
+            backends
+        )
 
     # CLI args replace YAML args if provided, otherwise use YAML args as defaults
     if args.benchmark_args:
@@ -418,7 +542,8 @@ def create_progress_callbacks(verbose: bool) -> ProgressCallbacks:
     )
 
 
-def resolve_benchmark_spec(args: argparse.Namespace, config: Dict[str, Any]) -> Dict[str, Any]:
+def resolve_benchmark_spec(args: argparse.Namespace, config: Dict[str, Any],
+                           backends: list[str] | None = None) -> Dict[str, Any]:
     """
     Resolve benchmark specification from CLI args or config files.
 
@@ -434,6 +559,7 @@ def resolve_benchmark_spec(args: argparse.Namespace, config: Dict[str, Any]) -> 
     Args:
         args: Parsed command-line arguments
         config: Configuration dictionary from all sources (repro/config files/JSON)
+        backends: List of backend names for entry point resolution
 
     Returns:
         Benchmark specification dict with entry_point, args, and task keys
@@ -441,6 +567,10 @@ def resolve_benchmark_spec(args: argparse.Namespace, config: Dict[str, Any]) -> 
     Raises:
         ValueError: If no benchmark information can be determined
     """
+    # Default backends if not provided
+    if backends is None:
+        backends = _resolve_backends(args, config)
+
     # Case 1: Benchmark name provided on command line
     if args.benchmark:
         # Skip resolution if config already has entry_point (repro mode - config overrides CLI)
@@ -450,15 +580,22 @@ def resolve_benchmark_spec(args: argparse.Namespace, config: Dict[str, Any]) -> 
             benchmark_data = _resolve_benchmark_path(args.benchmark)
             if not benchmark_data:
                 raise ValueError(f"Benchmark '{args.benchmark}' not found in YAML discovery, filesystem, or $PATH")
-        return build_benchmark_spec(args, benchmark_data, config)
+        return build_benchmark_spec(args, benchmark_data, config, backends)
 
     # Case 2: Config has entry_point directly (repro file pattern: entry_point, args, task at top level)
     if "entry_point" in config:
-        args.benchmark = "repro"  # Set placeholder for other code
+        # NOTE: Don't set args.benchmark = "repro" here - it mutates shared state and breaks sweep iterations
+        # Prioritize args in options (sweep expansion), fall back to top level
+        benchmark_args = []
+        if "options" in config and "args" in config["options"]:
+            benchmark_args = config["options"]["args"]
+        elif "args" in config:
+            benchmark_args = config["args"]
+
         return {
             "entry_point": config["entry_point"],
-            "args": config.get("args", []),
-            "task": config.get("task", args.experiment),
+            "args": benchmark_args,
+            "task": config.get("task") or config.get("name") or args.experiment,
         }
 
     # Case 3: Config has benchmark_spec key (legacy pattern: benchmark_spec as nested dict)
@@ -466,7 +603,6 @@ def resolve_benchmark_spec(args: argparse.Namespace, config: Dict[str, Any]) -> 
         benchmark_spec = config["benchmark_spec"]
         if not benchmark_spec.get("entry_point"):
             raise ValueError("benchmark_spec in config is missing entry_point")
-        args.benchmark = "repro"  # Set placeholder for other code
         return benchmark_spec
 
     # Case 4: No benchmark information found anywhere
@@ -510,18 +646,106 @@ def print_experiment_result(result: ExperimentResult, verbose: bool) -> int:
         return 1
 
 
-def run_experiment(args: argparse.Namespace) -> int:
+def run_parameter_sweep(args: argparse.Namespace, config: Dict[str, Any]) -> int:
     """
-    Run a benchmarking experiment using the orchestrator.
+    Run a parameter sweep experiment.
+
+    Sweep is an inline dict with args/env/options keys.
+    For external files, use include directive with a file containing sweep: key.
 
     Args:
         args: Parsed command-line arguments
+        config: Merged config containing 'sweep' field (inline dict)
+
+    Returns:
+        Exit code (0 for success, non-zero for errors)
+    """
+    from src.core.config.schema import ExperimentConfig, SweepConfig
+    from src.core.execution.parameter_space import CartesianSweepStrategy
+
+    if args.verbose:
+        print(f"\n=== Parameter Sweep ===")
+
+    # Remove sweep from base config so it doesn't interfere
+    base_config_dict = config.copy()
+    sweep_dict = base_config_dict.pop('sweep')
+
+    # Parse base config and sweep config with validation
+    try:
+        base_config = ExperimentConfig(**base_config_dict)
+        sweep_config = SweepConfig(**sweep_dict)
+    except Exception as e:
+        print(f"\n✗ Error parsing configuration: {e}", file=sys.stderr)
+        return 1
+
+    # Create strategy and generate all configurations
+    strategy = CartesianSweepStrategy(base_config, sweep_config)
+    try:
+        configurations = strategy.generate_configurations()
+    except Exception as e:
+        print(f"\n✗ Error generating sweep configurations: {e}", file=sys.stderr)
+        if args.verbose:
+            import traceback
+            traceback.print_exc()
+        return 1
+
+    if args.verbose:
+        print(f"Total configurations: {len(configurations)}")
+
+    # Get sweep parameter ranges for tracking
+    sweep_ranges = strategy.get_parameter_ranges()
+
+    # Run each configuration
+    all_success = True
+    for i, (launch_id, sweep_config, parameters) in enumerate(configurations):
+        if args.verbose:
+            print(f"\n--- Running {launch_id} ---")
+
+        # Convert config to dict for run_experiment_with_config
+        config_dict = sweep_config.model_dump()
+
+        # For sweeps, use append mode starting from second run to accumulate results
+        if i >= 1:
+            config_dict["mode"] = "a"
+
+        # Use parameters dict directly (already extracted by strategy)
+        sweep_params = parameters
+
+        # Run the experiment with this specific config
+        try:
+            exit_code = run_experiment_with_config(args, config_dict, launch_id, sweep_params)
+            if exit_code != 0:
+                all_success = False
+                if not args.verbose:
+                    print(f"✗ {launch_id} failed")
+        except Exception as e:
+            print(f"\n✗ Error in {launch_id}: {e}", file=sys.stderr)
+            all_success = False
+
+    if args.verbose:
+        print(f"\n=== Sweep Complete ===")
+        print(f"Configurations run: {len(configurations)}")
+        print(f"Status: {'✓ All succeeded' if all_success else '✗ Some failed'}")
+
+    return 0 if all_success else 1
+
+
+def run_experiment_with_config(args: argparse.Namespace, config: Dict[str, Any],
+                                launch_id: str | None = None,
+                                sweep_params: Dict[str, Any] | None = None) -> int:
+    """
+    Run a single experiment with a specific configuration.
+
+    Args:
+        args: Parsed command-line arguments
+        config: Experiment configuration dict
+        launch_id: Optional launch identifier for sweep runs
+        sweep_params: Optional sweep parameters for this specific run (added as invariants)
 
     Returns:
         Exit code (0 for success, non-zero for errors)
     """
     try:
-        config = build_config_from_sources(args)
         benchmark_spec = resolve_benchmark_spec(args, config)
         options, _ = build_orchestrator_options(args, config)
 
@@ -534,6 +758,14 @@ def run_experiment(args: argparse.Namespace) -> int:
         options["repeats"] = _resolve_repeats(args.repeater, config)
         options["repeater_options"] = config.get("repeater_options", {})
 
+        # Add launch_id if provided (for sweep tracking)
+        if launch_id:
+            options["launch_id"] = launch_id
+
+        # Add sweep params as regular invariants if provided
+        if sweep_params:
+            options["sweep_params"] = sweep_params
+
         # Create orchestrator
         orchestrator = ExecutionOrchestrator(
             options=options,
@@ -541,15 +773,31 @@ def run_experiment(args: argparse.Namespace) -> int:
         )
 
         # Print experiment info if verbose
-        print_experiment_info(args, benchmark_spec)
+        if args.verbose and not launch_id:
+            print_experiment_info(args, benchmark_spec)
 
         # Create progress callbacks and run experiment
         callbacks = create_progress_callbacks(args.verbose)
         result = orchestrator.run(callbacks)
 
         # Print results and return exit code
-        return print_experiment_result(result, args.verbose)
+        if args.verbose or not launch_id:
+            return print_experiment_result(result, args.verbose)
+        else:
+            # Silent mode for sweep - just return exit code
+            return 0 if result.success else 1
 
+    except BackendChainError as e:
+        print(f"\n✗ Backend Composition Error: {e}", file=sys.stderr)
+        print("\nBackend composition rules:", file=sys.stderr)
+        print("  • Composable backends can appear anywhere in the chain", file=sys.stderr)
+        print("  • Non-composable backends must be leftmost (first in -b list)", file=sys.stderr)
+        print("\nExamples:", file=sys.stderr)
+        print("  Valid:   -b local", file=sys.stderr)
+        print("  Valid:   -b perf -b local", file=sys.stderr)
+        print("  Valid:   -b mpip", file=sys.stderr)
+        print("  Invalid: -b perf -b mpip  (mpip is non-composable, must be leftmost)", file=sys.stderr)
+        return 1
     except ValueError as e:
         print(f"\n✗ Error: {e}", file=sys.stderr)
         return 1
@@ -557,6 +805,27 @@ def run_experiment(args: argparse.Namespace) -> int:
         print(f"\n✗ Error running experiment: {e}")
         import traceback
         if hasattr(args, 'verbose') and args.verbose:
+            traceback.print_exc()
+        return 1
+
+
+def run_experiment(args: argparse.Namespace) -> int:
+    """
+    Run a benchmarking experiment using the orchestrator.
+
+    Args:
+        args: Parsed command-line arguments
+
+    Returns:
+        Exit code (0 for success, non-zero for errors)
+    """
+    try:
+        config = build_config_from_sources(args)
+        return run_experiment_with_config(args, config)
+    except Exception as e:
+        print(f"\n✗ Error loading configuration: {e}", file=sys.stderr)
+        if hasattr(args, 'verbose') and args.verbose:
+            import traceback
             traceback.print_exc()
         return 1
 
@@ -897,7 +1166,7 @@ def validate_experiment_args(args: argparse.Namespace) -> int | None:
         return 1
 
     # When using --repro or config files, benchmark can come from configuration
-    if not args.benchmark and not args.repro:
+    if not args.benchmark and not args.repro and not args.config:
         print("Error: --benchmark is required when running an experiment", file=sys.stderr)
         print("Use --help for usage information", file=sys.stderr)
         return 1
@@ -936,12 +1205,47 @@ def main(argv: list[str] | None = None) -> int:
     if args.show_repeater:
         return show_repeater(args.show_repeater)
 
-    # Validate experiment arguments
+    # Build merged config from all sources
+    try:
+        config = build_config_from_sources(args)
+    except Exception as e:
+        print(f"\n✗ Error loading configuration: {e}", file=sys.stderr)
+        return 1
+
+    # Use config name as experiment name if provided (and not overridden by CLI -e flag)
+    # CLI -e flag has priority, then config name, then default "misc"
+    if 'name' in config and args.experiment == "misc":  # "misc" is the default
+        args.experiment = config['name']
+
+    # Check if config contains a parameter sweep (Task 4.10)
+    if 'sweep' in config and config['sweep']:
+        return run_parameter_sweep(args, config)
+
+    # Check if merged config contains a workflow (Phase 4: minimal sequential workflows)
+    # 'workflow' and 'task' are mutually exclusive at top-level
+    if 'workflow' in config:
+        if 'task' in config:
+            print("\n✗ Error: 'workflow' and 'task' are mutually exclusive at top-level", file=sys.stderr)
+            return 1
+        # This is a workflow - delegate to workflow module
+        from src.cli import workflow
+
+        # Determine base directory for resolving relative task paths
+        # If loading from a single config file, use that file's directory
+        # Otherwise, use current directory
+        base_dir = None
+        if args.config and len(args.config) == 1 and not args.json:
+            base_dir = Path(args.config[0]).parent
+
+        # Pass config dict directly - no temp file needed!
+        return workflow.run_workflow(config, args.verbose, base_dir=base_dir)
+
+    # Validate experiment arguments for regular task execution
     error_code = validate_experiment_args(args)
     if error_code is not None:
         return error_code
 
-    # Run experiment
+    # Run regular task
     return run_experiment(args)
 
 

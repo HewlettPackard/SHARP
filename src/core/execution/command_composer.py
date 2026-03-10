@@ -298,13 +298,6 @@ class CommandComposer:
             cmd = run_cmd.replace(placeholder, nested)
         else:
             # Direct execution: placeholder becomes function call
-            # Path handling follows standard shell behavior:
-            # - Absolute path (/bin/echo) → use as-is
-            # - Relative path (./nope.py, ../bin/app) → use as-is
-            # - Command name (echo) → search PATH (use as-is, shell will find it)
-            # This means we ONLY prepend "./" if the name looks like a local file
-            # (contains no path separators and isn't meant to be in PATH)
-            # For benchmarks, they should explicitly use "./script.py"
             func_path = self.func
             # Don't include args here - they will be added via $ARGS placeholder expansion
             cmd = run_cmd.replace(placeholder, func_path)

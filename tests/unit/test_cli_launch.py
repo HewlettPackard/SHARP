@@ -679,7 +679,7 @@ def test_run_experiment_repeater_uses_config(monkeypatch):
     args = parse_args(["-e", "test", "sleep"])
     args.repeater = None
 
-    config = {"repeats": "count"}
+    config = {"repeater": "count"}  # Fixed: was "repeats", should be "repeater"
     monkeypatch.setattr("src.cli.launch.build_config_from_sources", lambda _args: config)
     monkeypatch.setattr("src.cli.launch.resolve_benchmark_spec",
                         lambda _args, _config: {"entry_point": "/bin/echo", "args": [], "task": "sleep"})
@@ -700,7 +700,7 @@ def test_run_experiment_repeater_cli_override(monkeypatch):
     args = parse_args(["-e", "test", "sleep"])  # Default repeater None
     args.repeater = "ci"
 
-    config = {"repeats": "count"}
+    config = {"repeater": "count"}  # Fixed: was "repeats", should be "repeater"
     monkeypatch.setattr("src.cli.launch.build_config_from_sources", lambda _args: config)
     monkeypatch.setattr("src.cli.launch.resolve_benchmark_spec",
                         lambda _args, _config: {"entry_point": "/bin/echo", "args": [], "task": "sleep"})
