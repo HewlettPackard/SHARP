@@ -6,12 +6,15 @@ Provides interface for comparing two experiment runs with statistical analysis.
 © Copyright 2025--2025 Hewlett Packard Enterprise Development LP
 """
 
+from pathlib import Path
+
 from shiny import ui, reactive, render
 import polars as pl
 
 from src.core.config.settings import Settings
 from src.core.stats.narrative import generate_comparison_narrative
 from src.core.runlogs import load_csv, get_experiments, get_tasks_for_experiment
+from src.core.runlogs.metadata_compare import compare_metadata
 from src.gui.utils.comparisons import (
     compute_comparison_summary,
     render_density_comparison_plot,
@@ -81,6 +84,10 @@ def compare_ui():
             ui.column(3, ui.output_plot('compare_ecdf')),
             ui.column(3, ui.output_data_frame('compare_table')),
             ui.column(3, ui.output_ui('compare_narrative')),
+        ),
+        ui.hr(),
+        ui.row(
+            ui.column(12, ui.output_ui('metadata_comparison')),
         ),
     )
 
@@ -483,3 +490,46 @@ def compare_server(input, output, session):
             import traceback
             traceback.print_exc()
             return ui.HTML(f'<p>Error: {str(e)}</p>')
+
+    @output
+    @render.ui
+    def metadata_comparison():
+        """Render metadata comparison between baseline and treatment runs."""
+        # Get CSV paths directly from inputs
+        baseline_csv = input.baseline_task()
+        treatment_csv = input.treatment_task()
+
+        if not baseline_csv or not treatment_csv:
+            return ui.HTML('')
+
+        # Convert to .md paths
+        baseline_md = Path(baseline_csv).with_suffix('.md')
+        treatment_md = Path(treatment_csv).with_suffix('.md')
+
+        if not baseline_md.exists() or not treatment_md.exists():
+            return ui.HTML('')
+
+        try:
+            # Get metadata comparison in markdown format
+            # Note: Using show_all=False to only show significant differences
+            comparison_md = compare_metadata(
+                treatment_md=treatment_md,
+                baseline_md=baseline_md,
+                show_all=False,
+                format='md',
+                treatment_launch_id=None,
+                baseline_launch_id=None,
+            )
+
+            if not comparison_md:
+                return ui.HTML('<p><i>No significant metadata differences detected.</i></p>')
+
+            # Convert markdown to HTML for rendering
+            # The markdown output from compare_metadata uses markdown tables
+            # Shiny's ui.markdown() handles this conversion
+            return ui.markdown(comparison_md)
+        except Exception as e:
+            print(f'Error comparing metadata: {e}')
+            import traceback
+            traceback.print_exc()
+            return ui.HTML(f'<p>Error comparing metadata: {str(e)}</p>')
