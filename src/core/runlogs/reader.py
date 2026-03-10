@@ -7,9 +7,9 @@ for analysis and visualization.
 © Copyright 2025--2025 Hewlett Packard Enterprise Development LP
 """
 
+import polars as pl
 import json
 import re
-import polars as pl
 from pathlib import Path
 
 
@@ -67,12 +67,11 @@ def load_runlog(csv_path: str | Path, md_path: str | Path | None = None) -> pl.D
     if "launch_id" not in df.columns:
         # Check for old run_id
         if "run_id" in df.columns:
-            # Rename run_id to launch_id for consistency if we want to support
-            # old files but new code expects launch_id?
-            # For now, let's assume we only care about new files or we handle both.
-            # If we want to support old files, we might need to map run_id to launch_id or just use run_id.
-            # But the user asked to replace "run id" with "launch id".
-            pass
+             # Rename run_id to launch_id for consistency if we want to support old files but new code expects launch_id?
+             # For now, let's assume we only care about new files or we handle both.
+             # If we want to support old files, we might need to map run_id to launch_id or just use run_id.
+             # But the user asked to replace "run id" with "launch id".
+             pass
         else:
             return df
 

@@ -20,7 +20,6 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
-
 from src.core.config.include_resolver import get_project_root
 from src.core.config.settings import Settings
 
@@ -361,6 +360,7 @@ class RunLogger:
             f.write(self._preamble)
             f.write("\n\n## CSV field description\n\n")
             f.write("  * `launch_id` (string): Unique identifier for the launch (links to Invariant parameters).\n")
+
             for field in self._metadata.keys():
                 if field not in self._constants:
                     typ = self._metadata[field]["type"]

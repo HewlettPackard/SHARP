@@ -139,3 +139,4 @@ def get_tasks_for_experiment(experiment: str) -> dict[str, str]:
             # Use CSV path as key, task name as value (Shiny returns key on selection)
             tasks[str(r["csv_path"])] = r["task"]
     return tasks
+
