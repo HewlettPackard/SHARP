@@ -76,6 +76,22 @@ def check_docker_container(fn: str) -> bool:
     return bool(result.stdout.strip())
 
 
+def missing_backend_requirements(backend: str) -> list[str]:
+    """Return missing CLI requirements for a backend."""
+    required_commands = {
+        "docker": ["docker"],
+        "knative": ["kubectl", "curl"],
+        "fission": ["fission", "kubectl"],
+        "mpi": ["mpirun"],
+        "ssh": ["ssh"],
+    }
+    return [
+        command
+        for command in required_commands.get(backend, [])
+        if shutil.which(command) is None
+    ]
+
+
 @pytest.fixture
 def setup_test(launcher_helper, request):
     """Setup fixture for each test with sys_specs disabled."""
@@ -94,6 +110,12 @@ def setup_test(launcher_helper, request):
 def test_install(setup_test, name, backend, fn, args):
     """Launcher can run for a given combination of backend and function."""
     helper = setup_test
+
+    missing_requirements = missing_backend_requirements(backend)
+    if missing_requirements:
+        pytest.skip(
+            f"Backend '{backend}' requires missing command(s): {', '.join(missing_requirements)}"
+        )
 
     # Check if Docker container exists when using docker backend
     if backend == "docker" and not check_docker_container(fn):

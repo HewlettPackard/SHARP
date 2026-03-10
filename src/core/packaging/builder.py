@@ -5,6 +5,12 @@ Handles downloading and preparing benchmark sources from git, local paths,
 or URLs. Sources are stored in benchmarks/_sources/{benchmark_name}/ and
 reused across benchmarks in suites via the subdir field.
 
+PackagingManager orchestrates the full build process:
+1. Validate benchmark configuration
+2. Fetch/prepare sources
+3. Build artifact (AppImage or Docker image)
+4. Return build manifest
+
 © Copyright 2025--2025 Hewlett Packard Enterprise Development LP
 """
 
@@ -12,11 +18,164 @@ import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from src.core.config.include_resolver import get_project_root
 from src.core.config.schema import BenchmarkConfig, BenchmarkSource
 from src.core.packaging.errors import BuildError, SourceError
+
+
+class ArtifactBuilder(Protocol):
+    """Protocol for artifact builders (AppImage, Docker)."""
+
+    def build(self, benchmark: BenchmarkConfig, sources_dir: Path,
+              benchmark_name: str) -> Path:
+        """Build artifact from sources.
+
+        Args:
+            benchmark: Benchmark configuration
+            sources_dir: Path to prepared sources
+            benchmark_name: Name of the benchmark being built
+
+        Returns:
+            Path to built artifact (file or manifest)
+
+        Raises:
+            BuildError: If build fails
+        """
+        ...
+
+
+class PackagingManager:
+    """
+    Orchestrates benchmark building and packaging.
+
+    This class manages the complete build lifecycle:
+    1. Validation of benchmark configuration
+    2. Source fetching (git, local, download)
+    3. Artifact building (AppImage or Docker)
+    4. Manifest generation
+
+    Usage:
+        manager = PackagingManager()
+        manifest = manager.build('matmul', backend_type='docker')
+    """
+
+    def __init__(self, base_dir: Path | None = None):
+        """Initialize PackagingManager.
+
+        Args:
+            base_dir: Optional base directory for sources
+                      (default: benchmarks/_sources)
+        """
+        self._base_dir = base_dir
+        self._builders: dict[str, ArtifactBuilder] = {}
+
+    def register_builder(self, backend_type: str, builder: ArtifactBuilder) -> None:
+        """Register an artifact builder.
+
+        Args:
+            backend_type: Type identifier ('appimage', 'docker')
+            builder: Builder instance implementing ArtifactBuilder protocol
+        """
+        self._builders[backend_type] = builder
+
+    def build(self, benchmark: BenchmarkConfig,
+              backend_type: str,
+              benchmark_name: str | None = None,
+              download_only: bool = False,
+              clean: bool = False) -> dict[str, Any]:
+        """
+        Build benchmark artifact.
+
+        Complete build workflow:
+        1. Validate configuration
+        2. Fetch sources (git clone, copy, or download)
+        3. Build artifact (AppImage or Docker image)
+        4. Return manifest with artifact location
+
+        Args:
+            benchmark: Benchmark configuration
+            backend_type: 'appimage' or 'docker'
+            benchmark_name: Specific benchmark to build. If None, builds first one.
+            download_only: If True, download sources only (no build)
+            clean: If True, remove existing sources before build
+
+        Returns:
+            Build manifest dict with:
+            - benchmark: benchmark name
+            - backend_type: 'appimage' or 'docker'
+            - artifact_path: path to built artifact
+            - sources_dir: path to sources directory
+            - source_ref: git ref if applicable
+            - build_timestamp: ISO format timestamp
+
+        Raises:
+            BuildError: If build fails
+            SourceError: If source fetch fails
+        """
+        # Get benchmark entry by name or use first one
+        benchmark_names = list(benchmark.benchmarks.keys())
+        if not benchmark_names:
+            raise BuildError("No benchmarks defined in config")
+
+        if benchmark_name is None:
+            benchmark_name = benchmark_names[0]
+        elif benchmark_name not in benchmark.benchmarks:
+            raise BuildError(
+                f"Benchmark '{benchmark_name}' not found in config. "
+                f"Available: {', '.join(benchmark_names)}"
+            )
+
+        entry = benchmark.benchmarks[benchmark_name]
+
+        # Determine sources directory
+        if entry.sources:
+            # Fetch external sources
+            sources_dir = fetch_sources(
+                entry.sources,
+                benchmark_name,
+                clean=clean,
+                base_dir=self._base_dir
+            )
+        else:
+            # Local files - use benchmark YAML directory
+            if hasattr(benchmark, '_config_path') and benchmark._config_path:
+                sources_dir = Path(benchmark._config_path).parent
+            else:
+                # Fallback to empty sources dir
+                project_root = get_project_root()
+                sources_dir = project_root / "benchmarks" / "_sources" / benchmark_name
+                sources_dir.mkdir(parents=True, exist_ok=True)
+
+        # If --download-only, return early
+        if download_only:
+            return {
+                'benchmark': benchmark_name,
+                'sources_dir': str(sources_dir),
+                'source_ref': entry.sources[0].ref if entry.sources else None,
+                'download_timestamp': datetime.now().isoformat(),
+            }
+
+        # Build artifact using registered builder
+        if backend_type not in self._builders:
+            raise BuildError(
+                f"No builder registered for backend type: {backend_type}. "
+                f"Available: {list(self._builders.keys())}"
+            )
+
+        builder = self._builders[backend_type]
+        artifact_path = builder.build(benchmark, sources_dir, benchmark_name)
+
+        # Generate build manifest
+        return {
+            'benchmark': benchmark_name,
+            'backend_type': backend_type,
+            'artifact_path': str(artifact_path),
+            'sources_dir': str(sources_dir),
+            'source_ref': entry.sources[0].ref if entry.sources else None,
+            'build_timestamp': datetime.now().isoformat(),
+        }
 
 
 def fetch_sources(sources: list[BenchmarkSource],
@@ -140,15 +299,28 @@ def _fetch_path(source: BenchmarkSource, dest: Path) -> None:
 
 
 def _fetch_download(source: BenchmarkSource, dest: Path) -> None:
-    """Download from URL to destination."""
+    """Download from URL to destination, with mirror failover support."""
     import urllib.request
 
-    try:
-        filename = Path(source.location).name or "source"
-        dest_file = dest / filename
-        urllib.request.urlretrieve(source.location, dest_file)
-    except Exception as e:
-        raise SourceError(f"Download failed for {source.location}: {e}")
+    # Build list of URLs to try: primary first, then mirrors
+    urls_to_try = [source.location] + (source.mirrors or [])
+    filename = Path(source.location).name or "source"
+    dest_file = dest / filename
+
+    errors = []
+    for url in urls_to_try:
+        try:
+            urllib.request.urlretrieve(url, dest_file)
+            return  # Success
+        except Exception as e:
+            errors.append(f"{url}: {e}")
+            continue
+
+    # All URLs failed
+    raise SourceError(
+        f"Download failed for {filename}. Tried {len(urls_to_try)} location(s):\n"
+        + "\n".join(f"  - {err}" for err in errors)
+    )
 
 
 def build_benchmark(benchmark: BenchmarkConfig,
@@ -159,7 +331,8 @@ def build_benchmark(benchmark: BenchmarkConfig,
     """
     Build benchmark artifact or prepare sources.
 
-    Downloads/prepares sources, optionally builds artifact for target backend.
+    Convenience function that uses PackagingManager internally.
+    For more control, use PackagingManager directly.
 
     Args:
         benchmark: Benchmark configuration
@@ -180,89 +353,17 @@ def build_benchmark(benchmark: BenchmarkConfig,
         SourceError: If source retrieval fails
         BuildError: If build fails
     """
-    # Get first benchmark entry (for single-benchmark YAML files)
-    benchmark_names = list(benchmark.benchmarks.keys())
-    if not benchmark_names:
-        raise BuildError("No benchmarks defined in config")
+    # Import builders lazily to avoid circular imports
+    from src.core.packaging.appimage import AppImageBuilder
+    from src.core.packaging.docker import DockerBuilder
 
-    benchmark_name = benchmark_names[0]
-    entry = benchmark.benchmarks[benchmark_name]
+    manager = PackagingManager(base_dir=base_dir)
+    manager.register_builder('appimage', AppImageBuilder())
+    manager.register_builder('docker', DockerBuilder())
 
-    # Fetch/prepare sources
-    sources_dir = fetch_sources(
-        entry.sources,
-        benchmark_name,
-        clean=clean,
-        base_dir=base_dir
+    return manager.build(
+        benchmark,
+        backend_type,
+        download_only=download_only,
+        clean=clean
     )
-
-    # If --download-only, return early with manifest
-    if download_only:
-        return {
-            'benchmark': benchmark_name,
-            'sources_dir': str(sources_dir),
-            'source_ref': entry.sources[0].ref if entry.sources else None,
-            'download_timestamp': datetime.now().isoformat(),
-        }
-
-    # Build artifact (compile + package)
-    if backend_type == 'appimage':
-        artifact_path = _build_appimage(benchmark, sources_dir)
-    elif backend_type == 'docker':
-        artifact_path = _build_docker(benchmark, sources_dir)
-    else:
-        raise BuildError(f"Unsupported backend type: {backend_type}")
-
-    # Generate build manifest
-    manifest = {
-        'benchmark': benchmark_name,
-        'backend_type': backend_type,
-        'artifact_path': str(artifact_path),
-        'sources_dir': str(sources_dir),
-        'source_ref': entry.sources[0].ref if entry.sources else None,
-        'build_timestamp': datetime.now().isoformat(),
-    }
-
-    return manifest
-
-
-def _build_appimage(benchmark: BenchmarkConfig, sources_dir: Path) -> Path:
-    """
-    Build AppImage artifact.
-
-    Placeholder implementation - actual AppImage building delegated to
-    packaging/appimage.py module (Phase 4).
-
-    Args:
-        benchmark: Benchmark configuration
-        sources_dir: Path to prepared sources
-
-    Returns:
-        Path to built AppImage artifact
-
-    Raises:
-        BuildError: If build fails
-    """
-    # TODO: Phase 4 - implement actual AppImage builder
-    raise BuildError("AppImage building not yet implemented (Phase 4)")
-
-
-def _build_docker(benchmark: BenchmarkConfig, sources_dir: Path) -> Path:
-    """
-    Build Docker image.
-
-    Placeholder implementation - actual Docker building delegated to
-    packaging/docker.py module (Phase 4).
-
-    Args:
-        benchmark: Benchmark configuration
-        sources_dir: Path to prepared sources
-
-    Returns:
-        Path to Docker image reference/manifest
-
-    Raises:
-        BuildError: If build fails
-    """
-    # TODO: Phase 4 - implement actual Docker builder
-    raise BuildError("Docker building not yet implemented (Phase 4)")
