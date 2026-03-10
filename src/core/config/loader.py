@@ -161,6 +161,130 @@ def discover_benchmarks(
     return benchmarks
 
 
+def load_benchmark_config(benchmark_name_or_path: str) -> BenchmarkConfig:
+    """
+    Load benchmark configuration by name or path.
+
+    Resolves benchmark name to its YAML file, loads the configuration,
+    and returns the parsed BenchmarkConfig object. Suite-level sources,
+    build, and tags are merged into individual benchmark entries.
+
+    Args:
+        benchmark_name_or_path: Either:
+            - Benchmark name (e.g., "sleep", "matmul")
+            - Path to benchmark.yaml file
+
+    Returns:
+        BenchmarkConfig object with benchmark definitions (suite-level
+        config merged into entries)
+
+    Raises:
+        ConfigError: If benchmark not found or configuration invalid
+        FileNotFoundError: If path specified but file doesn't exist
+
+    Examples:
+        >>> config = load_benchmark_config("sleep")
+        >>> "sleep" in config.benchmarks
+        True
+
+        >>> config = load_benchmark_config("benchmarks/micro/cpu/benchmark.yaml")
+        >>> isinstance(config, BenchmarkConfig)
+        True
+
+        >>> config = load_benchmark_config("benchmarks/micro/cpu")  # directory
+        >>> isinstance(config, BenchmarkConfig)
+        True
+    """
+    # Check if it's a direct path to a YAML file or directory
+    path = Path(benchmark_name_or_path)
+    if path.suffix in ('.yaml', '.yml') or path.exists():
+        # Resolve relative paths
+        if not path.is_absolute():
+            project_root = get_project_root()
+            if not path.exists():
+                path = project_root / benchmark_name_or_path
+
+        # Handle directory by looking for benchmark.yaml inside
+        if path.is_dir():
+            yaml_path = path / 'benchmark.yaml'
+            if not yaml_path.exists():
+                raise FileNotFoundError(
+                    f"No benchmark.yaml found in directory: {path}"
+                )
+            path = yaml_path
+
+        if not path.exists():
+            raise FileNotFoundError(f"Benchmark file not found: {benchmark_name_or_path}")
+        config = load_config(str(path), BenchmarkConfig)
+        config_path = path
+    else:
+        # It's a benchmark name - discover and load
+        benchmarks = discover_benchmarks()
+        if benchmark_name_or_path not in benchmarks:
+            available = sorted(benchmarks.keys())[:10]
+            msg = f"Benchmark '{benchmark_name_or_path}' not found."
+            if available:
+                msg += f" Available: {', '.join(available)}"
+                if len(benchmarks) > 10:
+                    msg += f" (and {len(benchmarks) - 10} more)"
+            raise ConfigError(msg)
+
+        config_path, _ = benchmarks[benchmark_name_or_path]
+        config = load_config(str(config_path), BenchmarkConfig)
+
+    # Merge suite-level config into benchmark entries
+    config = _merge_suite_level_config(config, config_path)
+    return config
+
+
+def _merge_suite_level_config(config: BenchmarkConfig, config_path: Path | None = None) -> BenchmarkConfig:
+    """
+    Merge suite-level sources, build, and tags into benchmark entries.
+
+    If a benchmark entry has empty sources/build, inherit from suite level.
+    Tags are merged (suite + benchmark-specific).
+    """
+    from src.core.config.schema import BenchmarkEntry, BenchmarkBuild
+
+    updated_benchmarks = {}
+    for name, entry in config.benchmarks.items():
+        # Inherit sources if benchmark has none
+        sources = entry.sources if entry.sources else config.sources
+
+        # Inherit build if benchmark has default/empty build
+        if (entry.build.docker is None and entry.build.appimage is None and
+            not entry.build.requirements and not entry.build.system_deps and
+            not entry.build.build_commands):
+            build = config.build
+        else:
+            build = entry.build
+
+        # Merge tags (suite + benchmark-specific)
+        tags = list(set(config.tags + entry.tags))
+
+        updated_benchmarks[name] = BenchmarkEntry(
+            sources=sources,
+            build=build,
+            entry_point=entry.entry_point,
+            args=entry.args,
+            tags=tags,
+        )
+
+    # Return new config with merged entries
+    result = BenchmarkConfig(
+        benchmarks=updated_benchmarks,
+        metrics=config.metrics,
+        include=config.include,
+        sources=config.sources,
+        build=config.build,
+        tags=config.tags,
+    )
+    # Store config path for use by builders
+    if config_path:
+        result._config_path = config_path  # type: ignore
+    return result
+
+
 def discover_backends(
     search_paths: list[str] | None = None,
     profiling: bool | None = None

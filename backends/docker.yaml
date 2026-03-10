@@ -1,10 +1,10 @@
 # Configuration excerpt to use Docker backend
+# Uses docker run for ephemeral containers from images
 backend_options:
   docker:
-    reset: |
-      docker restart $FN
+    reset: ""
     run: |
-      docker exec $FN $CMD $ARGS
+      docker run --rm $FN $ARGS
     run_sys_spec: |
-      docker exec $FN $SPEC_COMMAND
-fn_path: "/app/"
+      docker run --rm $FN $SPEC_COMMAND
+fn_path: ""

@@ -178,24 +178,14 @@ def test_benchmark_source_subdir_for_suites():
 
 
 def test_benchmark_entry_requires_essential_fields():
-    """BenchmarkEntry requires sources, build, and entry_point."""
-    # Missing sources
-    with pytest.raises(ValidationError) as exc_info:
-        BenchmarkEntry(  # type: ignore
-            build=BenchmarkBuild(),
-            entry_point='./bench'
-        )
-    assert "sources" in str(exc_info.value).lower()
+    """BenchmarkEntry requires entry_point, sources and build have defaults."""
+    # sources and build now have defaults for suite-level inheritance
+    # Only entry_point is strictly required
+    entry = BenchmarkEntry(entry_point='./bench')
+    assert entry.sources == []
+    assert entry.build is not None
 
-    # Missing build
-    with pytest.raises(ValidationError) as exc_info:
-        BenchmarkEntry(  # type: ignore
-            sources=[BenchmarkSource(type='path', location='./test.py')],
-            entry_point='./bench'
-        )
-    assert "build" in str(exc_info.value).lower()
-
-    # Missing entry_point
+    # Missing entry_point still raises
     with pytest.raises(ValidationError) as exc_info:
         BenchmarkEntry(  # type: ignore
             sources=[BenchmarkSource(type='path', location='./test.py')],
@@ -314,56 +304,130 @@ def test_experiment_config_options_structure():
     assert repeater_opts['params']['ci_width'] == 0.05
 
 
-# ========== WorkflowConfig Tests ==========
+# ========== WorkflowConfig Tests (currently minimal sequential workflow) ==========
 
-def test_workflow_step_dependency_structure():
-    """Workflow steps can express dependency relationships."""
-    # Step with no dependencies (can run immediately)
-    step1 = WorkflowStep(id='step1', benchmark='test1', backend='local')
-    assert step1.depends_on == []
+def test_workflow_config_with_file_includes():
+    """WorkflowConfig supports file includes."""
+    from src.core.config.schema import WorkflowTask
 
-    # Step depends on one previous step
-    step2 = WorkflowStep(id='step2', benchmark='test2', backend='local', depends_on=['step1'])
-    assert len(step2.depends_on) == 1
+    config = WorkflowConfig(
+        version='1.0.0',
+        workflow=[
+            WorkflowTask(include='task1.yaml'),
+            WorkflowTask(include='task2.yaml')
+        ]
+    )
+    assert config.version == '1.0.0'
+    assert config.description is None
+    assert config.experiment is None
+    assert len(config.workflow) == 2
+    assert config.workflow[0].include == 'task1.yaml'
+    assert config.workflow[0].task is None
 
-    # Step depends on multiple previous steps
-    step3 = WorkflowStep(id='step3', benchmark='test3', backend='local', depends_on=['step1', 'step2'])
-    assert len(step3.depends_on) == 2
+
+def test_workflow_config_with_inline_tasks():
+    """WorkflowConfig supports inline task definitions."""
+    from src.core.config.schema import WorkflowTask
+
+    config = WorkflowConfig(
+        version='1.0.0',
+        workflow=[
+            WorkflowTask(
+                task='sleep',
+                backends=['local'],
+                options={'repeater': 'COUNT', 'repeats': 5}
+            ),
+            WorkflowTask(
+                task='matmul',
+                backends=['local', 'perf'],
+                options={'repeater': 'RSE'}
+            )
+        ]
+    )
+    assert len(config.workflow) == 2
+    assert config.workflow[0].task == 'sleep'
+    assert config.workflow[0].include is None
+    assert config.workflow[1].backends == ['local', 'perf']
 
 
-def test_workflow_config_requires_version_and_steps():
-    """WorkflowConfig requires version and steps fields."""
+def test_workflow_config_with_description_and_experiment():
+    """WorkflowConfig can include optional description and experiment name."""
+    from src.core.config.schema import WorkflowTask
+
+    config = WorkflowConfig(
+        version='1.0.0',
+        description='Test workflow',
+        experiment='my_exp',
+        workflow=[WorkflowTask(include='task1.yaml')]
+    )
+    assert config.description == 'Test workflow'
+    assert config.experiment == 'my_exp'
+
+
+def test_workflow_config_requires_version_and_workflow():
+    """WorkflowConfig requires version and workflow fields."""
+    from src.core.config.schema import WorkflowTask
+
     # Valid minimal config
     WorkflowConfig(
         version='1.0.0',
-        steps=[WorkflowStep(id='s1', benchmark='b1', backend='local')]
+        workflow=[WorkflowTask(include='task1.yaml')]
     )
 
     # Missing version
     with pytest.raises(ValidationError) as exc_info:
-        WorkflowConfig(steps=[WorkflowStep(id='s1', benchmark='b1', backend='local')])  # type: ignore
+        WorkflowConfig(workflow=[WorkflowTask(include='task1.yaml')])  # type: ignore
     assert "version" in str(exc_info.value).lower()
 
-    # Missing steps
+    # Missing workflow
     with pytest.raises(ValidationError) as exc_info:
         WorkflowConfig(version='1.0.0')  # type: ignore
-    assert "steps" in str(exc_info.value).lower()
+    assert "workflow" in str(exc_info.value).lower()
 
 
-def test_workflow_parallel_groups_structure():
-    """Parallel groups enable concurrent step execution."""
-    config = WorkflowConfig(
-        version='1.0.0',
-        steps=[
-            WorkflowStep(id='step1', benchmark='test1', backend='local'),
-            WorkflowStep(id='step2', benchmark='test2', backend='local'),
-            WorkflowStep(id='step3', benchmark='test3', backend='local'),
-        ],
-        parallel_groups=[
-            ['step1', 'step2'],  # step1 and step2 can run concurrently
-            ['step3']             # step3 runs after the parallel group
-        ]
-    )
-    # Verify structure supports parallelism specification
-    assert len(config.parallel_groups) == 2
-    assert config.parallel_groups[0] == ['step1', 'step2']
+def test_workflow_task_composition():
+    """WorkflowTask supports include, inline, or hybrid composition."""
+    from src.core.config.schema import WorkflowTask
+
+    # Valid: include only
+    task1 = WorkflowTask(include='task.yaml')
+    assert task1.include == 'task.yaml'
+    assert task1.task is None
+
+    # Valid: inline task only
+    task2 = WorkflowTask(task='sleep', backends=['local'])
+    assert task2.task == 'sleep'
+    assert task2.include is None
+
+    # Valid: hybrid (include + inline overrides)
+    task3 = WorkflowTask(include='base.yaml', task='sleep', options={'repeats': 100})
+    assert task3.include == 'base.yaml'
+    assert task3.task == 'sleep'
+    assert task3.options == {'repeats': 100}
+
+    # Valid: include + options override
+    task4 = WorkflowTask(include='task.yaml', options={'repeats': 1000})
+    assert task4.include == 'task.yaml'
+    assert task4.options == {'repeats': 1000}
+
+    # Invalid: neither specified
+    with pytest.raises(ValidationError) as exc_info:
+        WorkflowTask()
+    assert "Must specify either" in str(exc_info.value)
+
+
+# ========== WorkflowStep Tests (future DAG workflow support) ==========
+
+def test_workflow_step_dependency_structure():
+    """Workflow steps can express dependency relationships (future DAG support)."""
+    # Step with no dependencies (can run immediately)
+    step1 = WorkflowStep(id='step1', experiment='experiments/test1.yaml')
+    assert step1.depends_on == []
+
+    # Step depends on one previous step
+    step2 = WorkflowStep(id='step2', experiment='experiments/test2.yaml', depends_on=['step1'])
+    assert len(step2.depends_on) == 1
+
+    # Step depends on multiple previous steps
+    step3 = WorkflowStep(id='step3', experiment='experiments/test3.yaml', depends_on=['step1', 'step2'])
+    assert len(step3.depends_on) == 2

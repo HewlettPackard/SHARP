@@ -1,0 +1,26 @@
+# SymPy Polynomial Expansion Benchmark
+# Demonstrates AppImage packaging with Python dependencies (sympy)
+#
+# This benchmark is NOT runnable directly from SHARP's venv because
+# sympy is not installed. It must be packaged as an AppImage first.
+
+include:
+  - ../_shared.yaml
+
+benchmarks:
+  sympy-expand:
+    entry_point: ./sympy_expand.py
+    args: ["20"]  # Expand (x+y+z)^20
+    tags: [python, symbolic, math]
+
+sources: []  # Local Python file
+
+# Unified declarative requirements (works for both AppImage and Docker)
+build:
+  requires:
+    python: [sympy]
+
+  docker:
+    base_image: python:3.11-slim
+
+tags: [python, math, symbolic]

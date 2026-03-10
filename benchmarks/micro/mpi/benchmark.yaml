@@ -12,12 +12,13 @@ benchmarks:
 
 sources: []  # Local MPI Python file
 
+# Unified declarative requirements (works for both AppImage and Docker)
 build:
+  requires:
+    python: [mpi4py, numpy]
+    system: [libopenmpi-dev]
+
   docker:
     base_image: python:3.10-slim
-    requirements: [mpi4py, numpy]
-  appimage:
-    runtime: ubuntu:20.04
-    system_deps: [libopenmpi-dev]
 
 tags: [python, mpi]

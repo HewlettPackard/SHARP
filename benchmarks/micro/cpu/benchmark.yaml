@@ -32,11 +32,12 @@ benchmarks:
 
 sources: []  # Local files in same directory
 
+# Unified declarative requirements (works for both AppImage and Docker)
 build:
+  requires:
+    python: [numpy, flask]
+
   docker:
     base_image: python:3.10-slim
-    requirements: [numpy, flask]
-  appimage:
-    runtime: ubuntu:20.04
 
 tags: [python, cpu]

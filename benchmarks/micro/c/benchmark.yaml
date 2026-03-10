@@ -1,0 +1,42 @@
+# GSL Integration Benchmark
+# Demonstrates AppImage packaging with C code and library dependencies built from source
+#
+# This benchmark requires GNU Scientific Library (GSL) which is typically
+# NOT installed on systems. GSL is downloaded and built from source,
+# then bundled into the AppImage.
+
+include:
+  - ../_shared.yaml
+
+benchmarks:
+  gsl-integrate:
+    entry_point: ./gsl_integrate
+    args: ["100"]  # Integrate sin(x)/x from 0 to 100*pi
+    tags: [c, numerical, math, gsl]
+
+# GSL source - use local copy (downloaded separately due to FTP issues)
+# To download: wget https://ftp.gnu.org/gnu/gsl/gsl-2.7.1.tar.gz -O /tmp/gsl-2.7.1.tar.gz
+sources:
+  - type: path
+    location: /tmp/gsl-2.7.1.tar.gz
+
+# Unified declarative requirements
+build:
+  requires:
+    system: [build-essential]  # C compiler
+    libraries: [gsl]  # GSL built from source (from sources above)
+
+  # Build GSL from source, then build our program against it
+  build_commands:
+    # Extract and build GSL with prefix in AppDir
+    - tar xzf gsl-2.7.1.tar.gz
+    - cd gsl-2.7.1 && ./configure --prefix=$PWD/../gsl-install && make -j$(nproc) && make install
+    # Build our program linking against bundled GSL
+    - gcc -O2 -Wall -I./gsl-install/include -o gsl_integrate gsl_integrate.c -L./gsl-install/lib -lgsl -lgslcblas -lm -Wl,-rpath,'$ORIGIN/../lib'
+    # Copy GSL libraries to lib directory for bundling
+    - mkdir -p ../lib && cp -a gsl-install/lib/*.so* ../lib/
+
+  docker:
+    base_image: ubuntu:22.04
+
+tags: [c, math, numerical]

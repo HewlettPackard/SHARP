@@ -17,12 +17,13 @@ benchmarks:
 
 sources: []  # Local CUDA Python files
 
+# Unified declarative requirements (works for both AppImage and Docker)
 build:
+  requires:
+    python: [numba, numpy]
+    system: [nvidia-cuda-toolkit]
+
   docker:
-    base_image: nvidia/cuda:12.0-runtime-ubuntu22.04
-    requirements: [numba, numpy]
-  appimage:
-    runtime: ubuntu:22.04
-    system_deps: [nvidia-cuda-toolkit]
+    base_image: nvidia/cuda:12.0.1-runtime-ubuntu22.04
 
 tags: [python, gpu, cuda]

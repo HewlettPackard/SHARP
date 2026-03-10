@@ -12,11 +12,12 @@ benchmarks:
 
 sources: []  # Local I/O Python file
 
+# Unified declarative requirements (works for both AppImage and Docker)
 build:
+  requires:
+    python: [numpy]
+
   docker:
     base_image: python:3.10-slim
-    requirements: [numpy]
-  appimage:
-    runtime: ubuntu:20.04
 
 tags: [python, io]
