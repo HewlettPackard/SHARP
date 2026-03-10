@@ -15,5 +15,4 @@ Otherwise, if you want the launchers to be able to execute your function as part
 For local testing and framework consistency, each function should also have a python file with the same name (+.py) as the Fission function (and as it happens, the directory name). If your python program happens to have a different filename, just add a symbolic link to it with the right name.
 
 Please make sure that your code conforms to the documentation standards outlined in [PEP 257](https://peps.python.org/pep-0257/), which you can verify by running the program [pep257](https://peps.python.org/pep-0257/).
-You can then automatically extract documentation for your code under `docs/fns` by running `make` in that directory.
-Please also make sure that your code includes type annotations according to [PEP 484](https://peps.python.org/pep-0484/) and produces no errors or warnings under [mypy](https://mypy-lang.org/).
+Please make sure that your code includes type annotations according to [PEP 484](https://peps.python.org/pep-0484/) and produces no errors or warnings under [mypy](https://mypy-lang.org/).

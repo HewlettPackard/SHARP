@@ -170,6 +170,29 @@ Backends that require options take them as part of the configuration, specified 
 
 2. `ssh`: Run the function/script on one or more remote hosts. These hosts are configured under "backend_options"/"ssh" and are specified either with the `hosts` entry (comma-separated list of hosts) or `hostfile` entry (filename to read host names from). When more than one host is specified, is function is executed on a host selected from the list in round-robin fashion.
 
+#### Remote Entry Point Override
+
+When running benchmarks on remote systems via SSH, the executable may be located at a different path than on the local system. You can override the entry point using the `-j` option with the `entry_point` field:
+
+```sh
+# Run a benchmark on a remote host with a custom executable path
+uv run launch -b ssh \
+    -j '{"entry_point": "/remote/path/to/benchmark.AppImage", "backend_options": {"ssh": {"hosts": "remote-server.edu"}}}' mybenchmark
+
+# Run the same AppImage locally and remotely for comparison
+# Local:
+uv run launch -b local mybenchmark
+
+# Remote (same AppImage copied to different path):
+uv run launch -b ssh \
+    -j '{"entry_point": "/home/user/benchmarks/mybenchmark.AppImage", "backend_options": {"ssh": {"hosts": "cluster-node1"}}}' mybenchmark
+```
+
+This is particularly useful when:
+- Running packaged AppImages on remote clusters where the path differs
+- Comparing local vs remote execution of the same benchmark
+- Running benchmarks on systems where you've deployed the executable to a non-standard location
+
 3. `mpi`: Run the program using `mpirun`. Takes an optional `flags` option (string) from the "backend_options"/"mpi" configuration that includes a space-separated list of optional arguments to pass to mpirun, such as the host names to run on.
 
 4. `fission`: A FaaS backend that executions the function as configured in the Fission setup process. Takes no options.

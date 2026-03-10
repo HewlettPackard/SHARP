@@ -6,26 +6,37 @@ To run this benchmark, you'll need one or more hosts (physical or virtual), runn
 
 * Provision physical hosts or VMs with any of the supported accelerators.
 * The rest of the instructions assume Ubuntu 20.04 as the OS on these hosts. The python interpreter should be version 3.9 or higher.
-* Install general prerequisites:
+* Install core prerequisites (required for launcher/CLI/GUI):
 
   ```sh
   sudo apt install make \
         llvm \
         g++ \
-        golang \
         python3-pip \
         apt-transport-https \
-        libopenmpi-dev \
-        libev-dev \
         ca-certificates \
-        libfontconfig1-dev \
-        libfribidi-dev \
-        libharfbuzz-dev \
-        libtiff-dev \
-        libblas-dev liblapack-dev \
-        libcurl4-openssl-dev curl \
+        curl \
         rename \
-        docker.io  # If required for FaaS
+        fuse libfuse2 \
+        appimagetool
+  ```
+
+  **Notes**:
+  - `fuse`, `libfuse2`, and `appimagetool` are **required** for AppImage support (packaging and execution)
+  - Benchmark-specific dependencies (NumPy, SciPy, Flask, etc.) are bundled in AppImages/Docker images, not installed system-wide
+  - Python packages are managed via `uv` (see "Install Python packages" section below)
+
+* Install backend-specific packages (optional, depending on which backends you'll use):
+
+  ```sh
+  # For Docker backend
+  sudo apt install docker.io
+
+  # For MPI backend
+  sudo apt install libopenmpi-dev
+
+  # For specific benchmarks that need system libraries
+  sudo apt install libcurl4-openssl-dev
   ```
 
 * To run CUDA functions, set up the docker utilities for Nvidia [here](https://docs.nvidia.com/ai-enterprise/deployment-guide/dg-docker.html).
