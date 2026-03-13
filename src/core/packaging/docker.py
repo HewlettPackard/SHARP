@@ -101,7 +101,7 @@ class DockerBuilder:
             self._copy_build_context(sources_dir, benchmark_dir, build_dir, entry)
 
             # Generate Dockerfile
-            dockerfile_path = self._generate_dockerfile(
+            self._generate_dockerfile(
                 build_dir,
                 benchmark_name,
                 entry,
@@ -248,19 +248,22 @@ class DockerBuilder:
             entrypoint_json = ', '.join(f'"{arg}"' for arg in docker_entrypoint)
             lines.append(f'ENTRYPOINT [{entrypoint_json}]')
         else:
-            # Generate default command from entry_point
+            # Generate ENTRYPOINT + CMD from entry_point
+            # ENTRYPOINT = executable (python3 script.py or ./binary)
+            # CMD = default args (replaceable when running container)
             entry_point = entry.entry_point.lstrip('./')
             if entry_point.endswith('.py'):
-                cmd_parts = ['python3', entry_point]
+                entrypoint_parts = ['python3', entry_point]
             else:
-                cmd_parts = [f'./{entry_point}']
+                entrypoint_parts = [f'./{entry_point}']
 
-            # Add default args
+            entrypoint_json = ', '.join(f'"{part}"' for part in entrypoint_parts)
+            lines.append(f'ENTRYPOINT [{entrypoint_json}]')
+
+            # Add default args as CMD (will be replaced by docker run args)
             if entry.args:
-                cmd_parts.extend(entry.args)
-
-            cmd_json = ', '.join(f'"{part}"' for part in cmd_parts)
-            lines.append(f'CMD [{cmd_json}]')
+                cmd_json = ', '.join(f'"{arg}"' for arg in entry.args)
+                lines.append(f'CMD [{cmd_json}]')
 
         dockerfile_path.write_text('\n'.join(lines))
         return dockerfile_path

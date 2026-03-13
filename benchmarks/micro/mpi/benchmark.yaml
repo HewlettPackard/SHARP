@@ -7,7 +7,7 @@ include:
 benchmarks:
   mpi-pingpong-single:
     entry_point: ./mpi-pingpong-single.py
-    args: []
+    args: ["10"]  # Default: 10 synchronization rounds
     tags: [communication, mpi]
 
 sources: []  # Local MPI Python file
@@ -15,7 +15,7 @@ sources: []  # Local MPI Python file
 # Unified declarative requirements (works for both AppImage and Docker)
 build:
   requires:
-    python: [mpi4py, numpy]
+    python: [mpi4py, numpy, flask]
     system: [libopenmpi-dev]
 
   docker:

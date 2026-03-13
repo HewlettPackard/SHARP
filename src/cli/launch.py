@@ -53,8 +53,8 @@ def _resolve_entry_point_for_backend(benchmark_name: str, benchmark_data: Dict[s
     Resolve the appropriate entry point based on selected backends.
 
     Priority:
-    1. If entry_points.appimage exists and backend is local/ssh/mpi, use AppImage
-    2. If entry_points.docker exists and backend is docker, use Docker image
+    1. If backend_entry_points.appimage exists and backend is local/ssh/mpi, use AppImage
+    2. If backend_entry_points.docker exists and backend is docker, use Docker image
     3. Auto-discover built artifacts in build/appimages/ or build/docker/
     4. Fall back to default entry_point
 
@@ -66,7 +66,7 @@ def _resolve_entry_point_for_backend(benchmark_name: str, benchmark_data: Dict[s
     Returns:
         Resolved entry point path or image name
     """
-    entry_points = benchmark_data.get("entry_points", {})
+    backend_entry_points = benchmark_data.get("backend_entry_points", {})
     default_entry = benchmark_data.get("entry_point", "./benchmark")
 
     # Determine backend type for entry point selection
@@ -76,8 +76,8 @@ def _resolve_entry_point_for_backend(benchmark_name: str, benchmark_data: Dict[s
 
     if uses_docker:
         # Check for explicit docker entry point
-        if entry_points.get("docker"):
-            return entry_points["docker"]
+        if backend_entry_points.get("docker"):
+            return backend_entry_points["docker"]
         # Auto-discover built Docker image
         docker_image = f"sharp-{benchmark_name}:latest"
         # Check if image exists (don't fail if docker not available)
@@ -94,13 +94,15 @@ def _resolve_entry_point_for_backend(benchmark_name: str, benchmark_data: Dict[s
 
     elif uses_container:
         # Check for explicit container entry point
-        if entry_points.get("container"):
-            return entry_points["container"]
+        if backend_entry_points.get("container"):
+            return backend_entry_points["container"]
+        # For knative/fission, use benchmark name as function/service name
+        return benchmark_name
 
     else:
         # Local/SSH/MPI backends - prefer AppImage if available
-        if entry_points.get("appimage"):
-            appimage_path = entry_points["appimage"]
+        if backend_entry_points.get("appimage"):
+            appimage_path = backend_entry_points["appimage"]
             if Path(appimage_path).exists():
                 return appimage_path
 
@@ -636,12 +638,12 @@ def print_experiment_result(result: ExperimentResult, verbose: bool) -> int:
     """
     if result.success:
         if verbose:
-            print(f"\n✓ Experiment completed successfully")
+            print("\n✓ Experiment completed successfully")
             print(f"  Iterations: {result.iteration_count}")
             print(f"  Metrics collected: {len(result.metrics)}")
         return 0
     else:
-        print(f"\n✗ Experiment failed")
+        print("\n✗ Experiment failed")
         print(f"  Error: {result.error_message}")
         return 1
 
@@ -664,7 +666,7 @@ def run_parameter_sweep(args: argparse.Namespace, config: Dict[str, Any]) -> int
     from src.core.execution.parameter_space import CartesianSweepStrategy
 
     if args.verbose:
-        print(f"\n=== Parameter Sweep ===")
+        print("\n=== Parameter Sweep ===")
 
     # Remove sweep from base config so it doesn't interfere
     base_config_dict = config.copy()
@@ -691,9 +693,6 @@ def run_parameter_sweep(args: argparse.Namespace, config: Dict[str, Any]) -> int
 
     if args.verbose:
         print(f"Total configurations: {len(configurations)}")
-
-    # Get sweep parameter ranges for tracking
-    sweep_ranges = strategy.get_parameter_ranges()
 
     # Run each configuration
     all_success = True
@@ -723,7 +722,7 @@ def run_parameter_sweep(args: argparse.Namespace, config: Dict[str, Any]) -> int
             all_success = False
 
     if args.verbose:
-        print(f"\n=== Sweep Complete ===")
+        print("\n=== Sweep Complete ===")
         print(f"Configurations run: {len(configurations)}")
         print(f"Status: {'✓ All succeeded' if all_success else '✗ Some failed'}")
 

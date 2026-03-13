@@ -15,7 +15,7 @@ sources: []  # Local I/O Python file
 # Unified declarative requirements (works for both AppImage and Docker)
 build:
   requires:
-    python: [numpy]
+    python: [numpy, flask]
 
   docker:
     base_image: python:3.10-slim
