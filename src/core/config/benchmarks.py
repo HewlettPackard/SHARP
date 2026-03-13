@@ -60,6 +60,10 @@ def load_benchmark_data(benchmark_name: str) -> Tuple[Dict[str, Any], Dict[str, 
                                     merged_metrics.update(metrics)  # Local metrics override
                                     metrics = merged_metrics
 
+                # Merge benchmark-level metrics (benchmark-level overrides suite-level)
+                if "metrics" in benchmark_data:
+                    metrics = metrics | benchmark_data.pop("metrics")
+
                 # Resolve entry_point relative to YAML file directory
                 if "entry_point" in benchmark_data:
                     entry_point = benchmark_data["entry_point"]

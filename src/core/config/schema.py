@@ -123,7 +123,8 @@ class BenchmarkSource(BaseModel):
     location: str  # Primary URL or filesystem path
     mirrors: list[str] = []  # Fallback URLs if primary fails (for download type)
     ref: str | None = None  # Git ref/tag/commit
-    subdir: str | None = None  # Subdirectory for suite benchmarks
+    source_dir: str | None = None  # Shared source directory name (e.g., 'rodinia-shared')
+    build_dir: str | None = None  # Subdirectory to build from within sources
 
 
 class BuildRequirements(BaseModel):
@@ -167,7 +168,7 @@ class BenchmarkEntry(BaseModel):
     sources: list[BenchmarkSource] = []  # Optional - can inherit from suite level
     build: BenchmarkBuild = BenchmarkBuild()  # Optional - can inherit from suite level
     entry_point: str  # Default executable path (source script/binary)
-    entry_points: BenchmarkEntryPoints | None = None  # Backend-specific entry points
+    backend_entry_points: BenchmarkEntryPoints | None = None  # Backend-specific entry point overrides
     args: list[str] = []  # Default arguments
     tags: list[str] = []  # Classification tags
 

@@ -47,6 +47,7 @@ docker run --rm sharp-matmul:latest 200
 
 ```bash
 # Install appimagetool first (one-time setup)
+# IMPORTANT: Use version 13+ (2019 or later) for --appimage-extract-and-run support
 wget https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
 chmod +x appimagetool-x86_64.AppImage
 sudo mv appimagetool-x86_64.AppImage /usr/local/bin/appimagetool
@@ -153,13 +154,57 @@ uv run launch -e test_docker -b docker --skip-sys-specs -r COUNT -j '{"count": 1
 
 The `gsl-integrate` benchmark demonstrates packaging a C program with a library (GNU GSL) that must be compiled from source.
 
+### AppImage Runtime Requirements
+
+**AppImage execution requires one of:**
+1. **libfuse2 installed** (optimal, fastest execution via FUSE mount)
+2. **Manual extraction** with `--appimage-extract-and-run` flag (no FUSE needed)
+
+**Runtime Version:** Requires AppImageKit 13+ (2019 or later) for `--appimage-extract-and-run` support.
+- Check your appimagetool version: `appimagetool --version`
+- Update if needed: Download from https://github.com/AppImage/AppImageKit/releases
+
+**When libfuse2 is missing:**
+- Modern runtimes (13+) support `--appimage-extract-and-run` flag for extraction fallback
+- SHARP's SSH backend automatically uses this flag for maximum portability
+- Without libfuse2, you'll see: "AppImages require FUSE to run" error
+
+**To install libfuse2 on the system that will run the benchmarks:**
+```bash
+# Ubuntu/Debian
+sudo apt-get install libfuse2
+
+# RHEL/CentOS
+sudo yum install fuse-libs
+```
+
 ### AppImage Portability Strategy
 
+**⚠️ CRITICAL: AppImages must bundle ALL non-standard dependencies**
+
+SHARP's AppImage builder will **emit warnings** for any unresolved external dependencies detected. These warnings indicate that your AppImage will NOT be portable and will fail on systems without those specific libraries installed.
+
+**Rule:** If `system:` lists anything beyond standard system libraries (glibc, libm, libpthread, libdl), you MUST provide AppImage-specific build commands to bundle those dependencies.
+
 For maximum portability across Linux distributions:
-- **System libraries** (glibc, libm, libpthread): Link **statically** with `-static-libgcc -static-libstdc++`
-- **Libraries built from source** (GSL, BLAS, etc.): Link **dynamically**, bundle only the `.so` files
-- Use `-Wl,-rpath,'$ORIGIN/../lib'` so the binary finds bundled `.so` files at runtime
+- **Standard system libraries** (glibc, libm, libpthread, libdl): Safe to link dynamically (always available)
+- **Non-standard system libraries** (libgomp, libgfortran, etc.): **MUST be bundled** - build from source
+- **Application libraries** (GSL, BLAS, OpenMP runtime, etc.): Link **dynamically** and bundle `.so` files
+- Use `-Wl,-rpath,'$ORIGIN/../lib'` so binaries find bundled `.so` files at runtime
 - Only `.so` files go into the AppImage, not source code or object files
+
+**The builder will warn you if dependencies are missing:**
+```
+⚠️  WARNING: AppImage 'my-benchmark' has unresolved external dependencies:
+   This AppImage will NOT be portable and requires these system libraries:
+     • libgomp.so.1 => /lib/x86_64-linux-gnu/libgomp.so.1
+
+   To fix this, add AppImage-specific build commands to:
+     1. Download library source to 'sources'
+     2. Build library with: -static or with -Wl,-rpath,'$ORIGIN/../lib'
+     3. Copy library .so files to AppDir/usr/lib/
+   See docs/packaging.md for details.
+```
 
 **benchmarks/micro/c/benchmark.yaml:**
 ```yaml

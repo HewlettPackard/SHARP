@@ -57,18 +57,21 @@ benchmarks/
 │   └── io/                            # I/O microbenchmarks
 │       ├── benchmark.yaml
 │       └── swapbytes.py
-├── (rodinia/, ollama/, npb/ would be added from registry)
+├── rodinia/                           # Rodinia benchmark suite (shipped)
+│   ├── README.md
+│   ├── cuda/
+│   │   └── benchmark.yaml
+│   └── omp/
+│       └── benchmark.yaml
 └── _sources/                          # Downloaded sources (created by build.py)
-    ├── rodinia/                       # Shared for all Rodinia benchmarks
-    ├── npb/                           # Shared for all NPB benchmarks
-    └── ...
+    └── rodinia-shared/                # Shared for all Rodinia benchmarks
 ```
 
 ## Shipped Benchmark Suites
 
-These benchmarks are included with SHARP in the `micro/` directory.
+These benchmarks are included with SHARP.
 
-### Microbenchmark Suites
+### Microbenchmark Suites (micro/)
 
 #### CPU Benchmarks (micro/cpu)
 
@@ -115,11 +118,31 @@ I/O-focused microbenchmark:
 **Build**: Python 3.10
 **Backends**: all
 
-## Registry-Available Benchmarks
+### Rodinia Benchmark Suite (rodinia/)
 
-These benchmarks are not shipped with SHARP but are available through the registry (Phase 4+). Examples below show the configuration patterns.
+**Location**: `benchmarks/rodinia/` (shipped with SHARP)
 
-### Example 1: Ollama (LLM Inference)
+**Total Benchmarks**: 29 (15 CUDA GPU + 14 OpenMP CPU)
+
+The Rodinia Benchmark Suite is a widely-used academic collection for heterogeneous computing research. It includes parallel implementations across multiple domains:
+
+**Categories**:
+- Medical Imaging: heartwall, leukocyte
+- Graph Algorithms: bfs, pathfinder, streamcluster
+- Linear Algebra: lud, gaussian
+- Machine Learning: backprop, nn, kmeans
+- Scientific Computing: lavamd, hotspot, srad
+- Bioinformatics: needle
+- Monte Carlo: particle-filter
+
+**See**: `benchmarks/rodinia/README.md` for complete documentation including:
+- Detailed benchmark descriptions and parameters
+- Build requirements and instructions
+- Data file information
+- Troubleshooting guide
+- Lessons learned from suite integration
+
+## Suite Configuration Patterns
 
 **Location**: `benchmarks/ollama/` (from registry)
 
@@ -138,102 +161,7 @@ benchmarks:
     tags: [llm, inference, mistral]
 
   ollama-neural-chat:
-    command: python ollama.py
-    args: '{"model": "neural-chat:latest", "prompt": "What is benchmark performance?"}'
-    description: Neural Chat inference performance
-    tags: [llm, inference, neural-chat]
-
-# Suite-level configuration (inherited by all benchmarks)
-sources:
-  - type: git
-    url: https://github.com/ollama/ollama
-    branch: main
-
-build:
-  docker:
-    base_image: 'ubuntu:22.04'
-    dockerfile_template: |
-      FROM {{base_image}}
-      RUN apt-get update && apt-get install -y python3 python3-pip
-      RUN pip install requests
-      COPY ollama.py /app/
-      WORKDIR /app
-      CMD ["python3", "ollama.py"]
-    build_args: {}
-  supported_backends: [local, docker, ssh]
-
-metrics:
-  inference_latency:
-    description: Inference latency in milliseconds
-    extract: 'grep "latency:" output.txt | awk "{print $2}"'
-    lower_is_better: true
-    type: float
-    units: ms
-  tokens_per_second:
-    description: Inference throughput
-    extract: 'grep "throughput:" output.txt | awk "{print $2}"'
-    lower_is_better: false
-    type: float
-    units: tokens/s
-
-tags: [llm, inference, ai]
-```
-
-**ollama.py Implementation**:
-```python
-#!/usr/bin/env python3
-"""Ollama inference benchmark."""
-import sys, json, time, requests
-
-args = json.loads(sys.argv[1])
-model = args.get('model', 'mistral:latest')
-prompt = args.get('prompt', 'Hello')
-
-# Start ollama server (assumes running)
-url = 'http://localhost:11434/api/generate'
-
-start = time.time()
-response = requests.post(url, json={
-    'model': model,
-    'prompt': prompt,
-    'stream': False
-})
-elapsed = time.time() - start
-
-print(f"latency: {elapsed * 1000:.2f} ms")
-print(f"throughput: {len(response.json()['response'].split()) / elapsed:.2f} tokens/s")
-```
-
-**Usage**:
-```bash
-# Registry install (Phase 4+)
-launch.py --registry-install ollama --backend docker
-
-# Run benchmark
-launch.py ollama-mistral 1.0
-launch.py ollama-neural-chat 2.0
-```
-
----
-
-### Example 2: Rodinia CUDA Benchmarks (Suite with Git Source)
-
-**Location**: `benchmarks/rodinia/` (from registry)
-
-**Use Case**: Standardized GPU benchmark suite with multiple algorithms
-
-**Directory Structure** (suite-first pattern):
-```
-benchmarks/rodinia/
-├── _shared.yaml                     # Shared config for all Rodinia benchmarks
-├── cuda/
-│   ├── pathfinder/
-│   │   └── benchmark.yaml           # Defines pathfinder benchmark
-│   ├── hotspot/
-│   │   └── benchmark.yaml           # Defines hotspot benchmark
-│   └── other_cuda_kernels/
-│       └── benchmark.yaml
-└── opencl/
+### Pattern 1: Suite with Shared External Source (Rodinia)
     ├── pathfinder/
     │   └── benchmark.yaml
     └── hotspot/
@@ -242,226 +170,36 @@ benchmarks/rodinia/
 
 **_shared.yaml** (inherited by all suite benchmarks):
 ```yaml
-version: 1.0.0
-description: Rodinia benchmark suite shared configuration
-
-# Shared source across ALL Rodinia benchmarks
+# benchmarks/suite/cuda/benchmark.yaml
 sources:
   - type: git
-    url: https://github.com/yuhc/Rodinia_3.1.git
-    # No branch specified - uses repo default
-    # No subdir specified - whole repo cloned
-
-# Shared build config (inherited by all benchmarks)
-build:
-  docker:
-    base_image: 'nvidia/cuda:11.8.0-runtime-ubuntu22.04'
-    dockerfile_template: |
-      FROM {{base_image}}
-      RUN apt-get update && apt-get install -y build-essential make
-      COPY . /app/
-      WORKDIR /app
-      RUN make -C cuda clean && make -C cuda all
-    build_args: {}
-  supported_backends: [local, docker, ssh]
-
-# Shared metrics across all Rodinia benchmarks
-metrics:
-  kernel_time:
-    description: GPU kernel execution time
-    extract: 'grep "kernel:" output.txt | awk "{print $2}"'
-    lower_is_better: true
-    type: float
-    units: ms
-
-tags: [rodinia, gpu, cuda]
-```
-
-**rodinia/cuda/pathfinder/benchmark.yaml** (inherits from _shared.yaml):
-```yaml
-version: 1.0.0
-description: Rodinia pathfinder algorithm
-
-include:
-  - ../../_shared.yaml              # Inherit shared source, build, metrics, tags
-
-benchmarks:
-  pathfinder:
-    command: ./pathfinder
-    args: 16384 100
-    description: Pathfinder on 16384x100 grid
-    tags: [pathfinding, dynamic-programming]
-
-# Benchmark-level overrides (if needed)
-# build: {}  # Use suite-level build
-# metrics: {} # Use suite-level metrics
-```
-
-**rodinia/cuda/hotspot/benchmark.yaml** (inherits from _shared.yaml):
-```yaml
-version: 1.0.0
-description: Rodinia hotspot thermal simulation
-
-include:
-  - ../../_shared.yaml
-
-benchmarks:
-  hotspot:
-    command: ./hotspot
-    args: 1024 1024 2 200 input.dat output.dat
-    description: Thermal simulation on 1024x1024 grid
-
-# Override metrics for hotspot-specific measurements (optional)
-metrics:
-  kernel_time:
-    description: Hotspot kernel execution time
-    extract: 'grep "kernel:" output.txt | awk "{print $2}"'
-    lower_is_better: true
-    type: float
-    units: ms
-```
-
-**Usage** (after registry install):
-```bash
-# List all Rodinia benchmarks
-launch.py --list-benchmarks | grep rodinia
-
-# Run pathfinder on GPU
-launch.py -b docker pathfinder 1.0
-
-# Run hotspot with profiling
-launch.py -b docker -b perf hotspot 2.0
-```
-
-**Key Patterns**:
-1. **Suite-first**: All benchmarks share one git source repo
-2. **Shared config**: `_shared.yaml` defines source, build, metrics, tags
-3. **Includes**: Child `benchmark.yaml` files include `_shared.yaml`
-4. **Flat namespace**: `pathfinder` and `hotspot` are discovered as top-level benchmarks
-5. **Hierarchical dirs**: `cuda/pathfinder/`, `opencl/hotspot/` organize by variant
-
----
-
-### Example 3: NPB-CG (MPI Conjugate Gradient Solver)
-
-**Location**: `benchmarks/npb/` (from registry)
-
-**Use Case**: Multi-variant benchmark (serial, OpenMP, MPI) with Fortran source
-
-**Directory Structure**:
-```
-benchmarks/npb/
-├── _shared.yaml
-├── serial/
-│   └── benchmark.yaml
-├── openmp/
-│   └── benchmark.yaml
-└── mpi/
-    └── benchmark.yaml
-```
-
-**_shared.yaml**:
-```yaml
-version: 1.0.0
-description: NAS Parallel Benchmarks suite
-
-sources:
-  - type: git
-    url: https://github.com/nasa/NPB3.4.3.git
+    url: https://github.com/example/suite.git
+  - type: download
+    location: https://example.com/data.tar.gz
+    sha256: abc123...
+    extract: true
 
 build:
   docker:
-    base_image: 'ubuntu:22.04'
-    dockerfile_template: |
-      FROM {{base_image}}
-      RUN apt-get update && apt-get install -y gfortran build-essential openmpi-bin libopenmpi-dev
-      COPY . /app/
-      WORKDIR /app/NPB3.4-MPI
-      RUN make suite
-    build_args: {}
-  supported_backends: [local, docker, ssh, mpi]
-
-metrics:
-  cg_time:
-    description: Conjugate gradient solver time
-    extract: 'grep "Time" output.txt | head -1 | awk "{print $3}"'
-    lower_is_better: true
-    type: float
-    units: seconds
-  mops:
-    description: Million operations per second
-    extract: 'grep "MOPS:" output.txt | awk "{print $2}"'
-    lower_is_better: false
-    type: float
-    units: MOPS
-
-tags: [npb, fortran, numerical]
-```
-
-**npb/mpi/benchmark.yaml**:
-```yaml
-version: 1.0.0
-description: NAS Parallel Benchmarks - MPI versions
-
-include:
-  - ../_shared.yaml
+    base_image: nvidia/cuda:11.8.0-devel-ubuntu22.04
+  system: [make, git, wget]
+  build_commands:
+    - cd cuda && make all
 
 benchmarks:
-  cg-mpi-s:
-    command: ./cg S
-    args: ''
-    description: Conjugate gradient solver, Small problem
-    tags: [cg, mpi, small]
+  benchmark-1:
+    entry_point: ./bin_benchmark1
+    args: ["arg1", "arg2"]
+  benchmark-2:
+    entry_point: ./bin_benchmark2
+    args: ["data/input.txt"]
 
-  cg-mpi-w:
-    command: ./cg W
-    args: ''
-    description: Conjugate gradient solver, Workstation problem
-    tags: [cg, mpi, workstation]
-
-  cg-mpi-a:
-    command: ./cg A
-    args: ''
-    description: Conjugate gradient solver, Class A
-    tags: [cg, mpi, classA]
-
-# Benchmark-level build override (use MPI suite)
-build:
-  docker:
-    base_image: 'ubuntu:22.04'
-    dockerfile_template: |
-      FROM {{base_image}}
-      RUN apt-get update && apt-get install -y gfortran build-essential openmpi-bin libopenmpi-dev
-      COPY . /app/
-      WORKDIR /app/NPB3.4-MPI
-      RUN make cg FFLAGS="-Ofast"
-    build_args: {}
+tags: [suite, cuda, gpu]
 ```
 
-**Usage**:
-```bash
-# Run MPI variant with 4 processes
-launch.py -b mpi --mpl 4 cg-mpi-w 1.0
+**See**: `benchmarks/rodinia/` for a complete working example with 29 benchmarks.
 
-# Run with profiling
-launch.py -b mpi --mpl 8 -b mpip cg-mpi-a 2.0
-```
-
----
-
-## Suite Configuration Patterns
-
-### Pattern 1: Single Source for All Benchmarks (Rodinia, NPB)
-
-Use when all benchmarks come from one repository with multiple entry points:
-
-```yaml
-# benchmarks/suite/_shared.yaml
-sources:
-  - type: git
-    url: https://github.com/...
-    # Optional:
-    branch: main
+### Pattern 2: Local Benchmarks (Microbenchmarks)
     # No subdir - whole repo downloaded
 
 benchmarks:  # Defined in child benchmark.yaml files
@@ -623,6 +361,154 @@ The `extract` field is a shell one-liner executed in the output directory after 
 
 ---
 
+## Lessons Learned: Importing Benchmark Suites
+
+Based on integrating the Rodinia suite (29 benchmarks), here are key lessons for importing external benchmark collections into SHARP.
+
+### Common Challenges & Solutions
+
+#### 1. Download URL Instability
+
+**Problem**: External download links (Dropbox, Google Drive) change format or break over time.
+
+**Example**: Rodinia data archive URL changed from `dropbox.com/s/...` to `dropbox.com/scl/fi/...?rlkey=...&dl=1`
+
+**Solutions**:
+- ✅ Use SHA256 checksums to detect failures (file corrupted or HTML returned)
+- ✅ Pin to specific URLs with direct download parameters (`?dl=1` for Dropbox)
+- ✅ Consider mirroring critical data to stable infrastructure
+- ✅ Add URL validation in build system to fail fast
+
+#### 2. Archive Structure Mismatches
+
+### Pattern 3: Local Benchmarks (Microbenchmarks)
+- ✅ Test on multiple distributions (Ubuntu, RHEL, Arch)
+- ⚠️ Trade-off: Static linking increases artifact size (193 KB → 944 KB for AppImage runtime)
+
+#### 5. Build Output Filename Variations
+
+**Problem**: Build process outputs different filename than expected by copy commands.
+
+**Example**: BFS CUDA makefile produced `bfs.out` instead of `bfs`
+
+**Solutions**:
+- ✅ Run build manually first to identify actual output files
+- ✅ Use flexible glob patterns in build commands: `cp bfs* ../../bin_bfs`
+- ✅ Add validation step to check artifact exists after build
+
+#### 6. Metrics Extraction from Application Output
+
+**Problem**: Benchmarks don't always report timing in consistent formats, and stdout buffering can lose output on crashes.
+
+**Examples from Rodinia integration**:
+- Gaussian reports both "Time total" and "Time for CUDA kernels"
+- LUD reports time in milliseconds that needs conversion
+- BFS segfaults during cleanup but had already printed timing
+- Particle filter reports detailed breakdown but only need total time
+- Some benchmarks report no timing at all
+
+**Solutions**:
+- ✅ **Run each benchmark manually first** to see actual output format
+- ✅ **Test extraction patterns** with `grep | awk` on sample output before adding to YAML
+- ✅ **Prioritize `inner_time`**: Application-reported total execution time (not just kernel time)
+- ✅ **Add supplementary metrics** like `kernel_time`, `filter_time` when available and meaningful
+- ✅ **Use `pre_build` to add `fflush(stdout)`** after timing prints to handle crashes gracefully
+- ✅ **Verify units**: Convert milliseconds to seconds for consistency
+- ✅ **Test field numbers**: `awk` field positions depend on exact output format (use `awk '{ for(i=1;i<=NF;i++) print i":"$i }'` to debug)
+- ❌ **Don't add metrics** if you can't verify what they represent or if timing is absent
+
+**Metrics Priority Guide**:
+1. **inner_time** (required): Total application runtime as reported by the program
+2. **kernel_time** (optional): GPU/compute kernel time only (when separate from total)
+3. **Component times** (optional): Meaningful breakdowns (e.g., IO time, filter time) only if well-documented
+
+**Example Metric Definition**:
+```yaml
+metrics:
+  inner_time:
+    description: Total execution time including memory transfers
+    extract: grep 'Time total' | awk '{ print $6; }'
+    lower_is_better: true
+    type: numeric
+    units: seconds
+  kernel_time:
+    description: Time for CUDA kernels only
+    extract: grep 'Time for CUDA kernels:' | awk '{ print $5; }'
+    lower_is_better: true
+    type: numeric
+    units: seconds
+```
+
+### Best Practices Checklist
+
+When importing a new benchmark suite, follow this workflow:
+
+**Phase 1: Reconnaissance (Manual)**
+1. [ ] Clone/download sources manually
+2. [ ] Read build instructions (README, INSTALL, Makefile)
+3. [ ] Run build commands interactively
+4. [ ] Identify required system packages
+5. [ ] Check for data dependencies (input files, datasets)
+6. [ ] Test each benchmark manually to verify correctness
+7. [ ] Document input parameters and expected outputs
+
+**Phase 2: Configuration (YAML)**
+1. [ ] Create suite directory structure: `benchmarks/suite-name/`
+2. [ ] Define sources in `benchmark.yaml` with checksums
+3. [ ] Write build commands (may need `pre_build` patches)
+4. [ ] List system package dependencies
+5. [ ] Define benchmark entries with correct entry_point paths
+6. [ ] Add `args` with correct data file paths
+7. [ ] Specify supported backends based on requirements
+
+**Phase 3: Build & Test**
+1. [ ] Run `uv run build --clean` to test full rebuild
+2. [ ] Verify all artifacts created successfully
+3. [ ] Check artifact sizes (AppImage < 100 MB ideal)
+4. [ ] Test each benchmark with `uv run launch`
+5. [ ] Verify exit codes (0 = success)
+6. [ ] Inspect output for correctness (metrics extracted properly)
+
+**Phase 4: Documentation**
+1. [ ] Create suite README with benchmark descriptions
+2. [ ] Document build requirements and dependencies
+3. [ ] List known issues and workarounds
+4. [ ] Add examples of common usage patterns
+5. [ ] Include performance baselines if available
+6. [ ] Credit original authors and link to paper/source
+
+**Phase 5: Integration**
+1. [ ] Update main `benchmarks/README.md` to reference new suite
+2. [ ] Add suite to discovery tests
+**Key Point**: No source caching needed, files already in repository
+
+---
+
+## Benchmark YAML Schemae.tar.gz
+
+# Compare against expected
+echo "b90994d5208ec5a0a133dfb9ab7928a1e8a16741503a91d212884b9e4fce8cd8  file.tar.gz" | sha256sum -c
+```
+
+**Test portability**:
+```bash
+# Run on different systems
+docker run -it --rm -v $PWD:/work ubuntu:22.04 /work/benchmark
+docker run -it --rm -v $PWD:/work ubuntu:20.04 /work/benchmark
+
+# Check AppImage on FUSE-less system
+./benchmark.AppImage --appimage-extract-and-run
+```
+
+### Further Reading
+
+- Rodinia integration details: `benchmarks/rodinia/README.md`
+- Benchmark YAML schema: `docs/schemas/benchmark.md`
+- Build system documentation: `docs/packaging.md`
+- AppImage best practices: https://docs.appimage.org/
+
+---
+
 ## Creating New Benchmark Suites
 
 ### Checklist
@@ -699,3 +585,62 @@ launch.py --registry-push benchmarks/my-suite/ \
 ```
 
 Registry will validate YAML schema and archive the suite for distribution.
+### Further Reading
+
+- **Rodinia suite integration**: See `benchmarks/rodinia/README.md` for a complete working example
+- Benchmark YAML schema: `docs/schemas/benchmark.md`
+- Build system documentation: `docs/packaging.md`
+- AppImage best practices: https://docs.appimage.org/---
+
+## Creating New Benchmark Suites
+
+### Quick Checklist
+
+1. Create suite directory: `benchmarks/suite-name/`
+2. Create `benchmark.yaml` with:
+   - sources (git, download, or local files)
+   - build configuration
+   - benchmark entries with entry_point and args
+   - metrics definitions
+   - tags
+3. Create variant subdirectories if needed (e.g., `cuda/`, `omp/`)
+4. Test with discovery: `uv run launch --list-benchmarks`
+5. Test build: `uv run build -t docker suite-name` (or `-t appimage`)
+6. Test execution: `uv run launch -b local suite-name`
+7. Document in suite README.md### Example: Adding a Simple Suite
+
+```bash
+# Create directory structure
+mkdir -p benchmarks/my-suite/
+
+# Create benchmark.yaml
+cat > benchmarks/my-suite/benchmark.yaml << 'EOF'
+sources:
+  - type: git
+    location: https://github.com/example/my-suite.git
+    tag: v1.0.0
+
+build:
+  requires:
+    system: [gcc, make]
+  build_commands:
+    - make all
+
+benchmarks:
+  my-benchmark:
+    entry_point: ./bin/benchmark
+    args: ["--size", "1000"]
+    tags: [compute, test]
+
+tags: [my-suite]
+EOF
+
+# Test discovery
+uv run launch --list-benchmarks | grep my-benchmark
+
+# Build and test
+uv run build -t docker my-benchmark
+uv run launch -b local my-benchmark
+```
+
+For a complete working example with 29 benchmarks, see `benchmarks/rodinia/`.

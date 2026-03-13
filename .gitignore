@@ -3,7 +3,8 @@ TODO.txt
 datafile
 *.swp
 *.zip
-./runlogs/
+runlogs
+!src/core/runlogs
 reports
 mpi-test
 benchmarks.md
@@ -20,6 +21,7 @@ fns/swapbytes.c
 workflows
 _sources
 .github
+appimages
 
 # Created by https://www.toptal.com/developers/gitignore/api/python,visualstudiocode,windows,macos,vim,emacs,c++
 # Edit at https://www.toptal.com/developers/gitignore?templates=python,visualstudiocode,windows,macos,vim,emacs,c++

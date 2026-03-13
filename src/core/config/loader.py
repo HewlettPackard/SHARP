@@ -244,7 +244,7 @@ def _merge_suite_level_config(config: BenchmarkConfig, config_path: Path | None 
     If a benchmark entry has empty sources/build, inherit from suite level.
     Tags are merged (suite + benchmark-specific).
     """
-    from src.core.config.schema import BenchmarkEntry, BenchmarkBuild
+    from src.core.config.schema import BenchmarkEntry
 
     updated_benchmarks = {}
     for name, entry in config.benchmarks.items():
@@ -266,6 +266,7 @@ def _merge_suite_level_config(config: BenchmarkConfig, config_path: Path | None 
             sources=sources,
             build=build,
             entry_point=entry.entry_point,
+            backend_entry_points=entry.backend_entry_points,
             args=entry.args,
             tags=tags,
         )

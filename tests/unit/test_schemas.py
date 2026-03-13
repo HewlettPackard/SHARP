@@ -161,18 +161,18 @@ def test_benchmark_source_type_validation():
 
 
 def test_benchmark_source_subdir_for_suites():
-    """Subdir field enables suite benchmark support."""
-    # Without subdir - typical standalone benchmark
+    """build_dir field enables suite benchmark support."""
+    # Without build_dir - typical standalone benchmark
     source = BenchmarkSource(type='path', location='./test.py')
-    assert source.subdir is None
+    assert source.build_dir is None
 
-    # With subdir - suite benchmark like Rodinia
+    # With build_dir - suite benchmark like Rodinia
     source = BenchmarkSource(
         type='git',
         location='https://github.com/example/suite.git',
-        subdir='opencl/pathfinder'
+        build_dir='opencl/pathfinder'
     )
-    assert source.subdir == 'opencl/pathfinder'
+    assert source.build_dir == 'opencl/pathfinder'
     # Verify this enables building from subdirectory of cloned repo
     assert source.type == 'git'
 

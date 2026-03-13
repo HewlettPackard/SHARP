@@ -94,6 +94,47 @@ class AppImageBuilder:
         self._output_dir.mkdir(parents=True, exist_ok=True)
         return self._output_dir
 
+    def _ensure_modern_runtime(self) -> Path:
+        """
+        Download static AppImage runtime (type2-runtime) with built-in libfuse.
+        
+        Caches the runtime in build/appimage-runtime/ to avoid repeated downloads.
+        This static runtime (from AppImage/type2-runtime) is linked against musl
+        and includes libfuse, allowing it to run on systems without libfuse2
+        installed (like Ubuntu 22.04+) without needing special flags.
+        
+        Returns:
+            Path to the cached runtime file
+        """
+        from src.core.config.include_resolver import get_project_root
+        import urllib.request
+        
+        runtime_dir = get_project_root() / 'build' / 'appimage-runtime'
+        runtime_dir.mkdir(parents=True, exist_ok=True)
+        runtime_path = runtime_dir / 'runtime-x86_64-static'
+        
+        # Check if already downloaded
+        if runtime_path.exists():
+            return runtime_path
+        
+        # Download from AppImage/type2-runtime releases
+        runtime_url = 'https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64'
+        
+        if self._verbose:
+            print(f"Downloading static AppImage runtime from {runtime_url}...")
+        
+        try:
+            urllib.request.urlretrieve(runtime_url, runtime_path)
+            runtime_path.chmod(0o755)
+            
+            if self._verbose:
+                print(f"✓ Static runtime cached at {runtime_path}")
+            
+            return runtime_path
+            
+        except Exception as e:
+            raise BuildError(f"Failed to download AppImage runtime: {e}")
+
     def build(self, benchmark: BenchmarkConfig, sources_dir: Path,
               benchmark_name: str) -> Path:
         """
@@ -174,6 +215,9 @@ class AppImageBuilder:
 
             # Create desktop file and icon
             self._create_desktop_entry(appdir, benchmark_name)
+
+            # Check for unresolved dependencies and emit warnings
+            self._check_unresolved_dependencies(appdir, benchmark_name)
 
             # Package with appimagetool
             appimage_path = self._package_appimage(appdir, benchmark_name)
@@ -487,6 +531,70 @@ Categories=Development;Science;
             # Create minimal placeholder (empty file as fallback)
             icon_path.touch()
 
+    def _check_unresolved_dependencies(self, appdir: Path, benchmark_name: str) -> None:
+        """Check for unresolved external dependencies and emit warnings.
+        
+        Scans all binaries and shared libraries in the AppDir to detect
+        dependencies on system libraries that are not bundled. Issues warnings
+        for portability concerns.
+        """
+        import subprocess
+        import sys
+        
+        bin_dir = appdir / 'usr' / 'bin'
+        lib_dir = appdir / 'usr' / 'lib'
+        
+        unresolved_libs = set()
+        checked_files = []
+        
+        # Check all executables and libraries
+        for directory in [bin_dir, lib_dir]:
+            if not directory.exists():
+                continue
+                
+            for item in directory.iterdir():
+                if item.is_file() and not item.is_symlink():
+                    try:
+                        # Use ldd to check dependencies
+                        result = subprocess.run(
+                            ['ldd', str(item)],
+                            capture_output=True,
+                            text=True,
+                            timeout=10
+                        )
+                        
+                        if result.returncode == 0:
+                            checked_files.append(item.name)
+                            for line in result.stdout.splitlines():
+                                # Parse ldd output: libname.so => /path/to/lib.so (address)
+                                if '=>' in line and 'not found' not in line:
+                                    parts = line.strip().split('=>')
+                                    if len(parts) == 2:
+                                        lib_name = parts[0].strip()
+                                        lib_path = parts[1].split('(')[0].strip()
+                                        
+                                        # Check if library is external (not in AppDir)
+                                        if lib_path and not lib_path.startswith(str(appdir)):
+                                            # Skip standard system libraries that are expected
+                                            if not any(x in lib_name for x in ['libc.so', 'libm.so', 'libdl.so', 'libpthread.so', 'linux-vdso.so', 'ld-linux']):
+                                                unresolved_libs.add((lib_name, lib_path))
+                                                
+                    except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):
+                        # Skip files that can't be checked with ldd
+                        pass
+        
+        # Emit warnings for unresolved dependencies
+        if unresolved_libs:
+            print(f"\n⚠️  WARNING: AppImage '{benchmark_name}' has unresolved external dependencies:", file=sys.stderr)
+            print("   This AppImage will NOT be portable and requires these system libraries:", file=sys.stderr)
+            for lib_name, lib_path in sorted(unresolved_libs):
+                print(f"     • {lib_name} => {lib_path}", file=sys.stderr)
+            print("\n   To fix this, add AppImage-specific build commands to:", file=sys.stderr)
+            print("     1. Download library source to 'sources'", file=sys.stderr)
+            print("     2. Build library with: -static or with -Wl,-rpath,'$ORIGIN/../lib'", file=sys.stderr)
+            print("     3. Copy library .so files to AppDir/usr/lib/", file=sys.stderr)
+            print("   See docs/packaging.md for details.\n", file=sys.stderr)
+
     def _package_appimage(self, appdir: Path, benchmark_name: str) -> Path:
         """Package AppDir into AppImage using appimagetool."""
         output_dir = self._get_output_dir()
@@ -500,8 +608,12 @@ Categories=Development;Science;
                     "Install from https://github.com/AppImage/AppImageKit/releases"
                 )
 
+            # Use modern runtime with --appimage-extract-and-run support
+            runtime_path = self._ensure_modern_runtime()
+            
             result = subprocess.run(
-                [self._appimagetool, str(appdir), str(appimage_path)],
+                [self._appimagetool, '--runtime-file', str(runtime_path), 
+                 str(appdir), str(appimage_path)],
                 capture_output=True,
                 text=True,
                 timeout=300,

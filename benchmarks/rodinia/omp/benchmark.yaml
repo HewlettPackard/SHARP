@@ -1,0 +1,193 @@
+# Rodinia OpenMP Benchmark Suite
+# CPU benchmarks from the Rodinia suite (version 3.1) using OpenMP parallelization
+# Reference: https://www.cs.virginia.edu/~skadron/Papers/rodinia_iiswc09.pdf
+
+sources:
+  - type: git
+    location: https://github.com/yuhc/gpu-rodinia.git
+    tag: master
+    source_dir: rodinia-shared
+  - type: download
+    location: https://www.dropbox.com/scl/fi/fywgsc3gfvoicbgma22qn/rodinia-3.1-data.tar.gz?rlkey=d0f2rsj5midv2hbndou6vh0ih&dl=1
+    sha256: b90994d5208ec5a0a133dfb9ab7928a1e8a16741503a91d212884b9e4fce8cd8
+    extract: true
+    source_dir: rodinia-shared
+
+
+benchmarks:
+  rodinia-omp-backprop:
+    entry_point: ./bin_backprop
+    args: ["65536"]
+    tags: [neural-network, machine-learning]
+
+  rodinia-omp-bfs:
+    entry_point: ./bin_bfs
+    args: ["4", "rodinia-data/bfs/graph1MW_6.txt"]
+    tags: [graph, traversal]
+    metrics:
+      compute_time:
+        description: Compute time reported by application
+        extract: awk ' /^Compute/ { print $3; } '
+        lower_is_better: true
+        type: numeric
+        units: seconds
+
+  rodinia-omp-heartwall:
+    entry_point: ./bin_heartwall
+    args: ["rodinia-data/heartwall/test.avi", "20", "4"]
+    tags: [medical-imaging, video]
+
+  rodinia-omp-hotspot:
+    entry_point: ./bin_hotspot
+    args: ["1024", "1024", "2", "4", "rodinia-data/hotspot/temp_1024", "rodinia-data/hotspot/power_1024", "output.out"]
+    tags: [physics, thermal-simulation]
+
+  rodinia-omp-kmeans:
+    entry_point: ./bin_kmeans
+    args: ["-n", "4", "-i", "rodinia-data/kmeans/kdd_cup"]
+    tags: [clustering, machine-learning]
+
+  rodinia-omp-lavamd:
+    entry_point: ./bin_lavaMD
+    args: ["-cores", "4", "-boxes1d", "10"]
+    tags: [molecular-dynamics, n-body]
+    metrics:
+      inner_time:
+        description: Run time reported by lavamd
+        extract: grep ' s$' | awk '{ print $1; }'
+        lower_is_better: true
+        type: numeric
+        units: seconds
+
+  rodinia-omp-leukocyte:
+    entry_point: ./bin_leukocyte
+    args: ["5", "4", "rodinia-data/leukocyte/testfile.avi"]
+    tags: [medical-imaging, video]
+
+  rodinia-omp-lud:
+    entry_point: ./bin_lud
+    args: ["-s", "8000"]
+    tags: [linear-algebra, decomposition]
+
+  rodinia-omp-needle:
+    entry_point: ./bin_needle
+    args: ["2048", "10", "2"]
+    tags: [bioinformatics, dynamic-programming]
+
+  rodinia-omp-nn:
+    entry_point: ./bin_nn
+    args: ["rodinia-data/nn/filelist.txt", "5", "30", "90"]
+    tags: [machine-learning, nearest-neighbor]
+
+  rodinia-omp-particle-filter:
+    entry_point: ./bin_particle_filter
+    args: ["-x", "128", "-y", "128", "-z", "10", "-np", "10000"]
+    tags: [monte-carlo, filter]
+    metrics:
+      inner_time:
+        description: Total program execution time
+        extract: grep 'ENTIRE PROGRAM TOOK' | awk '{ print $4; }'
+        lower_is_better: true
+        type: numeric
+        units: seconds
+      filter_time:
+        description: Particle filter computation time
+        extract: grep 'PARTICLE FILTER TOOK' | awk '{ print $4; }'
+        lower_is_better: true
+        type: numeric
+        units: seconds
+
+  rodinia-omp-pathfinder:
+    entry_point: ./bin_pathfinder
+    args: ["100000", "100"]
+    tags: [dynamic-programming, grid-traversal]
+
+  rodinia-omp-sc:
+    entry_point: ./bin_sc
+    args: ["10", "20", "256", "65536", "65536", "1000", "none", "output.txt", "4"]
+    tags: [clustering, data-mining]
+
+  rodinia-omp-srad-v1:
+    entry_point: ./bin_srad_v1
+    args: ["100", "0.5", "502", "458", "4"]
+    tags: [image-processing, despeckling]
+    metrics:
+      inner_time:
+        description: Run time reported by srad
+        extract: grep -E '[0-9]+([.][0-9]+)? s$' | awk '{ print $1; }'
+        lower_is_better: true
+        type: numeric
+        units: seconds
+
+  rodinia-omp-srad-v2:
+    entry_point: ./bin_srad_v2
+    args: ["4", "2048", "2048", "0", "127", "0", "127", "0.5", "2"]
+    tags: [image-processing, despeckling]
+
+# Requires OpenMP-capable compiler and compiled binaries
+build:
+  requires:
+    system: [gcc, g++, make, libgomp1, git, wget, ca-certificates, tar]
+
+  pre_build: |
+    # Fix stdout buffering issue in BFS that causes output loss on segfault
+    sed -i '/printf("Start traversing the tree/a\    fflush(stdout);' openmp/bfs/bfs.cpp
+    sed -i '/printf("Compute time:/a\        fflush(stdout);' openmp/bfs/bfs.cpp
+    sed -i '/printf("Result stored in result.txt/a\    fflush(stdout);' openmp/bfs/bfs.cpp
+
+  build_commands:
+    - |
+      echo '# OpenMP compiler' > common/make.config && \
+      echo 'CC = gcc' >> common/make.config && \
+      echo 'CXX = g++' >> common/make.config && \
+      echo 'CFLAGS = -O3 -fopenmp' >> common/make.config && \
+      echo 'CXXFLAGS = -O3 -fopenmp' >> common/make.config && \
+      echo 'LDFLAGS = -lm -fopenmp' >> common/make.config && \
+      cd openmp/backprop && make backprop && cp backprop ../../bin_backprop && cd ../.. && \
+      cd openmp/bfs && make bfs && cp bfs ../../bin_bfs && cd ../.. && \
+      cd openmp/heartwall && make heartwall && cp heartwall ../../bin_heartwall && cd ../.. && \
+      cd openmp/hotspot && make hotspot && cp hotspot ../../bin_hotspot && cd ../.. && \
+      cd openmp/kmeans/kmeans_openmp && make && cp kmeans ../../../bin_kmeans && cd ../../.. && \
+      cd openmp/lavaMD && make && cp lavaMD ../../bin_lavaMD && cd ../.. && \
+      cd openmp/leukocyte/OpenMP && make && cp leukocyte ../../../bin_leukocyte && cd ../../.. && \
+      cd openmp/lud/omp && make && cp lud_omp ../../../bin_lud && cd ../../.. && \
+      cd openmp/nw && make needle && cp needle ../../bin_needle && cd ../.. && \
+      cd openmp/nn && make && cp nn ../../bin_nn && cd ../.. && \
+      cd openmp/particlefilter && make && cp particle_filter ../../bin_particle_filter && cd ../.. && \
+      cd openmp/pathfinder && make && cp pathfinder ../../bin_pathfinder && cd ../.. && \
+      cd openmp/streamcluster && make && cp sc_omp ../../bin_sc && cd ../.. && \
+      cd openmp/srad/srad_v1 && make && cp srad ../../../bin_srad_v1 && cd ../../.. && \
+      cd openmp/srad/srad_v2 && make && cp srad ../../../bin_srad_v2
+
+  appimage:
+    build_commands:
+      # Build with -fPIC for AppImage compatibility
+      - |
+        echo '# OpenMP compiler with PIC' > common/make.config && \
+        echo 'CC = gcc' >> common/make.config && \
+        echo 'CXX = g++' >> common/make.config && \
+        echo 'CFLAGS = -O3 -fopenmp -fPIC' >> common/make.config && \
+        echo 'CXXFLAGS = -O3 -fopenmp -fPIC' >> common/make.config && \
+        echo 'LDFLAGS = -lm -fopenmp' >> common/make.config && \
+        cd openmp/backprop && make backprop && cp backprop ../../bin_backprop && cd ../.. && \
+        cd openmp/bfs && make bfs && cp bfs ../../bin_bfs && cd ../.. && \
+        cd openmp/heartwall && make heartwall && cp heartwall ../../bin_heartwall && cd ../.. && \
+        cd openmp/hotspot && make hotspot && cp hotspot ../../bin_hotspot && cd ../.. && \
+        cd openmp/kmeans/kmeans_openmp && make && cp kmeans ../../../bin_kmeans && cd ../../.. && \
+        cd openmp/lavaMD && make && cp lavaMD ../../bin_lavaMD && cd ../.. && \
+        cd openmp/leukocyte/meschach_lib && make clean && make CFLAGS="-O -fPIC" && cd ../OpenMP && make clean && make && cp leukocyte ../../../bin_leukocyte && cd ../../.. && \
+        cd openmp/lud/omp && make && cp lud_omp ../../../bin_lud && cd ../../.. && \
+        cd openmp/nw && make needle && cp needle ../../bin_needle && cd ../.. && \
+        cd openmp/nn && make && cp nn ../../bin_nn && cd ../.. && \
+        cd openmp/particlefilter && make && cp particle_filter ../../bin_particle_filter && cd ../.. && \
+        cd openmp/pathfinder && make && cp pathfinder ../../bin_pathfinder && cd ../.. && \
+        cd openmp/streamcluster && make && cp sc_omp ../../bin_sc && cd ../.. && \
+        cd openmp/srad/srad_v1 && make && cp srad ../../../bin_srad_v1 && cd ../../.. && \
+        cd openmp/srad/srad_v2 && make && cp srad ../../../bin_srad_v2
+
+  docker:
+    base_image: ubuntu:22.04
+
+supported_backends: [local, docker, ssh, mpi]
+
+tags: [rodinia, openmp, cpu]

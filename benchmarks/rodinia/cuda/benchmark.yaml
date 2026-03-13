@@ -1,0 +1,198 @@
+# Rodinia CUDA Benchmark Suite
+# GPU benchmarks from the Rodinia suite (version 3.1)
+# Reference: https://www.cs.virginia.edu/~skadron/Papers/rodinia_iiswc09.pdf
+
+sources:
+  - type: git
+    location: https://github.com/yuhc/gpu-rodinia.git
+    tag: master
+    source_dir: rodinia-shared
+  - type: download
+    location: https://www.dropbox.com/scl/fi/fywgsc3gfvoicbgma22qn/rodinia-3.1-data.tar.gz?rlkey=d0f2rsj5midv2hbndou6vh0ih&dl=1
+    sha256: b90994d5208ec5a0a133dfb9ab7928a1e8a16741503a91d212884b9e4fce8cd8
+    extract: true
+    source_dir: rodinia-shared
+
+benchmarks:
+  rodinia-cuda-backprop:
+    entry_point: ./bin_backprop
+    args: ["65536"]
+    tags: [neural-network, machine-learning]
+
+  rodinia-cuda-bfs:
+    entry_point: ./bin_bfs
+    args: ["rodinia-data/bfs/graph65536.txt"]
+    tags: [graph, traversal]
+
+  rodinia-cuda-gaussian:
+    entry_point: ./bin_gaussian
+    args: ["-f", "rodinia-data/gaussian/matrix4.txt"]
+    tags: [linear-algebra, elimination]
+    metrics:
+      inner_time:
+        description: Total execution time including memory transfers
+        extract: grep 'Time total' | awk '{ print $6; }'
+        lower_is_better: true
+        type: numeric
+        units: seconds
+      kernel_time:
+        description: Time for CUDA kernels only
+        extract: grep 'Time for CUDA kernels:' | awk '{ print $5; }'
+        lower_is_better: true
+        type: numeric
+        units: seconds
+
+  rodinia-cuda-heartwall:
+    entry_point: ./bin_heartwall
+    args: ["rodinia-data/heartwall/test.avi", "20"]
+    tags: [medical-imaging, video]
+
+  rodinia-cuda-hotspot:
+    entry_point: ./bin_hotspot
+    args: ["1024", "2", "4", "rodinia-data/hotspot/temp_1024", "rodinia-data/hotspot/power_1024", "output.out"]
+    tags: [physics, thermal-simulation]
+
+  rodinia-cuda-lavamd:
+    entry_point: ./bin_lavaMD
+    args: ["-boxes1d", "10"]
+    tags: [molecular-dynamics, n-body]
+    metrics:
+      inner_time:
+        description: Run time reported by lavamd
+        extract: grep ' s$' | awk '{ print $1; }'
+        lower_is_better: true
+        type: numeric
+        units: seconds
+
+  rodinia-cuda-lud:
+    entry_point: ./bin_lud
+    args: ["-s", "256", "-v"]
+    tags: [linear-algebra, decomposition]
+    metrics:
+      inner_time:
+        description: Time consumed by LUD computation
+        extract: grep 'Time consumed' | awk '{ print $3/1000; }'
+        lower_is_better: true
+        type: numeric
+        units: seconds
+
+  rodinia-cuda-needle:
+    entry_point: ./bin_needle
+    args: ["2048", "10"]
+    tags: [bioinformatics, dynamic-programming]
+
+  rodinia-cuda-nn:
+    entry_point: ./bin_nn
+    args: ["rodinia-data/nn/filelist_4", "-r", "5", "-lat", "30", "-lng", "90"]
+    tags: [machine-learning, nearest-neighbor]
+
+  rodinia-cuda-particle-filter-naive:
+    entry_point: ./bin_particlefilter_naive
+    args: ["-x", "128", "-y", "128", "-z", "10", "-np", "10000"]
+    tags: [monte-carlo, filter]
+    metrics:
+      inner_time:
+        description: Total program execution time
+        extract: grep 'ENTIRE PROGRAM TOOK' | awk '{ print $4; }'
+        lower_is_better: true
+        type: numeric
+        units: seconds
+      filter_time:
+        description: Particle filter computation time
+        extract: grep 'PARTICLE FILTER TOOK' | awk '{ print $4; }'
+        lower_is_better: true
+        type: numeric
+        units: seconds
+
+  rodinia-cuda-particle-filter-float:
+    entry_point: ./bin_particlefilter_float
+    args: ["-x", "128", "-y", "128", "-z", "10", "-np", "10000"]
+    tags: [monte-carlo, filter]
+    metrics:
+      inner_time:
+        description: Total program execution time
+        extract: grep 'ENTIRE PROGRAM TOOK' | awk '{ print $4; }'
+        lower_is_better: true
+        type: numeric
+        units: seconds
+      filter_time:
+        description: Particle filter computation time
+        extract: grep 'PARTICLE FILTER TOOK' | awk '{ print $4; }'
+        lower_is_better: true
+        type: numeric
+        units: seconds
+
+  rodinia-cuda-pathfinder:
+    entry_point: ./bin_pathfinder
+    args: ["100000", "100", "20"]
+    tags: [dynamic-programming, grid-traversal]
+
+  rodinia-cuda-sc:
+    entry_point: ./bin_sc
+    args: ["10", "20", "256", "65536", "65536", "1000", "none", "output.txt", "1"]
+    tags: [clustering, data-mining]
+    metrics:
+      inner_time:
+        description: Total execution time
+        extract: grep '^time = ' | awk '{ print $3; }' | sed 's/s//'
+        lower_is_better: true
+        type: numeric
+        units: seconds
+      kernel_time:
+        description: Kernel execution time only
+        extract: grep 'time kernel' | awk '{ print $4; }' | sed 's/s//'
+        lower_is_better: true
+        type: numeric
+        units: seconds
+
+  rodinia-cuda-srad-v1:
+    entry_point: ./bin_srad_v1
+    args: ["100", "0.5", "502", "458"]
+    tags: [image-processing, despeckling]
+    metrics:
+      inner_time:
+        description: Run time reported by srad
+        extract: grep -E '[0-9]+([.][0-9]+)? s$' | awk '{ print $1; }'
+        lower_is_better: true
+        type: numeric
+        units: seconds
+
+  rodinia-cuda-srad-v2:
+    entry_point: ./bin_srad_v2
+    args: ["2048", "2048", "0", "127", "0", "127", "0.5", "2"]
+    tags: [image-processing, despeckling]
+
+# Requires CUDA-capable GPU and compiled binaries
+build:
+  requires:
+    system: [make, git, wget, ca-certificates, tar]
+
+  pre_build: find . -name 'Makefile' -o -name 'makefile' | xargs sed -i 's/sm_13/sm_50/g; s/sm_20/sm_50/g'
+
+  build_commands:
+    - |
+      echo '# CUDA' > common/make.config && \
+      echo 'CUDA_DIR = /usr/local/cuda' >> common/make.config && \
+      echo 'CUDA_LIB_DIR = $(CUDA_DIR)/lib64' >> common/make.config && \
+      echo 'CUDA_BIN_DIR = $(CUDA_DIR)/bin' >> common/make.config && \
+      cd cuda/backprop && make && cp backprop ../../bin_backprop && cd ../.. && \
+      cd cuda/bfs && make && cp bfs.out ../../bin_bfs && cd ../.. && \
+      cd cuda/gaussian && make && cp gaussian ../../bin_gaussian && cd ../.. && \
+      cd cuda/heartwall && make && cp heartwall ../../bin_heartwall && cd ../.. && \
+      cd cuda/hotspot && make && cp hotspot ../../bin_hotspot && cd ../.. && \
+      cd cuda/lavaMD && make && cp lavaMD ../../bin_lavaMD && cd ../.. && \
+      cd cuda/lud/cuda && make && cp lud_cuda ../../../bin_lud && cd ../../.. && \
+      cd cuda/nw && make && cp needle ../../bin_needle && cd ../.. && \
+      cd cuda/nn && make && cp nn ../../bin_nn && cd ../.. && \
+      cd cuda/particlefilter && make && cp particlefilter_naive ../../bin_particlefilter_naive && cp particlefilter_float ../../bin_particlefilter_float && cd ../.. && \
+      cd cuda/pathfinder && make && cp pathfinder ../../bin_pathfinder && cd ../.. && \
+      cd cuda/streamcluster && make && cp sc_gpu ../../bin_sc && cd ../.. && \
+      cd cuda/srad/srad_v1 && make && cp srad ../../../bin_srad_v1 && cd ../../.. && \
+      cd cuda/srad/srad_v2 && make && cp srad ../../../bin_srad_v2
+
+  docker:
+    base_image: nvidia/cuda:11.8.0-devel-ubuntu22.04
+
+supported_backends: [local, docker]
+
+tags: [rodinia, cuda, gpu]

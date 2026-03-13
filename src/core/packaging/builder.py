@@ -131,13 +131,22 @@ class PackagingManager:
 
         # Determine sources directory
         if entry.sources:
-            # Fetch external sources
+            # Determine source directory name (shared or per-benchmark)
+            source_dir_name = benchmark_name
+            if entry.sources[0].source_dir:
+                source_dir_name = entry.sources[0].source_dir
+
+            # Fetch external sources (shared across benchmarks if source_dir specified)
             sources_dir = fetch_sources(
                 entry.sources,
-                benchmark_name,
+                source_dir_name,
                 clean=clean,
                 base_dir=self._base_dir
             )
+
+            # If build_dir specified, use subdirectory for build
+            if entry.sources[0].build_dir:
+                sources_dir = sources_dir / entry.sources[0].build_dir
         else:
             # Local files - use benchmark YAML directory
             if hasattr(benchmark, '_config_path') and benchmark._config_path:
