@@ -1,5 +1,0 @@
-title: "Warm start vs. cold start vs. local start"
-output:
-  pdf_book:
-    keep_tex: true
-    toc: false
