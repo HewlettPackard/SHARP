@@ -154,7 +154,7 @@ def apply_filter(
 
         return data
 
-    except Exception as e:
+    except Exception:
         return data
 
 

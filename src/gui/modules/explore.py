@@ -276,7 +276,7 @@ def explore_server(input: Inputs, output: Outputs, session: Session):
         from ..utils import create_filter_ui
         try:
             return create_filter_ui(df, filter_metric, "explore_filter_value")
-        except Exception as e:
+        except Exception:
             return None
 
     @reactive.effect
@@ -327,7 +327,7 @@ def explore_server(input: Inputs, output: Outputs, session: Session):
         try:
             filtered_df = apply_filter(df, filter_metric, filter_value)
             filtered_data.set(filtered_df)
-        except Exception as e:
+        except Exception:
             filtered_data.set(df)
 
     @output
@@ -408,7 +408,7 @@ def explore_server(input: Inputs, output: Outputs, session: Session):
 
             result = create_distribution_plot(values, metric, max_scatter_points=max_scatter)
             return result
-        except Exception as e:
+        except Exception:
             import traceback
             traceback.print_exc()
             return None

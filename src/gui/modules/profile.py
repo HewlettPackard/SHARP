@@ -21,7 +21,6 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 from typing import Dict
 import traceback as tb
-import time
 
 from src.core.runlogs import load_csv, get_experiments, get_tasks_for_experiment
 from src.gui.utils import apply_filter, get_filterable_columns, create_filter_ui
@@ -224,8 +223,8 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
 
     # Log module initialization
     try:
-        test_backends = discover_backends(profiling=True)
-    except Exception as e:
+        discover_backends(profiling=True)
+    except Exception:
         import traceback
         traceback.print_exc()
 
@@ -434,7 +433,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
             ui.modal_remove()
             _execute_profiling_run()
 
-        except Exception as e:
+        except Exception:
             tb.print_exc()
 
     # Handle overwrite confirmation: Cancel
@@ -508,7 +507,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
                                 type="message",
                                 duration=5
                             )
-                    except Exception as e:
+                    except Exception:
                         ui.notification_show(
                             "Profiling completed but failed to load results",
                             type="warning",
@@ -536,7 +535,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
 
         try:
             return load_csv(task_csv)
-        except Exception as e:
+        except Exception:
             return None
 
     @reactive.Calc
@@ -557,7 +556,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
 
         try:
             return load_csv(prof_path)
-        except Exception as e:
+        except Exception:
             return None
 
     @reactive.Calc
@@ -613,7 +612,6 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
     @reactive.effect
     def _update_metric_choices():
         """Update metric choices when data loads (server-side selectize with empty string sentinel)."""
-        start_time = time.time()
         try:
             # Use base_data() not active_data() to avoid dependency on filter
             # We want all metrics available regardless of filter
@@ -632,9 +630,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
                 return
 
             # Get all numeric columns using utility function
-            col_start = time.time()
             numeric_cols = get_numeric_columns(data)
-            col_time = time.time() - col_start
 
             if not numeric_cols:
                 ui.update_selectize("profile_metric", choices=[], selected=None, server=True)
@@ -653,13 +649,11 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
             # Empty string will be auto-selected if no preferred metric found
             try:
                 ui.update_selectize("profile_metric", choices=choices_with_placeholder, selected=selected_metric, server=True)
-            except Exception as update_err:
+            except Exception:
                 import traceback
                 traceback.print_exc()
 
-            total_time = time.time() - start_time
-
-        except Exception as e:
+        except Exception:
             import traceback
             traceback.print_exc()
             try:
@@ -702,7 +696,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
             # Use server-side selectize with placeholder as first item
             ui.update_selectize("profile_filter_metric", choices=choices_with_placeholder, selected=PLACEHOLDER, server=True)
 
-        except Exception as e:
+        except Exception:
             import traceback
             traceback.print_exc()
             # Try to clear the filter choices on error
@@ -728,7 +722,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
         try:
             result = create_filter_ui(data, filter_metric, "profile_filter_value")
             return result
-        except Exception as e:
+        except Exception:
             import traceback
             traceback.print_exc()
             return None
@@ -802,12 +796,9 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
         - prof_csv_path(): current dataset file path
         - active_data(): current dataset
         """
-        start_time = time.time()
-
         # EXPLICIT dependencies - reading these creates reactivity
         metric_col = validated_metric()
         current_exclusions = excluded_predictors()
-        prof_path = prof_csv_path()
         user_cutoff_val = user_cutoff()
         suggested_cutoff_val = suggested_cutoff()
 
@@ -855,7 +846,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
                                    max_correlation=max_correlation)
             return tree
 
-        except Exception as e:
+        except Exception:
             import traceback
             traceback.print_exc()
             return None
@@ -870,7 +861,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
         """Get the base dataset (prof or csv) without filtering."""
         try:
             return prof_csv_data() if prof_csv_path() else csv_data()
-        except Exception as e:
+        except Exception:
             return None
 
     @reactive.Calc
@@ -891,7 +882,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
             # Load the original CSV
             data = load_csv(original_csv)
             return data
-        except Exception as e:
+        except Exception:
             return None
 
     def filter_value():
@@ -927,7 +918,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
                 return ""
 
             return metric
-        except Exception as e:
+        except Exception:
             import traceback
             traceback.print_exc()
             return ""
@@ -958,8 +949,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
 
         # Filter to columns with n_unique > 1
         potential_predictors = [
-            col for col, n_uniq in zip(candidate_cols, n_unique_counts)
-            if n_uniq > 1
+            col for col, n_uniq in zip(candidate_cols, n_unique_counts) if n_uniq > 1
         ]
 
         # Compute stats for all of them
@@ -989,7 +979,6 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
 
         # Stats should already be in predictor_stats_full thanks to the effect above
         # Just show the modal - the table will render from predictor_stats_full
-        current_stats_count = len(predictor_stats_full.get()) if predictor_stats_full.get() else 0
         build_predictor_exclusion_modal(data, metric, predictor_stats_full, predictor_modal_filters, None)
 
     @reactive.effect
@@ -1081,7 +1070,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
             right_color = dist_colors.get("right_color", "#ff7f0e")  # Worse class
 
             return render_tree_plot(tree, left_color, right_color)
-        except Exception as e:
+        except Exception:
             import traceback
             traceback.print_exc()
             return None
@@ -1117,7 +1106,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
                 ranked_features = get_ranked_features(tree)
                 # Extract just the feature names in importance order
                 sorted_names = [name for name, score in ranked_features]
-            except Exception as e:
+            except Exception:
                 # Fallback to alphabetical sort
                 sorted_names = sorted(feature_names)
 
@@ -1151,7 +1140,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
             factor_name = input.profile_selected_factor()
             if factor_name and factor_name.strip():
                 selected_factor.set(factor_name)
-        except Exception as e:
+        except Exception:
             tb.print_exc()
 
     @output
@@ -1410,7 +1399,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
 
                 if success:
                     ui.notification_show(
-                        f"✓ Mitigation completed! Loading results...",
+                        "✓ Mitigation completed! Loading results...",
                         type="message",
                         duration=5
                     )

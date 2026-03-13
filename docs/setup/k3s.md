@@ -118,7 +118,7 @@ This is described below.
     Assuming you have a function `matmult-mt` installed on Fission, use this command to make it accessible at the route `/matmul`:
 
     ```sh
-    fission httptrigger create --url /matmul --method POST --function matmult-mt 
+    fission httptrigger create --url /matmul --method POST --function matmult-mt
     ```
 
     This will create a trigger for the `POST` method, but you can also leave this out.

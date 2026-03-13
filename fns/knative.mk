@@ -18,7 +18,7 @@ prep-knative-image:
 		docker build -t ${KNATIVE_ENV} -f knative.df .; \
 		docker push ${KNATIVE_ENV}; \
 	fi
- 
+
 # Pack and register a single function:
 prep-knative:
 	make clean-knative

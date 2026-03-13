@@ -12,13 +12,10 @@ fi
 # The -v flag gives you a real-time progress view of which test is running
 
 if [[ $FAST_MODE -eq 1 ]]; then
-    # Fast mode: skip slow tests (install completeness)
-    echo "Running tests in fast mode (skipping slow tests)..."
+    # Fast mode: unit tests only
+    echo "Running unit tests only (fast mode)..."
     echo "Progress will be shown test-by-test..."
-    HWLOC_COMPONENTS=-gl uv run pytest tests/ \
-        --ignore=tests/integration/test_install_completeness.py \
-        --ignore=tests/integration/test_cli_full_options.py \
-        --tb=short
+    HWLOC_COMPONENTS=-gl uv run pytest tests/unit/ --tb=short
 else
     # Normal mode: run all tests with pytest
     # Remove -v to see compact dot progress instead of test names

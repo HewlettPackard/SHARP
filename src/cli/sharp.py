@@ -72,7 +72,7 @@ def print_subcommand_help(subcommand: str) -> int:
             from src.cli.launch import main as launch_main
             return launch_main(["--help"])
         except ImportError:
-            print(f"Error: 'launch' subcommand not yet implemented")
+            print("Error: 'launch' subcommand not yet implemented")
             return 1
     elif subcommand in ("build", "compare", "registry", "report"):
         print(f"Error: '{subcommand}' subcommand not yet implemented")

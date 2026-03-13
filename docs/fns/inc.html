@@ -57,20 +57,20 @@ inc    </h1>
                         <div class="docstring"><p>A simple CPU-stressor function.</p>
 
 <p>This application creates an array in RAM and incmrements all the values in it
-sequentially. It runs on the CPU and tests the performance of the memory 
+sequentially. It runs on the CPU and tests the performance of the memory
 bandwidth on a single thread.
-The array size is drawn randomly from a gaussian distribution with a given 
+The array size is drawn randomly from a gaussian distribution with a given
 mean and scale.
 Returns (prints) the time taken by the process.</p>
 
 <p>The code uses <code>numpy</code> and therefore requires a custom-built environment that installs it.</p>
 
 <p>It takes two integer optional parameters in order.
-The first parameter is the mean size of the array. If you want the array to be 
+The first parameter is the mean size of the array. If you want the array to be
 a constant size, just pass it as an only parameter.
-If the second parameter is given, it is used as the scale of the Gaussian 
+If the second parameter is given, it is used as the scale of the Gaussian
 distribution (again, you can pass 0 for a constant size).
-More details on the distribution can be found 
+More details on the distribution can be found
 <a href="https://numpy.org/doc/stable/reference/random/generated/numpy.random.normal.html">here</a>.</p>
 
 <p>The parameters are passed either by argv, stdin, or in the body of the HTTP request.</p>
@@ -180,7 +180,7 @@ More details on the distribution can be found
                 <section id="inc_cpu">
                             <input id="inc_cpu-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
 <div class="attr function">
-            
+
         <span class="def">def</span>
         <span class="name">inc_cpu</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">mean</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>, </span><span class="param"><span class="n">scale</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span></span><span class="return-annotation">) -> <span class="nb">str</span>:</span></span>
 
@@ -237,7 +237,7 @@ More details on the distribution can be found
                 <section id="main">
                             <input id="main-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
 <div class="attr function">
-            
+
         <span class="def">def</span>
         <span class="name">main</span><span class="signature pdoc-code condensed">(<span class="return-annotation">) -> <span class="nb">str</span>:</span></span>
 

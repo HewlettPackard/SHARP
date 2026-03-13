@@ -362,7 +362,7 @@ def generate_comparison_narrative(baseline: np.ndarray, treatment: np.ndarray,
 
     if sumv > 0:
         fused = (var_treatment * np.mean(baseline) + var_baseline * np.mean(treatment)) / sumv
-        lines.append(f"$$\\text{{Mean performance fused with Kalman Filter}}$$")
+        lines.append("$$\\text{{Mean performance fused with Kalman Filter}}$$")
         lines.append(f"$$\\mu={fused:.4f}$$")
 
     # Join lines with paragraph breaks

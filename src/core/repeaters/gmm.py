@@ -113,7 +113,7 @@ class GaussianMixtureRepeater(CountRepeater):
 
             if self.get_count() >= self.__max_repeats:
                 if self._verbose:
-                    print(f"GMM exhausted experimental budget, stop.")
+                    print("GMM exhausted experimental budget, stop.")
                 return False
 
             return bool(

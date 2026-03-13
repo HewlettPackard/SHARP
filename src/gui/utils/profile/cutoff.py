@@ -116,7 +116,7 @@ def compute_suggested_cutoff(data: pl.DataFrame, metric_col: str) -> Optional[fl
     try:
         cutoff = compute_cutoff_from_data(data, metric_col)
         return cutoff
-    except Exception as e:
+    except Exception:
         return None
 
 
@@ -158,7 +158,7 @@ def validate_cutoff_range(
 
         return (n_below, n_above)
 
-    except Exception as e:
+    except Exception:
         return (0, 0)
 
 
@@ -202,7 +202,7 @@ def search_optimal_cutoff(
             max_search_points=max_search_points,
             progress_callback=progress_callback
         )
-    except Exception as e:
+    except Exception:
         import traceback
         traceback.print_exc()
         return None

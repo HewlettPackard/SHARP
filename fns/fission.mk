@@ -26,7 +26,7 @@ prep-fission-env:
     	  --minmemory 64 --maxmemory 168000 \
     	  --poolsize 1; \
 	fi
- 
+
 # Pack and register a single function:
 prep-fission:
 	make clean-fission

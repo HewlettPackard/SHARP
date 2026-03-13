@@ -234,7 +234,6 @@ class CommandComposer:
 
         for i in range(len(self.backend_names) - 2, -1, -1):
             outer_name = self.backend_names[i]
-            outer_config = self.backend_options.get(outer_name, {})
 
             # Create a temporary composer just for the outer backend
             # Use empty benchmark_spec so outer backends don't duplicate args
@@ -246,9 +245,6 @@ class CommandComposer:
             # Set backend_names and template_key for outer composer
             outer_composer.backend_names = [outer_name]
             outer_composer.template_key = getattr(self, 'template_key', 'run')
-
-            # Get outer backend command template
-            outer_template = outer_composer._get_command_template(outer_config, template_key=outer_composer.template_key)
 
             if i == 0:
                 # Outermost: generate final command list

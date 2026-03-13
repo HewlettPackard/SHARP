@@ -239,43 +239,43 @@ class DecisionRepeater(CountRepeater):
 
         elif self._is_constant(self._runtimes):
             # Sample is constant so far, stop execution.
-            self.__log_decision(info_string + f" | Runtimes passed constant test")
+            self.__log_decision(info_string + " | Runtimes passed constant test")
             return False
 
         elif self._is_monotonic(self._runtimes):
             # Something is wrong if the sample is monotonic, stop execution.
-            self.__log_decision(info_string + f"| Runtimes passed monotonic test")
+            self.__log_decision(info_string + "| Runtimes passed monotonic test")
             return False
 
         elif self._is_autocorrelated(self._runtimes):
-            self.__log_decision(info_string + f"| Runtimes passed autocorrelated test")
+            self.__log_decision(info_string + "| Runtimes passed autocorrelated test")
             return self.__repeaters["BBRepeater"]["last_decision"]  # type: ignore
 
         elif self._is_gaussian(self._runtimes):
             # Sample is gaussian so far, use Gaussian stopping criteria.
-            self.__log_decision(info_string + f"| Runtimes passed gaussian test")
+            self.__log_decision(info_string + "| Runtimes passed gaussian test")
             return self.__repeaters["CIRepeater"]["last_decision"]  # type: ignore
 
         elif self._is_lognormal(self._runtimes):
-            self.__log_decision(info_string + f"| Runtimes passed lognormal test")
+            self.__log_decision(info_string + "| Runtimes passed lognormal test")
             return self.__repeaters["HDIRepeater"]["last_decision"]  # type: ignore
 
         elif self._is_multimodal(self._runtimes):
-            self.__log_decision(info_string + f"| Runtimes passed multimodal test")
+            self.__log_decision(info_string + "| Runtimes passed multimodal test")
             return self.__repeaters["GaussianMixtureRepeater"]["last_decision"]  # type: ignore
 
         elif self._is_uniform(self._runtimes):
             # Sample is constant so far, stop execution.
-            self.__log_decision(info_string + f" | Runtimes passed uniform test")
+            self.__log_decision(info_string + " | Runtimes passed uniform test")
             return False
 
         elif self.get_count() >= self.__max_repeats:
             # Reached experimental budget, stop execution.
-            self.__log_decision(info_string + f"| Exhausted experimental budget, stop.")
+            self.__log_decision(info_string + "| Exhausted experimental budget, stop.")
             return False
 
         else:
-            self.__log_decision(info_string + f"| All tests failed, continue experiments")
+            self.__log_decision(info_string + "| All tests failed, continue experiments")
             return True
 
     def _is_constant(self, pdata: List[float]) -> bool:

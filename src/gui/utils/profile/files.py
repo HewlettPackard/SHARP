@@ -94,7 +94,7 @@ def extract_run_time_from_md(md_path: str) -> Optional[float]:
     try:
         metadata = parse_markdown_metadata(Path(md_path))
         return metadata.get("duration")
-    except Exception as e:
+    except Exception:
         return None
 
 
@@ -114,7 +114,7 @@ def extract_backends_from_md(md_path: str) -> list[str]:
     try:
         metadata = parse_markdown_metadata(Path(md_path))
         return metadata.get("backends", [])
-    except Exception as e:
+    except Exception:
         return []
 
 
@@ -150,7 +150,7 @@ def extract_repeater_max_from_md(md_path: str) -> Optional[int]:
                     return repeater_opts['max']
 
         return None
-    except Exception as e:
+    except Exception:
         return None
 
 

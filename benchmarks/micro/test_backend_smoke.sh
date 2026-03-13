@@ -33,9 +33,9 @@ test_run() {
     local bench=$1
     local backend=$2
     local args=$3
-    
+
     echo -n "Testing $bench @ $backend... "
-    
+
     # Use unique experiment name per backend to avoid overwriting results
     local exp_name="${EXPERIMENT_NAME}_${backend}"
     if uv run launch -e "$exp_name" -b "$backend" $bench $args &> "$LOG_DIR/${bench}_${backend}.log"; then

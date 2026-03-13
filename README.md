@@ -12,6 +12,10 @@ A simple synthetic performance benchmark for heterogeneous and serverless archit
 
 Hardware and software setup instructions found [here](./docs/setup/README.md).
 
+## Configuration
+
+Default settings (backends, repeaters, output directories, GUI options) are configured in [`settings.yaml`](./settings.yaml). Each setting is documented with inline comments.
+
 ## Quick start
 
 After [setting up](./docs/setup/README.md) the software and hardware, check if you can run functions correctly on your chosen backend, say, `fission`:
@@ -56,27 +60,52 @@ All benchmarks collect a metric called `outer_time` that measures how long (in s
 In addition, any benchmark can have any arbitrary metric logged in the CSV files and reported in the PDF file, as long as it outputs it to stdout.
 Complete documentation on how to add or customize metrics can be found [here](./docs/metrics.md).
 
-## Functions
+## Benchmark Suites
 
-* bounce: Request-bound, time to read request.
-* swapbytes: I/O-bound, cache-oblivious byte-swap.
-* inc: Memory-bound, single-threaded array incrementer.
-* cuda-inc: GPU-parallel version (CUDA) of `inc`.
-* matmul: CPU-bound, multithreaded matrix multiply.
-* cuda-matmul: GPU-parallel version (CUDA) of `matmul`.
-* mpi-pingpong-single: Simple MPI Python application entirely executed within a single function.
-* nope: No-op, for latency measurements.
-* sleep: Sleep for a given number of seconds, for cooling down.
-* distributions: A set of synthetic distributions for debugging purposes.
+SHARP includes several benchmark suites organized by category. All benchmarks can be listed with:
 
-You can find detailed documentation for all these functions [here](./docs/fns/index.html).
-If you want to add a function/application, please follow [these](./docs/app-guidelines.md) guidelines.
+```sh
+uv run launch --list-benchmarks
+```
 
+### Microbenchmarks (micro/)
 
-## Applications
+Simple, focused benchmarks for basic performance testing:
 
-* [rodinia-omp](./docs/fns/rodinia-omp): The Rodinia HPC benchmarking suite, CPU-based using OpenMP.
-* [rodinia-cuda](./docs/fns/rodinia-cuda): The Rodinia HPC benchmarking suite, GPU-based using CUDA.
+**CPU Suite** (`micro/cpu/`):
+* `sleep` - Busy-wait for specified duration (baseline variability control)
+* `nope` - No-op loop (instruction count validation)
+* `inc` - Increment counter (memory bandwidth)
+* `matmul` - Small matrix multiplication (compute-bound)
+* `bounce` - Pointer chasing (cache behavior)
+
+**GPU Suite** (`micro/gpu/`):
+* `cuda-inc` - GPU counter increment (CUDA memory bandwidth)
+* `cuda-matmul` - GPU matrix multiplication (CUDA compute)
+
+**MPI Suite** (`micro/mpi/`):
+* `mpi-pingpong-single` - MPI communication benchmark
+
+**I/O Suite** (`micro/io/`):
+* `swapbytes` - Cache-oblivious byte-swap (I/O performance)
+
+### Rodinia Benchmark Suite
+
+The Rodinia HPC benchmark suite (29 benchmarks total):
+
+**CUDA GPU Benchmarks** (`rodinia/cuda/` - 15 benchmarks):
+* Scientific computing: backprop, gaussian, heartwall, hotspot, lud, needle, srad-v1, srad-v2
+* Molecular dynamics: lavamd
+* Graph algorithms: bfs, pathfinder
+* Machine learning: nn
+* Clustering: sc (streamcluster)
+* Monte Carlo: particle-filter-naive, particle-filter-float
+
+**OpenMP CPU Benchmarks** (`rodinia/omp/` - 14 benchmarks):
+* Similar set to CUDA with OpenMP parallelization
+* See `benchmarks/rodinia/README.md` for complete details
+
+For complete documentation and usage examples, see the [benchmark guide](./benchmarks/README.md).
 
 
 ## Example workflows / benchmarks
@@ -97,12 +126,12 @@ To adapt it to your needs, simply copy the `perfpred` directory under `examples/
 
 The code is organized into these subdirectories:
 
- * `fns`: Individual functions that can be used and composed in benchmarks (overviewed in the Functions section above).
- * `examples`: Top-level benchmark Makefile and individual benchmarks using workflows of these functions (overviewed [here](./examples/README.md)).
- * `launcher`: An abstraction layer to launch any function on any backend (described [here](./docs/launch.md)).
- * `backends`: Config files to run custom backends (described [here](./docs/backends.md)).
- * `workflows`: A description of workflow formats and a conversion script from CNCF format to Makefiles (described [here](./workflows/README.md).
- * `runlogs`: Output top-level directory for log files from individual function runs, organized by experiment subdirectories.
- * `reports`: Output top-level directory for complete benchmark results and analyses, organized by experiment subdirectories.
- * `docs`: Contains general setup instructions, as well as instructions specific to each backend, function, and benchmark.
- * `test`: Contains test implementations and mock launchers for testing the launcher framework with different configurations.
+ * `src/` - Core framework implementation (config, execution, metrics, stats, etc.)
+ * `benchmarks/` - Benchmark suite definitions and sources (organized by suite)
+ * `backends/` - Backend configuration files (local, docker, ssh, mpi, profiling tools)
+ * `runlogs/` - Experiment output directory (CSV data + markdown metadata)
+ * `docs/` - Documentation (setup, backends, metrics, packaging, etc.)
+ * `tests/` - Test suite (unit, integration, smoke tests)
+ * `build/` - (optional) Build artifacts (AppImages, Docker images)
+
+For detailed architecture documentation, see [DESIGN.md](./DESIGN.md).

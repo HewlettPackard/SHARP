@@ -313,7 +313,7 @@ def compare_server(input, output, session):
         from ..utils import create_filter_ui
         try:
             return create_filter_ui(b_df, filter_metric, "compare_filter_value")
-        except Exception as e:
+        except Exception:
             return None
 
     @reactive.effect
@@ -342,7 +342,7 @@ def compare_server(input, output, session):
 
         try:
             filter_value = input.compare_filter_value()
-        except Exception as e:
+        except Exception:
             # Filter value not set yet
             baseline_filtered.set(b_df)
             treatment_filtered.set(t_df)
@@ -381,7 +381,7 @@ def compare_server(input, output, session):
             t_filtered = apply_filter(t_df, filter_metric, filter_value)
             baseline_filtered.set(b_filtered)
             treatment_filtered.set(t_filtered)
-        except Exception as e:
+        except Exception:
             import traceback
             traceback.print_exc()
             baseline_filtered.set(b_df)

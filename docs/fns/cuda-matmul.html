@@ -67,11 +67,11 @@ It's the CUDA version of <code><a href="matmul.html">matmul</a></code>.
 The fast matrix-multiply code is adapted from <a href="https://numba.readthedocs.io/en/stable/cuda/examples.html#id30">here</a>.</p>
 
 <p>The parameter <code>N</code> is passed either by argv[1] or in the body of the HTTP request.
-The run time grows approximately as O(N<sup>3</sup>) and can therefore get too 
+The run time grows approximately as O(N<sup>3</sup>) and can therefore get too
 long for a function for <code>N</code>&gt;10,000 or so.
 Returns (prints) the time taken by the squaring.</p>
 
-<p>The code uses <code>numba</code> and therefore requires a custom-built environment that 
+<p>The code uses <code>numba</code> and therefore requires a custom-built environment that
 installs it.  The code requires CUDA support and a custom environment and builder.
 See more setup instructions <a href="../setup/CUDA.md">here</a>.</p>
 
@@ -228,10 +228,10 @@ See more setup instructions <a href="../setup/CUDA.md">here</a>.</p>
             <span class="name">TPB</span>        =
 <span class="default_value">16</span>
 
-        
+
     </div>
     <a class="headerlink" href="#TPB"></a>
-    
+
             <div class="docstring"><p>Controls threads per block and shared memory usage.
 The computation will be done on blocks of TPBxTPB elements.
 TPB should not be larger than 32 in this example</p>
@@ -305,7 +305,7 @@ TPB should not be larger than 32 in this example</p>
                 <section id="square_gpu">
                             <input id="square_gpu-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
 <div class="attr function">
-            
+
         <span class="def">def</span>
         <span class="name">square_gpu</span><span class="signature pdoc-code condensed">(<span class="param"><span class="n">n</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s1">&#39;&#39;</span></span><span class="return-annotation">) -> <span class="nb">str</span>:</span></span>
 
@@ -360,7 +360,7 @@ for reproducibility, we set a fixed seed for the rng.</p>
                 <section id="main">
                             <input id="main-view-source" class="view-source-toggle-state" type="checkbox" aria-hidden="true" tabindex="-1">
 <div class="attr function">
-            
+
         <span class="def">def</span>
         <span class="name">main</span><span class="signature pdoc-code condensed">(<span class="return-annotation">):</span></span>
 

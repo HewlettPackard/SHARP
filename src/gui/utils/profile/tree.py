@@ -62,7 +62,7 @@ def _encode_features(data: pl.DataFrame, feature_cols: list[str]) -> tuple[np.nd
         result = np.hstack(X_parts) if len(X_parts) > 1 else X_parts[0]
         return result, feature_names
 
-    except Exception as e:
+    except Exception:
         import traceback
         traceback.print_exc()
         return None, []
@@ -201,7 +201,7 @@ def select_tree_predictors(data: pl.DataFrame, metric: str, exclude: list[str] =
         # If few enough predictors, return all
         return potential_predictors
 
-    except Exception as e:
+    except Exception:
         import traceback
         traceback.print_exc()
         return []
@@ -274,7 +274,7 @@ def select_complete_rows(
         result = data[valid_indices]
         return result
 
-    except Exception as e:
+    except Exception:
         import traceback
         traceback.print_exc()
         return data.head(0)
@@ -327,9 +327,6 @@ def compute_tree(data: pl.DataFrame, metric: str, cutoff: float,
         # Prepare feature matrix and target from ALL rows (like R version)
         # R version uses na.rpart to handle missing values, we'll drop nulls in target but keep all feature rows
         try:
-            # Create binary target for all rows
-            y_data = (data[metric] > cutoff).cast(pl.Int32)
-
             # Remove rows where target (metric) is null - can't train on those
             valid_mask = data[metric].is_not_null()
             valid_data = data.filter(valid_mask)
@@ -343,7 +340,7 @@ def compute_tree(data: pl.DataFrame, metric: str, cutoff: float,
             y = (valid_data[metric] > cutoff).cast(pl.Int32).to_numpy()
 
 
-        except Exception as prep_err:
+        except Exception:
             import traceback
             traceback.print_exc()
             return None
@@ -371,7 +368,7 @@ def compute_tree(data: pl.DataFrame, metric: str, cutoff: float,
 
         return tree
 
-    except Exception as e:
+    except Exception:
         import traceback
         traceback.print_exc()
         return None
@@ -673,7 +670,7 @@ def summarize_tree(
             'log_likelihood': log_likelihood
         }
 
-    except Exception as e:
+    except Exception:
         import traceback
         traceback.print_exc()
         return None
@@ -746,7 +743,7 @@ def search_for_cutoff(
 
         return float(best_cutoff) if best_cutoff is not None else None
 
-    except Exception as e:
+    except Exception:
         import traceback
         traceback.print_exc()
         return None

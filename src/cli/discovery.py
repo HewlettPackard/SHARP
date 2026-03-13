@@ -50,7 +50,7 @@ def get_benchmark_names() -> Dict[str, Path]:
             for benchmark_name in benchmarks.keys():
                 benchmark_map[benchmark_name] = yaml_file
 
-        except (yaml.YAMLError, IOError) as e:
+        except (yaml.YAMLError, IOError):
             # Skip files that can't be parsed
             continue
 
@@ -191,7 +191,7 @@ def get_backend_names() -> Dict[str, Path]:
             for backend_name in backend_options.keys():
                 backend_map[backend_name] = yaml_file
 
-        except (yaml.YAMLError, IOError) as e:
+        except (yaml.YAMLError, IOError):
             # Skip files that can't be parsed
             continue
 

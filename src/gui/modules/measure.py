@@ -322,15 +322,6 @@ def measure_server(input, output, session, refresh_trigger=None):
                 stopping_rule = str(stopping_rule)
             repeater_key = "CR" if stopping_rule == "COUNT" else stopping_rule
 
-            repeater_config = {
-                "repeats": stopping_rule,
-                "repeater_options": {
-                    repeater_key: {
-                        "max": input.n(),
-                    }
-                }
-            }
-
             config = {}  # Empty config, will be populated by load_backend_options
             try:
                 # Handle backend selection: if "(none)" is selected, use empty list
@@ -439,12 +430,9 @@ def measure_server(input, output, session, refresh_trigger=None):
                     # Load CSV data if available
                     if 'csv' in result.output_paths:
                         try:
-                            t0 = time.perf_counter()
                             df = pl.read_csv(result.output_paths['csv'])
-                            t1 = time.perf_counter()
                             p.set(message="Rendering table...")
                             run_results.set(df)
-                            t2 = time.perf_counter()
 
                             # Store completion info for status bar
                             completion_info.set({
