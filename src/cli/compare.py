@@ -31,6 +31,7 @@ Examples:
 import argparse
 import sys
 from pathlib import Path
+from typing import Any
 
 import polars as pl
 
@@ -164,7 +165,7 @@ def resolve_file_path(filename: str, experiment: str | None) -> Path:
     return path
 
 
-def format_comparison_markdown(comparisons: list[dict]) -> str:
+def format_comparison_markdown(comparisons: list[dict[str, Any]]) -> str:
     """Format comparison results as Markdown table."""
     lines = ['# Statistical Comparison', '']
 
@@ -200,7 +201,7 @@ def format_comparison_markdown(comparisons: list[dict]) -> str:
     return '\n'.join(lines)
 
 
-def format_comparison_csv(comparisons: list[dict]) -> str:
+def format_comparison_csv(comparisons: list[dict[str, Any]]) -> str:
     """Format comparison results as CSV."""
     lines = ['metric,baseline_n,baseline_median,baseline_mean,baseline_stddev,'
              'treatment_n,treatment_median,treatment_mean,treatment_stddev,'
@@ -219,7 +220,7 @@ def format_comparison_csv(comparisons: list[dict]) -> str:
     return '\n'.join(lines)
 
 
-def format_comparison_plaintext(comparisons: list[dict]) -> str:
+def format_comparison_plaintext(comparisons: list[dict[str, Any]]) -> str:
     """Format comparison results as plain text."""
     lines = ['Statistical Comparison', '=' * 60, '']
 
@@ -394,7 +395,7 @@ def compare_metrics(
     current_df: pl.DataFrame,
     previous_df: pl.DataFrame,
     metric_definitions: dict[str, bool],
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """
     Compare metrics between current and previous DataFrames.
 

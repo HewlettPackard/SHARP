@@ -89,7 +89,10 @@ def get_mitigation_backend(mitigation_name: str) -> dict[str, Any] | None:
     """
     mitigations = load_mitigations()
     backend_options = mitigations.get('backend_options', {})
-    return backend_options.get(mitigation_name)
+    result = backend_options.get(mitigation_name)
+    if isinstance(result, dict):
+        return result
+    return None
 
 
 def list_factors() -> list[str]:

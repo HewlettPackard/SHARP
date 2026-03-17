@@ -9,7 +9,7 @@ and that they correctly process system specifications and metrics.
 """
 
 import pytest
-from typing import List, Optional
+from typing import List
 from pathlib import Path
 
 
@@ -82,7 +82,7 @@ def _build_command(helper, backends: List[str], config_files: List[str]) -> str:
     return ' '.join(cmd_parts)
 
 
-def _verify_markdown_output(helper, expected_content: Optional[List[str]] = None) -> None:
+def _verify_markdown_output(helper, expected_content: List[str] | None = None) -> None:
     """Verify markdown output contains expected content.
 
     Args:
@@ -107,7 +107,7 @@ def _verify_markdown_output(helper, expected_content: Optional[List[str]] = None
 
 
 def _verify_backend_combination(helper, backends: List[str],
-                                expected_content: Optional[List[str]] = None,
+                                expected_content: List[str] | None = None,
                                 expect_warning: bool = False) -> None:
     """Helper method to verify backend combinations work correctly.
 

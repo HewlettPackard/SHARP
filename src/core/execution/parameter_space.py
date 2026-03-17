@@ -161,7 +161,7 @@ class CartesianSweepStrategy(ParameterSpaceStrategy):
 
         # Build a unified parameter space dictionary
         # Args are special: each entry is already a complete args list
-        param_space = {}
+        param_space: dict[str, Any] = {}
 
         if self.sweep_config.args:
             param_space['__args__'] = self.sweep_config.args
@@ -219,7 +219,7 @@ class CartesianSweepStrategy(ParameterSpaceStrategy):
         Returns:
             Dictionary with parameter names and their ranges
         """
-        ranges = {}
+        ranges: dict[str, Any] = {}
 
         if self.sweep_config.args:
             ranges['args'] = f"{len(self.sweep_config.args)} combinations"

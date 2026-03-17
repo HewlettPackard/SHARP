@@ -10,14 +10,14 @@ Future: DAG workflows with dependencies and parallelism.
 
 import sys
 from pathlib import Path
-from typing import Optional, Union
+from typing import Union, Any
 
 import yaml
 
 from src.core.config.schema import WorkflowConfig
 
 
-def load_workflow_from_dict(workflow_data: dict) -> WorkflowConfig:
+def load_workflow_from_dict(workflow_data: dict[str, Any]) -> WorkflowConfig:
     """
     Load workflow configuration from dictionary.
 
@@ -71,9 +71,9 @@ def load_workflow(workflow_path: str) -> WorkflowConfig:
 
 
 def run_workflow(
-    workflow: Union[str, dict, WorkflowConfig],
+    workflow: Union[str, dict[str, Any], WorkflowConfig],
     verbose: bool = False,
-    base_dir: Optional[Path] = None
+    base_dir: Path | None = None
 ) -> int:
     """
     Execute workflow experiments sequentially.
@@ -135,7 +135,7 @@ def run_workflow(
 
     failed_tasks = []
     for i, workflow_task in enumerate(workflow_config.workflow, start=1):
-        task_data = {}
+        task_data: dict[str, Any] = {}
         task_identifier = None
         resolved_path = None
 
@@ -270,7 +270,7 @@ def run_workflow(
     return 0
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     """
     Main entry point for workflow command.
 

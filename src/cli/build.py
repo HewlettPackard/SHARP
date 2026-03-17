@@ -29,8 +29,11 @@ import argparse
 import sys
 from pathlib import Path
 
+from typing import Any
 from src.cli import discovery
 from src.core.config.loader import load_benchmark_config
+from src.core.config.schema import BenchmarkConfig
+from src.core.packaging.builder import ArtifactBuilder
 from src.core.packaging import (
     PackagingManager,
     AppImageBuilder,
@@ -121,11 +124,11 @@ Examples:
 
 
 def build_single_benchmark(
-    benchmark_config,
+    benchmark_config: BenchmarkConfig,
     benchmark_name: str,
     args: argparse.Namespace,
     manager: PackagingManager,
-) -> dict:
+) -> dict[str, Any]:
     """Build a single benchmark and return manifest."""
     manifest = manager.build(
         benchmark_config,
@@ -168,6 +171,7 @@ def main(argv: list[str] | None = None) -> int:
         manager = PackagingManager(base_dir=output_dir)
 
         # Register builders
+        builder: ArtifactBuilder
         if args.type == 'appimage':
             builder = AppImageBuilder(output_dir=output_dir, verbose=args.verbose)
         else:  # docker

@@ -1,6 +1,8 @@
 """
 Configuration system: YAML/JSON loading, Pydantic validation, include resolution,
 and benchmark discovery.
+
+© Copyright 2025--2025 Hewlett Packard Enterprise Development LP
 """
 
 from src.core.config.errors import ConfigError

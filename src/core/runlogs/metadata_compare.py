@@ -46,7 +46,7 @@ def load_metadata(md_path: Path) -> dict[str, dict[str, Any]]:
     # Extract code blocks (between ```json/```yaml and ```)
     in_block = False
     current_section = None
-    block_lines = []
+    block_lines: list[str] = []
     block_type = None
 
     for line in content.split('\n'):
@@ -179,7 +179,7 @@ def _is_numeric_difference_significant(
     # Load average - significant if difference is large relative to core count
     if 'load' in field.lower() or 'load_average' in field.lower():
         settings = Settings()
-        threshold = settings.get('comparisons.load_avg_threshold_factor', 0.1)
+        threshold = float(settings.get('comparisons.load_avg_threshold_factor', 0.1))
         cores = core_count if core_count else 8
         return abs(treatment - baseline) > (threshold * cores)
 
@@ -187,7 +187,7 @@ def _is_numeric_difference_significant(
     if 'freq' in field.lower() or 'mhz' in field.lower():
         if baseline != 0:
             settings = Settings()
-            threshold_pct = settings.get('comparisons.cpu_freq_threshold_pct', 5) / 100.0
+            threshold_pct = float(settings.get('comparisons.cpu_freq_threshold_pct', 5)) / 100.0
             pct_diff = abs((treatment - baseline) / baseline)
             return pct_diff > threshold_pct
         return treatment != baseline
@@ -196,7 +196,7 @@ def _is_numeric_difference_significant(
     if 'memory' in field.lower() or 'ram' in field.lower():
         if baseline != 0:
             settings = Settings()
-            threshold_pct = settings.get('comparisons.memory_threshold_pct', 1) / 100.0
+            threshold_pct = float(settings.get('comparisons.memory_threshold_pct', 1)) / 100.0
             pct_diff = abs((treatment - baseline) / baseline)
             return pct_diff > threshold_pct
         return treatment != baseline
@@ -271,7 +271,7 @@ def is_significant_difference(
         return treatment != baseline
 
     # Lists, dicts, or type mismatches - significant if different
-    return treatment != baseline
+    return bool(treatment != baseline)
 
 
 def flatten_dict(data: dict[str, Any], prefix: str = '') -> dict[str, Any]:
@@ -430,7 +430,7 @@ def format_metadata_diff_markdown(diffs: list[MetadataDiff]) -> str:
     ]
 
     # Group by section
-    sections = {}
+    sections: dict[str, list[MetadataDiff]] = {}
     for diff in diffs:
         if diff.section not in sections:
             sections[diff.section] = []
@@ -526,7 +526,7 @@ def format_metadata_diff_plaintext(diffs: list[MetadataDiff]) -> str:
     ]
 
     # Group by section
-    sections = {}
+    sections: dict[str, list[MetadataDiff]] = {}
     for diff in diffs:
         if diff.section not in sections:
             sections[diff.section] = []

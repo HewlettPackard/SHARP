@@ -20,7 +20,7 @@ import tomllib
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Union
 from src.core.config.include_resolver import get_project_root
 from src.core.config.settings import Settings
 
@@ -121,7 +121,7 @@ class RunLogger:
         # Cache output precision from settings to avoid repeated lookups
         self._precision = Settings().get("sharp.output_precision", 4)
 
-    def _truncate_values(self, row: dict) -> dict:
+    def _truncate_values(self, row: dict[str, Any]) -> dict[str, Any]:
         """
         Truncate all float-like values in the row to output_precision decimal places.
         """
@@ -334,7 +334,7 @@ class RunLogger:
             for r in records:
                 writer.writerow(self._truncate_values(r))
 
-    def save_md(self, mode: str = "w", sys_specs: Optional[Dict[str, Any]] = None) -> None:
+    def save_md(self, mode: str = "w", sys_specs: Dict[str, Any] | None = None) -> None:
         """
         Write metadata and field descriptions to Markdown file.
 
@@ -368,7 +368,9 @@ class RunLogger:
             content = md_path.read_text(encoding="utf-8")
             match = re.search(r"## Invariant parameters.*?```json\s+(.*?)\s+```", content, re.DOTALL)
             if match:
-                return json.loads(match.group(1))
+                data = json.loads(match.group(1))
+                if isinstance(data, dict):
+                    return data
         except Exception:
             pass
         return {}
@@ -413,7 +415,7 @@ class RunLogger:
         return "\n".join(lines)
 
     def _update_existing_markdown(self, md_path: Path, invariants: Dict[str, Any],
-                                  sys_specs: Optional[Dict[str, Any]]) -> None:
+                                  sys_specs: Dict[str, Any] | None) -> None:
         """Update existing markdown file in append mode by replacing invariants block."""
         content = md_path.read_text(encoding="utf-8")
         invariants_block = self._render_invariants_block(invariants)
@@ -455,7 +457,7 @@ class RunLogger:
         md_path.write_text(content + ("\n" if not content.endswith("\n") else ""), encoding="utf-8")
 
     def _write_new_markdown(self, md_path: Path, invariants: Dict[str, Any],
-                            sys_specs: Optional[Dict[str, Any]], now: datetime,
+                            sys_specs: Dict[str, Any] | None, now: datetime,
                             elapsed: int, row_count: int) -> None:
         """Write new markdown file with preamble, field descriptions, invariants, and system specs."""
         invariants_block = self._render_invariants_block(invariants)

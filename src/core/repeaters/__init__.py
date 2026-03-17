@@ -33,7 +33,7 @@ __all__ = [
 ]
 
 
-def _extract_summary(docstring: str) -> str:
+def _extract_summary(docstring: str | None) -> str:
     """Extract the first line (summary) from a docstring.
 
     Args:

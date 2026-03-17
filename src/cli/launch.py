@@ -29,7 +29,7 @@ import os
 import shutil
 import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, TypeVar, cast
 import yaml
 
 from src.core.repeaters import repeater_factory
@@ -47,7 +47,7 @@ from src.core.config.benchmarks import load_benchmark_data
 from src.core.runlogs import extract_runtime_options_from_markdown
 
 
-def _resolve_entry_point_for_backend(benchmark_name: str, benchmark_data: Dict[str, Any],
+def _resolve_entry_point_for_backend(benchmark_name: str, benchmark_data: dict[str, Any],
                                       backends: list[str]) -> str:
     """
     Resolve the appropriate entry point based on selected backends.
@@ -66,8 +66,8 @@ def _resolve_entry_point_for_backend(benchmark_name: str, benchmark_data: Dict[s
     Returns:
         Resolved entry point path or image name
     """
-    backend_entry_points = benchmark_data.get("backend_entry_points", {})
-    default_entry = benchmark_data.get("entry_point", "./benchmark")
+    backend_entry_points: dict[str, str] = benchmark_data.get("backend_entry_points", {})
+    default_entry: str = benchmark_data.get("entry_point", "./benchmark")
 
     # Determine backend type for entry point selection
     # Docker backend needs container entry point, others use AppImage or default
@@ -108,15 +108,15 @@ def _resolve_entry_point_for_backend(benchmark_name: str, benchmark_data: Dict[s
 
         # Auto-discover built AppImage
         project_root = get_project_root()
-        appimage_path = project_root / "build" / "appimages" / f"{benchmark_name}-x86_64.AppImage"
-        if appimage_path.exists():
-            return str(appimage_path)
+        discovered_appimage = project_root / "build" / "appimages" / f"{benchmark_name}-x86_64.AppImage"
+        if discovered_appimage.exists():
+            return str(discovered_appimage)
 
     # Fall back to default entry point
     return default_entry
 
 
-def _resolve_benchmark_path(benchmark_name: str) -> Dict[str, Any]:
+def _resolve_benchmark_path(benchmark_name: str) -> dict[str, Any]:
     """
     Resolve benchmark name to executable path following priority order:
 
@@ -164,27 +164,32 @@ def _resolve_benchmark_path(benchmark_name: str) -> Dict[str, Any]:
     return {}
 
 
-def _coalesce_option(cli_value: Any, config_value: Any, default: Any = None,
-                     *, cli_is_set: bool | None = None) -> Any:
+T = TypeVar("T")
+
+
+def _coalesce_option(cli_value: T | None, config_value: T | None, default: T,
+                     *, cli_is_set: bool | None = None) -> T:
     """Return CLI value when provided, else config value, else default."""
     is_set = cli_is_set if cli_is_set is not None else cli_value is not None
     if is_set:
-        return cli_value
+        return cast(T, cli_value)
     if config_value is not None:
         return config_value
     return default
 
 
-def _resolve_repeats(cli_repeater: str | None, config: Dict[str, Any]) -> str:
+def _resolve_repeats(cli_repeater: str | None, config: dict[str, Any]) -> str:
     """Resolve repeater priority: CLI > config > default (MAX)."""
     cli_value = cli_repeater.upper() if cli_repeater else None
     config_value = config.get("repeater")
     if isinstance(config_value, str):
         config_value = config_value.upper()
+    else:
+        config_value = None
     return _coalesce_option(cli_value, config_value, "MAX")
 
 
-def _resolve_backends(args: argparse.Namespace, config: Dict[str, Any]) -> list[str]:
+def _resolve_backends(args: argparse.Namespace, config: dict[str, Any]) -> list[str]:
     """
     Resolve backend names priority: CLI + config (composition) > config > default (local).
 
@@ -198,7 +203,7 @@ def _resolve_backends(args: argparse.Namespace, config: Dict[str, Any]) -> list[
     Returns:
         List of backend names to use
     """
-    config_backends = config.get("backend_names", [])
+    config_backends: list[str] = config.get("backend_names", [])
     cli_backends: list[str] = []
 
     if args.backend:
@@ -219,7 +224,7 @@ def _resolve_backends(args: argparse.Namespace, config: Dict[str, Any]) -> list[
         return ["local"]
 
 
-def load_config_file(filepath: str) -> Dict[str, Any]:
+def load_config_file(filepath: str) -> dict[str, Any]:
     """
     Load configuration from a YAML or JSON file.
 
@@ -235,14 +240,18 @@ def load_config_file(filepath: str) -> Dict[str, Any]:
 
     with open(path, 'r') as f:
         if filepath.endswith('.yaml') or filepath.endswith('.yml'):
-            return yaml.safe_load(f) or {}
+            data = yaml.safe_load(f) or {}
         elif filepath.endswith('.json'):
-            return json.load(f)
+            data = json.load(f)
         else:
             raise ValueError(f"Unsupported config file format: {filepath}")
 
+    if isinstance(data, dict):
+        return data
+    return {}
 
-def load_repro_file(filepath: str) -> Dict[str, Any]:
+
+def load_repro_file(filepath: str) -> dict[str, Any]:
     """
     Load configuration from a previous run's markdown file.
 
@@ -270,7 +279,7 @@ def load_repro_file(filepath: str) -> Dict[str, Any]:
 
 
 
-def build_config_from_sources(args: argparse.Namespace) -> Dict[str, Any]:
+def build_config_from_sources(args: argparse.Namespace) -> dict[str, Any]:
     """
     Build configuration dictionary from all sources (repro, config files, JSON, CLI args).
 
@@ -286,7 +295,7 @@ def build_config_from_sources(args: argparse.Namespace) -> Dict[str, Any]:
     """
     from src.core.config.include_resolver import resolve_includes
 
-    config: Dict[str, Any] = {}
+    config: dict[str, Any] = {}
 
     # 1. Load from --repro file (lowest priority) - loads entire options dict
     if args.repro:
@@ -310,7 +319,7 @@ def build_config_from_sources(args: argparse.Namespace) -> Dict[str, Any]:
     return config
 
 
-def load_backend_options(backend_names: list[str], config: Dict[str, Any]) -> Dict[str, Any]:
+def load_backend_options(backend_names: list[str], config: dict[str, Any]) -> dict[str, Any]:
     """
     Load backend options, auto-loading YAML files for all backends.
 
@@ -341,10 +350,13 @@ def load_backend_options(backend_names: list[str], config: Dict[str, Any]) -> Di
         else:
             config["backend_options"][backend_name] = user_options
 
-    return config.get("backend_options", {})
+    options = config.get("backend_options", {})
+    if isinstance(options, dict):
+        return options
+    return {}
 
 
-def build_orchestrator_options(args: argparse.Namespace, config: Dict[str, Any]) -> Dict[str, Any]:
+def build_orchestrator_options(args: argparse.Namespace, config: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     """
     Build options dictionary for ExecutionOrchestrator from CLI args and config.
 
@@ -355,7 +367,7 @@ def build_orchestrator_options(args: argparse.Namespace, config: Dict[str, Any])
     Returns:
         Options dictionary for orchestrator
     """
-    options: Dict[str, Any] = {}
+    options: dict[str, Any] = {}
 
     # Backend configuration
     backend_names = _resolve_backends(args, config)
@@ -392,8 +404,8 @@ def build_orchestrator_options(args: argparse.Namespace, config: Dict[str, Any])
     # Load benchmark data and get metrics (skip if entry_point already in config)
     if "entry_point" in config or "benchmark_spec" in config:
         # Using repro or config with embedded entry_point/benchmark_spec
-        benchmark_data = {}
-        benchmark_metrics = {}
+        benchmark_data: dict[str, Any] = {}
+        benchmark_metrics: dict[str, Any] = {}
     elif args.benchmark:
         # Resolve benchmark name/path using priority logic
         benchmark_data = _resolve_benchmark_path(args.benchmark)
@@ -432,8 +444,8 @@ def build_orchestrator_options(args: argparse.Namespace, config: Dict[str, Any])
     return options, benchmark_data
 
 
-def build_benchmark_spec(args: argparse.Namespace, benchmark_data: Dict[str, Any],
-                         config: Dict[str, Any], backends: list[str] | None = None) -> Dict[str, Any]:
+def build_benchmark_spec(args: argparse.Namespace, benchmark_data: dict[str, Any],
+                         config: dict[str, Any], backends: list[str] | None = None) -> dict[str, Any]:
     """
     Build benchmark specification from CLI args, config, and benchmark data.
 
@@ -458,7 +470,7 @@ def build_benchmark_spec(args: argparse.Namespace, benchmark_data: Dict[str, Any
     Returns:
         Benchmark spec dictionary for ExecutionOrchestrator
     """
-    benchmark_spec: Dict[str, Any] = {}
+    benchmark_spec: dict[str, Any] = {}
 
     # Default backends if not provided
     if backends is None:
@@ -491,7 +503,7 @@ def build_benchmark_spec(args: argparse.Namespace, benchmark_data: Dict[str, Any
     return benchmark_spec
 
 
-def create_repeater(args: argparse.Namespace, config: Dict[str, Any]):
+def create_repeater(args: argparse.Namespace, config: dict[str, Any]) -> Any:
     """
     Create repeater instance from CLI args and config.
 
@@ -544,8 +556,8 @@ def create_progress_callbacks(verbose: bool) -> ProgressCallbacks:
     )
 
 
-def resolve_benchmark_spec(args: argparse.Namespace, config: Dict[str, Any],
-                           backends: list[str] | None = None) -> Dict[str, Any]:
+def resolve_benchmark_spec(args: argparse.Namespace, config: dict[str, Any],
+                           backends: list[str] | None = None) -> dict[str, Any]:
     """
     Resolve benchmark specification from CLI args or config files.
 
@@ -603,15 +615,16 @@ def resolve_benchmark_spec(args: argparse.Namespace, config: Dict[str, Any],
     # Case 3: Config has benchmark_spec key (legacy pattern: benchmark_spec as nested dict)
     if "benchmark_spec" in config:
         benchmark_spec = config["benchmark_spec"]
-        if not benchmark_spec.get("entry_point"):
-            raise ValueError("benchmark_spec in config is missing entry_point")
-        return benchmark_spec
+        if isinstance(benchmark_spec, dict):
+            if not benchmark_spec.get("entry_point"):
+                raise ValueError("benchmark_spec in config is missing entry_point")
+            return benchmark_spec
 
     # Case 4: No benchmark information found anywhere
     raise ValueError("No benchmark specified (use BENCHMARK argument or provide entry_point in config)")
 
 
-def print_experiment_info(args: argparse.Namespace, benchmark_spec: Dict[str, Any]) -> None:
+def print_experiment_info(args: argparse.Namespace, benchmark_spec: dict[str, Any]) -> None:
     """Print experiment information if verbose mode is enabled."""
     if not args.verbose:
         return
@@ -648,7 +661,7 @@ def print_experiment_result(result: ExperimentResult, verbose: bool) -> int:
         return 1
 
 
-def run_parameter_sweep(args: argparse.Namespace, config: Dict[str, Any]) -> int:
+def run_parameter_sweep(args: argparse.Namespace, config: dict[str, Any]) -> int:
     """
     Run a parameter sweep experiment.
 
@@ -696,12 +709,12 @@ def run_parameter_sweep(args: argparse.Namespace, config: Dict[str, Any]) -> int
 
     # Run each configuration
     all_success = True
-    for i, (launch_id, sweep_config, parameters) in enumerate(configurations):
+    for i, (launch_id, exp_config, parameters) in enumerate(configurations):
         if args.verbose:
             print(f"\n--- Running {launch_id} ---")
 
         # Convert config to dict for run_experiment_with_config
-        config_dict = sweep_config.model_dump()
+        config_dict = exp_config.model_dump()
 
         # For sweeps, use append mode starting from second run to accumulate results
         if i >= 1:
@@ -729,9 +742,9 @@ def run_parameter_sweep(args: argparse.Namespace, config: Dict[str, Any]) -> int
     return 0 if all_success else 1
 
 
-def run_experiment_with_config(args: argparse.Namespace, config: Dict[str, Any],
+def run_experiment_with_config(args: argparse.Namespace, config: dict[str, Any],
                                 launch_id: str | None = None,
-                                sweep_params: Dict[str, Any] | None = None) -> int:
+                                sweep_params: dict[str, Any] | None = None) -> int:
     """
     Run a single experiment with a specific configuration.
 

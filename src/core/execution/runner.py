@@ -13,7 +13,7 @@ import subprocess
 import tempfile
 import time
 import warnings
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
 
 class Runner:
@@ -27,7 +27,7 @@ class Runner:
     - Return code and error handling
     """
 
-    def __init__(self, timeout: Optional[int] = None, verbose: bool = False,
+    def __init__(self, timeout: int | None = None, verbose: bool = False,
                  stdin_fd: int = -1) -> None:
         """
         Initialize runner.
@@ -41,7 +41,7 @@ class Runner:
         self.verbose = verbose
         self.stdin_fd = stdin_fd if stdin_fd >= 0 else None
 
-    def run_commands(self, commands: List[str], env: Optional[dict[str, str]] = None) -> Tuple[bool, List[tempfile._TemporaryFileWrapper[bytes]], float]:
+    def run_commands(self, commands: List[str], env: dict[str, str] | None = None) -> Tuple[bool, List[tempfile._TemporaryFileWrapper[bytes]], float]:
         """
         Execute commands in parallel and wait for completion.
 
@@ -69,7 +69,7 @@ class Runner:
         elapsed_time = time.perf_counter() - t0
         return success, output_files, elapsed_time
 
-    def _launch_commands(self, commands: List[str], env: Optional[dict[str, str]] = None) -> Tuple[List[subprocess.Popen], List[tempfile._TemporaryFileWrapper[bytes]]]:
+    def _launch_commands(self, commands: List[str], env: dict[str, str] | None = None) -> Tuple[List[subprocess.Popen[str]], List[tempfile._TemporaryFileWrapper[bytes]]]:
         """
         Launch all commands in parallel.
 
@@ -80,7 +80,7 @@ class Runner:
         Returns:
             Tuple of (popens, output_files)
         """
-        popens = []
+        popens: List[subprocess.Popen[str]] = []
         output_files = []
 
         for i, cmd in enumerate(commands):
@@ -103,7 +103,7 @@ class Runner:
 
         return popens, output_files
 
-    def _wait_for_commands(self, popens: List[subprocess.Popen], commands: List[str], start_time: float) -> bool:
+    def _wait_for_commands(self, popens: List[subprocess.Popen[str]], commands: List[str], start_time: float) -> bool:
         """
         Wait for all commands to complete, checking for catastrophic failures.
 
@@ -118,7 +118,7 @@ class Runner:
         Raises:
             RuntimeError: If command fails catastrophically (not found, segfault, etc.)
         """
-        completed_commands = []
+        completed_commands: list[tuple[int, int]] = []
 
         while popens and (time.perf_counter() - start_time) < self.timeout:
             for i, popen in enumerate(popens):

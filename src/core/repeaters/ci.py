@@ -11,7 +11,7 @@ import warnings
 from typing import Any, Dict
 
 import numpy
-import scipy.stats as st  # type: ignore
+import scipy.stats as st
 
 from .base import RunData
 from .count import CountRepeater

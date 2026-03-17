@@ -10,11 +10,10 @@ Used by CLI tools (launch, build, etc.) to discover available resources.
 
 import yaml
 from pathlib import Path
-from typing import Dict, List
 from src.core.config.include_resolver import get_project_root
 
 
-def get_benchmark_names() -> Dict[str, Path]:
+def get_benchmark_names() -> dict[str, Path]:
     """
     Get all benchmark names defined in YAML files.
 
@@ -76,7 +75,7 @@ def list_benchmarks() -> int:
         return 0
 
     # Group benchmarks by their YAML file for cleaner display
-    file_groups: Dict[Path, List[str]] = {}
+    file_groups: dict[Path, list[str]] = {}
     for name, path in benchmark_map.items():
         if path not in file_groups:
             file_groups[path] = []
@@ -155,7 +154,7 @@ def show_benchmark(name: str) -> int:
     return 0
 
 
-def get_backend_names() -> Dict[str, Path]:
+def get_backend_names() -> dict[str, Path]:
     """
     Get all backend names defined in YAML files.
 
@@ -217,7 +216,7 @@ def list_backends() -> int:
         return 0
 
     # Group backends by their YAML file for cleaner display
-    file_groups: Dict[Path, List[str]] = {}
+    file_groups: dict[Path, list[str]] = {}
     for name, path in backend_map.items():
         if path not in file_groups:
             file_groups[path] = []
@@ -292,7 +291,7 @@ def show_backend(name: str) -> int:
     return 0
 
 
-def get_benchmark_paths() -> List[Path]:
+def get_benchmark_paths() -> list[Path]:
     """
     Get paths to all benchmark YAML files.
 
@@ -308,7 +307,7 @@ def get_benchmark_paths() -> List[Path]:
     return sorted(benchmarks_dir.rglob("*.yaml"))
 
 
-def get_backend_paths() -> List[Path]:
+def get_backend_paths() -> list[Path]:
     """
     Get paths to all backend YAML files.
 

@@ -11,7 +11,7 @@ and host round-robin for SSH-like backends.
 import os
 import platform
 import tempfile
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 
 class CommandComposer:
@@ -29,8 +29,8 @@ class CommandComposer:
     - Host round-robin for SSH-like backends
     """
 
-    def __init__(self, backend_options: Dict[str, Dict[str, Any]], benchmark_spec: Optional[Dict[str, Any]] = None,
-                 hosts: Optional[List[str]] = None) -> None:
+    def __init__(self, backend_options: Dict[str, Dict[str, Any]], benchmark_spec: Dict[str, Any] | None = None,
+                 hosts: List[str] | None = None) -> None:
         """
         Initialize command builder from backend options and benchmark specifications.
 
@@ -58,7 +58,7 @@ class CommandComposer:
         self.tmp_path = "/tmp/"
 
         # Lazily created temporary directory for MPI outputs
-        self.unique_tmp_dir = None
+        self.unique_tmp_dir: str | None = None
 
     def _extract_hosts_from_backend_options(self, backend_options: Dict[str, Dict[str, Any]]) -> List[str]:
         """
@@ -357,6 +357,7 @@ class CommandComposer:
             base_dir = (self.tmp_path or "/tmp/").rstrip(os.sep) or "/tmp"
             self.unique_tmp_dir = tempfile.mkdtemp(prefix="mpi-stats-", dir=base_dir)
 
+        assert self.unique_tmp_dir is not None
         if not self.unique_tmp_dir.endswith(os.sep):
             self.unique_tmp_dir = f"{self.unique_tmp_dir}{os.sep}"
 

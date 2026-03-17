@@ -161,7 +161,7 @@ def find_benchmark_by_entry_point(entry_point_path: str) -> Tuple[str, Dict[str,
     raise ValueError(f"No benchmark found with entry_point matching '{entry_point_path}'")
 
 
-def resolve_benchmark_input(benchmark_input: str, override_task: str = None) -> Dict[str, Any]:
+def resolve_benchmark_input(benchmark_input: str, override_task: str | None = None) -> Dict[str, Any]:
     """
     Resolve benchmark input to entry_point, args, and task.
 

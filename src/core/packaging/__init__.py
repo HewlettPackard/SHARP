@@ -8,6 +8,8 @@ Provides tools for building benchmark artifacts:
 
 Sources are downloaded to benchmarks/_sources/{benchmark_name}/ and
 reused across benchmarks in suites (e.g., Rodinia) via the subdir field.
+
+© Copyright 2025--2025 Hewlett Packard Enterprise Development LP
 """
 
 from src.core.packaging.errors import BuildError, SourceError

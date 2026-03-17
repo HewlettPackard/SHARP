@@ -1,5 +1,5 @@
 """
 GUI utility tests package.
 
-© Copyright 2025 Hewlett Packard Enterprise Development LP
+© Copyright 2025--2025 Hewlett Packard Enterprise Development LP
 """

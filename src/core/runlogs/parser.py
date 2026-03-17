@@ -12,10 +12,10 @@ import re
 import yaml
 from pathlib import Path
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 
-def extract_runtime_options_from_markdown(md_path: str | Path) -> Optional[Dict[str, Any]]:
+def extract_runtime_options_from_markdown(md_path: str | Path) -> Dict[str, Any] | None:
     """
     Extract raw runtime options from markdown file without modification.
 
@@ -102,7 +102,10 @@ def extract_runtime_options_from_markdown(md_path: str | Path) -> Optional[Dict[
             return None
 
         json_str = content[json_block_start + 7:json_block_end].strip()
-        return json.loads(json_str)
+        data = json.loads(json_str)
+        if isinstance(data, dict):
+            return data
+        return None
 
     except Exception as e:
         print(f"Error extracting runtime options from {md_path}: {e}")
@@ -121,7 +124,7 @@ def parse_markdown_runtime_options(md_file_path: Path) -> Dict[str, Any]:
     Returns:
         Dictionary with configuration for rerunning the experiment
     """
-    config = {}
+    config: dict[str, Any] = {}
 
     try:
         # Extract raw runtime options using shared function

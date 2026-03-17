@@ -9,7 +9,7 @@ and extract metadata from their markdown files.
 
 from pathlib import Path
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 from src.core.config.settings import Settings
 from .parser import parse_markdown_metadata
@@ -98,7 +98,7 @@ def scan_runlogs(runlogs_dir: str | None = None, limit: int | None = None) -> li
         })
 
     # Sort by timestamp (newest first)
-    runs.sort(key=lambda r: r["timestamp"], reverse=True)
+    runs.sort(key=lambda r: cast(datetime, r["timestamp"]), reverse=True)
 
     # Limit results if requested
     if limit is not None and len(runs) > limit:

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List
 import os
 import subprocess
 import tempfile
@@ -54,10 +54,10 @@ def _load_default_sys_spec_commands() -> Dict[str, Dict[str, str]]:
 @dataclass
 class ProgressCallbacks:
     """Callbacks for progress updates (GUI integration hooks)."""
-    on_iteration_start: Optional[Callable[[int], None]] = None
-    on_iteration_complete: Optional[Callable[[int, Dict[str, Any]], None]] = None
-    on_convergence: Optional[Callable[[str], None]] = None
-    on_error: Optional[Callable[[Exception], None]] = None
+    on_iteration_start: Callable[[int], None] | None = None
+    on_iteration_complete: Callable[[int, Dict[str, Any]], None] | None = None
+    on_convergence: Callable[[str], None] | None = None
+    on_error: Callable[[Exception], None] | None = None
 
 
 @dataclass
@@ -67,7 +67,7 @@ class ExperimentResult:
     iteration_count: int
     metrics: List[Dict[str, Any]] = field(default_factory=list)
     convergence_info: Dict[str, Any] = field(default_factory=dict)
-    error_message: Optional[str] = None
+    error_message: str | None = None
     output_paths: Dict[str, str] = field(default_factory=dict)  # csv, markdown paths
 
 
@@ -211,8 +211,8 @@ class ExecutionOrchestrator:
         self.iteration_count = 0
         self.collected_metrics: List[Dict[str, Any]] = []
 
-    def run(self, callbacks: Optional[ProgressCallbacks] = None,
-            max_iterations: Optional[int] = None) -> ExperimentResult:
+    def run(self, callbacks: ProgressCallbacks | None = None,
+            max_iterations: int | None = None) -> ExperimentResult:
         """
         Execute benchmark with adaptive stopping.
 

@@ -85,7 +85,10 @@ def load_backend_configs(
                 file_config = yaml.safe_load(f) or {}
             merge_config(config, file_config)
 
-    return config.get("backend_options", {})
+    options = config.get("backend_options", {})
+    if isinstance(options, dict):
+        return options
+    return {}
 
 
 def validate_backend_chain(

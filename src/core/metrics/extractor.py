@@ -9,7 +9,7 @@ or shell commands defined in benchmark/backend configurations.
 
 import subprocess
 import warnings
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from src.core.rundata import RunData
 
@@ -143,7 +143,7 @@ class MetricExtractor:
         return metrics
 
     def validate_metrics(self, metrics: Dict[str, List[str]],
-                        required: Optional[List[str]] = None) -> bool:
+                        required: List[str] | None = None) -> bool:
         """
         Validate extracted metrics.
 

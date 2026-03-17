@@ -9,9 +9,9 @@ Uses multiple sub-repeaters to decide when to stop.
 from typing import Any, Dict, List
 
 import numpy
-import scipy.stats  # type: ignore
-from sklearn.mixture import GaussianMixture  # type: ignore
-from sklearn.model_selection import GridSearchCV  # type: ignore
+import scipy.stats
+from sklearn.mixture import GaussianMixture
+from sklearn.model_selection import GridSearchCV
 
 from .base import RunData
 from .bb import BBRepeater

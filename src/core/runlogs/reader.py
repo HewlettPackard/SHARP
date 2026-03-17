@@ -11,6 +11,7 @@ import polars as pl
 import json
 import re
 from pathlib import Path
+from typing import Any
 
 
 def load_csv(csv_path: str | Path) -> pl.DataFrame:
@@ -76,7 +77,7 @@ def load_runlog(csv_path: str | Path, md_path: str | Path | None = None) -> pl.D
             return df
 
     # Load metadata if available
-    invariants = {}
+    invariants: dict[str, dict[str, Any]] = {}
     if md_path.exists():
         try:
             content = md_path.read_text(encoding="utf-8")

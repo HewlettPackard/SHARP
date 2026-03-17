@@ -11,7 +11,7 @@ initialization to prevent unintended runtime modifications.
 import copy
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 import yaml
 
 from src.core.singleton import singleton
@@ -32,7 +32,7 @@ class Settings:
         default_backend = settings.get('cli.default_backend', 'local')
     """
 
-    def __init__(self, config_path: Optional[str] = None):
+    def __init__(self, config_path: str | None = None):
         """
         Initialize settings from YAML file.
 

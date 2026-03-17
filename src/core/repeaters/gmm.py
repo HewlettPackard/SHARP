@@ -9,8 +9,8 @@ Stops when goodness of fit of Gaussian Mixture model exceeds threshold.
 from typing import Any, Dict, List
 
 import numpy
-from sklearn.mixture import GaussianMixture  # type: ignore
-from sklearn.model_selection import GridSearchCV  # type: ignore
+from sklearn.mixture import GaussianMixture
+from sklearn.model_selection import GridSearchCV
 
 from .base import RunData
 from .count import CountRepeater
@@ -85,7 +85,7 @@ class GaussianMixtureRepeater(CountRepeater):
         """Stopping heuristic using Gaussian Mixture model."""
         super().__call__(pdata)
 
-        def gmm_bic_score(estimator: GaussianMixture, X_data: numpy.ndarray) -> Any:  # type: ignore
+        def gmm_bic_score(estimator: GaussianMixture, X_data: numpy.ndarray) -> Any:
             """
             Callable passed to GridSearchCV using the BIC score.
 

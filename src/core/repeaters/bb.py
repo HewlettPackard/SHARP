@@ -8,7 +8,7 @@ Stops when block bootstrap confidence intervals stabilize.
 
 import copy
 import random
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import numpy
 
@@ -90,7 +90,7 @@ class BBRepeater(CountRepeater):
         acorr = numpy.correlate(ndata, ndata, "full")[len(ndata) - 1 :]
         return acorr / var / len(ndata)
 
-    def _block_size(self, acf: List[float]) -> Optional[int]:
+    def _block_size(self, acf: List[float]) -> int | None:
         """
         Return the block size (lag length) for which autocorrelation is negligible.
 

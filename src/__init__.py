@@ -1,3 +1,4 @@
+# © Copyright 2025--2025 Hewlett Packard Enterprise Development LP
 """
 SHARP v4.0 - Serverless and HPC Application Runtime Profiler
 
