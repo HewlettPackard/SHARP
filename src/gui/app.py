@@ -7,9 +7,9 @@ Python Shiny application for launching, analyzing, and comparing benchmarks.
 """
 
 from pathlib import Path
-from shiny import App, ui, reactive
+from shiny import App, ui, reactive, Inputs, Outputs, Session
 import shinyswatch
-import yaml
+from ruamel.yaml import YAML
 
 from ..core.config.settings import Settings
 
@@ -152,7 +152,7 @@ app_ui = ui.page_navbar(
 final_ui = app_ui
 
 
-def server(input, output, session):
+def server(input: Inputs, output: Outputs, session: Session) -> None:
     """
     Server logic for SHARP GUI.
 
@@ -165,7 +165,7 @@ def server(input, output, session):
 
     # Show settings modal when gear icon is clicked
     @reactive.effect
-    def _show_settings_modal():
+    def _show_settings_modal() -> None:
         trigger = input.show_settings_modal()
         if trigger is not None and trigger > 0:
             # Create and show modal
@@ -223,13 +223,13 @@ def server(input, output, session):
 
     # Handle settings cancel button
     @reactive.effect
-    def _on_settings_cancel():
+    def _on_settings_cancel() -> None:
         if input.settings_cancel():
             shiny_ui.modal_remove()
 
     # Handle settings accept button
     @reactive.effect
-    def _on_settings_accept():
+    def _on_settings_accept() -> None:
         if input.settings_accept():
             new_theme = input.settings_theme()
             new_recent_count = input.settings_recent_count()
@@ -238,22 +238,25 @@ def server(input, output, session):
             settings = Settings()
             settings_path = settings.config_path
 
-            # Load YAML
+            # Load YAML with ruamel.yaml to preserve comments
+            yaml_handler = YAML()
+            yaml_handler.preserve_quotes = True
+            yaml_handler.default_flow_style = False
             with open(settings_path, 'r') as f:
-                config = yaml.safe_load(f) or {}
+                config = yaml_handler.load(f) or {}
 
             # Update values
             if 'gui' not in config:
                 config['gui'] = {}
-            if 'defaults' not in config['gui']:
-                config['gui']['defaults'] = {}
+            if 'overview' not in config['gui']:
+                config['gui']['overview'] = {}
 
             config['gui']['theme'] = new_theme
-            config['gui']['defaults']['recent_runs_count'] = new_recent_count
+            config['gui']['overview']['recent_runs_count'] = new_recent_count
 
-            # Write back to YAML
+            # Write back to YAML (preserves comments and formatting)
             with open(settings_path, 'w') as f:
-                yaml.safe_dump(config, f, default_flow_style=False)
+                yaml_handler.dump(config, f)
 
             # Reload page immediately via JavaScript
             shiny_ui.insert_ui(

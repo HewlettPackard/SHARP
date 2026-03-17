@@ -1,39 +1,59 @@
+# SHARP Global Settings
+# Configuration file for runtime defaults and paths
+#
+# © Copyright 2022--2025 Hewlett Packard Enterprise Development LP
+
 cli:
   default_backend: local  # Backend used when -b/--backend not specified
   default_repeater: count  # Repeater used when -r/--repeater not specified
   verbose: false  # Enable verbose output by default
+
 comparisons:
-  cpu_freq_threshold_pct: 5  # % CPU freq difference to flag comparison warning
+  # Thresholds for system metadata comparison warnings
+  cpu_freq_threshold_pct: 5  # % CPU frequency difference to flag warning
   load_avg_threshold_factor: 0.1  # Factor of load average to flag warning
-  memory_threshold_pct: 1  # % memory difference to flag comparison warning
+  memory_threshold_pct: 1  # % memory difference to flag warning
+
 data:
   backends_dir: backends  # Directory containing backend configuration files
   benchmarks_dir: benchmarks  # Directory containing benchmark definitions
   output_precision: 5  # Decimal places for numeric output in CSV/reports
   runlogs_dir: runlogs  # Directory where experiment results are stored
+
 gui:
-  defaults:
-    recent_runs_count: 10  # Number of recent runs to show in overview
+  # Server configuration
+  host: 0.0.0.0  # GUI server bind address (0.0.0.0 = all interfaces)
+  port: 8282  # GUI server port
+  theme: cosmo  # Shiny theme name (cosmo, flatly, darkly, spacelab, etc.)
+
+  # Distribution plot visualization settings
   distribution:
     alpha: 0.4  # Transparency for distribution plot fill
     divider_color: '#1f77b4'  # Color for distribution divider line (blue)
     left_color: '#2ca02c'  # Color for left distribution region (green)
     right_color: '#ff7f0e'  # Color for right distribution region (orange)
+
+  # Explore tab settings
   explore:
-    max_scatter_points: 2000  # Maximum scatter plot points (performance)
-  host: 0.0.0.0  # GUI server bind address (0.0.0.0 = all interfaces)
+    max_scatter_points: 2000  # Maximum scatter plot points (performance limit)
+
+  # Overview tab settings
   overview:
-    recent_runs_count: 10  # Number of recent runs in overview tab
-  port: 8282  # GUI server port
-  theme: cosmo  # Shiny theme name (cosmo, flatly, darkly, etc.)
+    recent_runs_count: 25  # Number of recent runs to display in overview tab
+
 profiling:
-  max_correlation: 0.99  # Max correlation for predictor inclusion
-  max_predictors: 100  # Maximum number of predictors in analysis
-  max_search: 100  # Maximum iterations for optimal cutoff search
-  prof_suffix: -prof  # Suffix appended to profiling run directories
-  required_md_fields:  # Required metadata fields for profiling analysis
-  - benchmark_spec
-  - backend_options
+  # Profiling workflow configuration
+  prof_suffix: -prof  # Suffix appended to profiling run task names (e.g., task-prof)
+  max_correlation: 0.99  # Maximum correlation threshold for predictor inclusion
+  max_predictors: 100  # Maximum number of predictors to consider in analysis
+  max_search: 100  # Maximum iterations for optimal cutoff search algorithm
+
+  # Required metadata fields for profiling reproduction (--repro flag)
+  required_md_fields:
+    - benchmark_spec  # Benchmark specification from markdown metadata
+    - backend_options  # Backend configuration from markdown metadata
+
+  # Decision tree training parameters
   tree_training:
-    completeness_threshold: 0.95  # Min data completeness for tree training
-    target_rows: 1000  # Target number of rows for balanced training data
+    completeness_threshold: 0.95  # Minimum data completeness ratio for tree training
+    target_rows: 1000  # Target number of rows for balanced training dataset
