@@ -21,9 +21,10 @@ from typing import Any
 
 from src.core.config.schema import BenchmarkConfig, BenchmarkBuild
 from src.core.packaging.errors import BuildError
+from src.core.packaging.base import BaseBuilder
 
 
-class DockerBuilder:
+class DockerBuilder(BaseBuilder):
     """
     Build Docker images from benchmark configurations.
 
@@ -47,9 +48,9 @@ class DockerBuilder:
             tag_prefix: Prefix for image tags (default: 'sharp-')
             verbose: If True, stream build output to terminal
         """
+        super().__init__(verbose)
         self._registry = registry
         self._tag_prefix = tag_prefix
-        self._verbose = verbose
 
     def build(self, benchmark: BenchmarkConfig, sources_dir: Path,
               benchmark_name: str) -> Path:
@@ -70,26 +71,14 @@ class DockerBuilder:
         Raises:
             BuildError: If build fails at any stage
         """
-        entry = benchmark.benchmarks[benchmark_name]
-        build_config = entry.build
+        entry, build_config, python_reqs, system_deps, docker_config = self._get_build_config(
+            benchmark, benchmark_name, 'docker'
+        )
 
-        # Check for Docker-specific config
-        docker_config = build_config.docker or {}
         base_image = docker_config.get('base_image', 'python:3.10-slim')
 
-        # Get requirements from unified 'requires' field or legacy fields
-        requires = build_config.requires
-        if requires:
-            # Use unified declarative requirements
-            python_reqs = requires.python
-            system_deps = requires.system
-        else:
-            # Fall back to legacy fields or Docker-specific overrides
-            python_reqs = docker_config.get('requirements', build_config.requirements)
-            system_deps = docker_config.get('system_deps', build_config.system_deps)
-
         # Determine benchmark directory (where benchmark.yaml lives)
-        benchmark_dir = self._get_benchmark_dir(benchmark, benchmark_name)
+        benchmark_dir = self._get_benchmark_dir(benchmark)
 
         # Create build context directory
         from src.core.config.include_resolver import get_project_root
@@ -98,7 +87,7 @@ class DockerBuilder:
 
         try:
             # Copy sources to build context
-            self._copy_build_context(sources_dir, benchmark_dir, build_dir, entry)
+            self._copy_sources_to_dir(sources_dir, benchmark_dir, build_dir, entry)
 
             # Generate Dockerfile
             self._generate_dockerfile(
@@ -125,41 +114,6 @@ class DockerBuilder:
             if isinstance(e, BuildError):
                 raise
             raise BuildError(f"Docker build failed: {e}")
-
-    def _get_benchmark_dir(self, benchmark: BenchmarkConfig,
-                           benchmark_name: str) -> Path | None:
-        """Get the directory containing the benchmark YAML."""
-        # If benchmark has a _config_path attribute, use it
-        if hasattr(benchmark, '_config_path') and benchmark._config_path:
-            return Path(benchmark._config_path).parent
-        return None
-
-    def _copy_build_context(self, sources_dir: Path, benchmark_dir: Path | None,
-                            build_dir: Path, entry: Any) -> None:
-        """Copy source files to Docker build context."""
-        # Copy from sources directory if populated
-        if sources_dir.exists() and any(sources_dir.iterdir()):
-            for item in sources_dir.iterdir():
-                target = build_dir / item.name
-                if target.exists():
-                    if target.is_dir():
-                        shutil.rmtree(target)
-                    else:
-                        target.unlink()
-                if item.is_file():
-                    shutil.copy2(item, target)
-                elif item.is_dir():
-                    shutil.copytree(item, target)
-
-        # Copy local files from benchmark directory
-        if benchmark_dir and benchmark_dir.exists():
-            # Copy Python files and other source files
-            for pattern in ['*.py', '*.c', '*.cpp', '*.h', '*.cu', 'Makefile']:
-                for item in benchmark_dir.glob(pattern):
-                    if item.is_file():
-                        target = build_dir / item.name
-                        if not target.exists():  # Don't overwrite sources
-                            shutil.copy2(item, target)
 
     def _generate_dockerfile(self, build_dir: Path, benchmark_name: str,
                              entry: Any, base_image: str,
@@ -358,7 +312,7 @@ class DockerComposeBuilder:
     multiple containers. This builder generates docker-compose.yaml files.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize Docker Compose builder."""
         pass
 

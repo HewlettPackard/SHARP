@@ -23,11 +23,12 @@ class ProjectRoot:
     """
     Singleton class to compute and store the project root path.
     """
-    def __init__(self):
+    def __init__(self) -> None:
         self._project_root = Path(__file__).resolve().parent.parent.parent.parent
 
     @property
     def path(self) -> Path:
+        """Get the project root path."""
         return self._project_root
 
 project_root_instance = ProjectRoot()
@@ -78,10 +79,10 @@ def merge_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
             # Handle different types
             if isinstance(override_val, dict):
                 # Recursive merge for dicts
-                result[key] = merge_dicts(base_val, override_val)  # type: ignore
+                result[key] = merge_dicts(base_val, override_val)
             elif isinstance(override_val, list):
                 # Concatenate lists (base + override)
-                result[key] = base_val + override_val  # type: ignore
+                result[key] = base_val + override_val
             else:
                 # Primitive: override wins
                 result[key] = override_val

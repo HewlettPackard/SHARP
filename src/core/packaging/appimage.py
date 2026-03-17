@@ -29,9 +29,10 @@ from typing import Any
 
 from src.core.config.schema import BenchmarkConfig
 from src.core.packaging.errors import BuildError
+from src.core.packaging.base import BaseBuilder
 
 
-class AppImageBuilder:
+class AppImageBuilder(BaseBuilder):
     """
     Build AppImage artifacts from benchmark configurations.
 
@@ -62,9 +63,9 @@ class AppImageBuilder:
                           (default: search PATH)
             verbose: If True, stream build output to terminal
         """
+        super().__init__(verbose)
         self._output_dir = output_dir
         self._appimagetool = appimagetool or self._find_appimagetool()
-        self._verbose = verbose
 
     def _find_appimagetool(self) -> str:
         """Find appimagetool binary in PATH or common locations."""
@@ -154,29 +155,14 @@ class AppImageBuilder:
         Raises:
             BuildError: If build fails at any stage
         """
-        entry = benchmark.benchmarks[benchmark_name]
-        build_config = entry.build
-
-        # Check for AppImage-specific config
-        appimage_config = build_config.appimage or {}
-
-        # Get requirements from unified 'requires' field or legacy fields
-        requires = build_config.requires
-        if requires:
-            # Use unified declarative requirements
-            python_reqs = requires.python
-            system_deps = requires.system
-        else:
-            # Fall back to legacy fields or AppImage-specific overrides
-            python_reqs = appimage_config.get('requirements', []) or build_config.requirements
-            system_deps = appimage_config.get('system_deps', []) or build_config.system_deps
+        entry, build_config, python_reqs, system_deps, appimage_config = self._get_build_config(
+            benchmark, benchmark_name, 'appimage'
+        )
 
         appimage_build_commands = appimage_config.get('build_commands', []) or build_config.build_commands
 
         # Get benchmark directory (where benchmark.yaml lives) for local source files
-        benchmark_dir = None
-        if hasattr(benchmark, '_config_path') and benchmark._config_path:
-            benchmark_dir = Path(benchmark._config_path).parent
+        benchmark_dir = self._get_benchmark_dir(benchmark)
 
         # Create temporary AppDir structure
         output_dir = self._get_output_dir()
@@ -191,7 +177,7 @@ class AppImageBuilder:
             self._create_appdir_structure(appdir, benchmark_name)
 
             # Copy sources to AppDir (external sources + local benchmark files)
-            self._copy_sources(sources_dir, appdir, entry.sources, benchmark_dir)
+            self._copy_sources_to_dir(sources_dir, benchmark_dir, appdir / 'usr' / 'bin', entry)
 
             # Run pre_build hook (before dependencies)
             if build_config.pre_build:
@@ -235,50 +221,6 @@ class AppImageBuilder:
         (appdir / 'usr' / 'lib').mkdir(parents=True, exist_ok=True)
         (appdir / 'usr' / 'share' / 'applications').mkdir(parents=True, exist_ok=True)
         (appdir / 'usr' / 'share' / 'icons').mkdir(parents=True, exist_ok=True)
-
-    def _copy_sources(self, sources_dir: Path, appdir: Path,
-                      sources: list[Any], benchmark_dir: Path | None = None) -> None:
-        """Copy source files to AppDir.
-
-        Copies both external sources (downloaded/fetched) and local benchmark
-        files (from the benchmark.yaml directory) to the AppDir.
-
-        Args:
-            sources_dir: Directory containing fetched external sources
-            appdir: AppDir structure to copy into
-            sources: List of source specifications (to check if external)
-            benchmark_dir: Directory containing benchmark.yaml and local files
-        """
-        dest = appdir / 'usr' / 'bin'
-
-        # Helper to copy files/dirs
-        def copy_item(item: Path, target_dir: Path) -> None:
-            # Skip hidden files, benchmark.yaml, and build directories
-            if item.name.startswith('.'):
-                return
-            if item.name in ('benchmark.yaml', '__pycache__', 'build'):
-                return
-
-            target = target_dir / item.name
-            if item.is_file():
-                shutil.copy2(item, target)
-                # Preserve executable permission
-                if os.access(item, os.X_OK):
-                    target.chmod(target.stat().st_mode | 0o111)
-            elif item.is_dir():
-                if target.exists():
-                    shutil.rmtree(target)
-                shutil.copytree(item, target)
-
-        # Copy external sources (downloaded tarballs, git repos, etc.)
-        if sources and sources_dir.exists() and sources_dir.is_dir():
-            for item in sources_dir.iterdir():
-                copy_item(item, dest)
-
-        # Copy local benchmark files (C source, Makefile, Python scripts, etc.)
-        if benchmark_dir and benchmark_dir.exists() and benchmark_dir.is_dir():
-            for item in benchmark_dir.iterdir():
-                copy_item(item, dest)
 
     def _run_hook(self, appdir: Path, hook_script: str, hook_name: str) -> None:
         """Run a build hook script.
