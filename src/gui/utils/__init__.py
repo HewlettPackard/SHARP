@@ -7,9 +7,6 @@ GUI utilities: runlog loaders, formatters, input validators.
 from src.core.runlogs import scan_runlogs, load_csv, parse_markdown_runtime_options
 from src.core.stats.correlations import compute_generalized_correlation, safe_correlation
 from .filters import create_filter_ui, apply_filter, get_filterable_columns, is_full_range_filter
-from .profile.metrics import (
-    select_default_metric,
-)
 from .profile.cutoff import (
     suggest_cutoff,
     compute_cutoff_from_data,
@@ -39,7 +36,6 @@ __all__ = [
     "apply_filter",
     "get_filterable_columns",
     "is_full_range_filter",
-    "select_default_metric",
     "check_prof_file_exists",
     "get_markdown_path",
     "validate_markdown",

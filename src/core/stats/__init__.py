@@ -18,7 +18,7 @@ from .comparisons import (
     comparison_table
 )
 from .narrative import (
-    characterize_changepoints,
+    describe_changepoints,
     format_p_value,
     report_test
 )
@@ -35,7 +35,7 @@ __all__ = [
     'density_comparison',
     'comparison_table',
     # Narrative generation
-    'characterize_changepoints',
+    'describe_changepoints',
     'format_p_value',
     'report_test',
 ]

@@ -8,17 +8,22 @@ distribution visualization, and pairwise comparisons.
 """
 
 from shiny import ui, render, reactive, Inputs, Outputs, Session
+from typing import Any, cast
 import polars as pl
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
 from pathlib import Path
 
 from src.core.runlogs import load_csv, get_experiments, get_tasks_for_experiment
 from src.core.stats.distribution import compute_summary, characterize_distribution, create_distribution_plot
 from src.core.config.settings import Settings
+from src.gui.utils.ui_helpers import *
 
 
-def explore_ui() -> ui.TagChild:
+from typing import Any
+
+def explore_ui() -> Any:
     """Create Explore tab UI."""
     return ui.nav_panel(
         "Explore",
@@ -111,18 +116,18 @@ def explore_ui() -> ui.TagChild:
     )
 
 
-def explore_server(input: Inputs, output: Outputs, session: Session):
+def explore_server(input: Inputs, output: Outputs, session: Session) -> None:
     """Server logic for Explore tab."""
     # Reactive values for data storage
-    raw_data = reactive.value(None)
-    filtered_data = reactive.value(None)
+    raw_data: reactive.Value[pl.DataFrame | None] = reactive.Value(None)
+    filtered_data: reactive.Value[pl.DataFrame | None] = reactive.Value(None)
     data_loading = reactive.value(False)
-    preload_data = reactive.value(None)  # Stores preload config from other tabs
+    preload_data: reactive.Value[dict[str, Any] | None] = reactive.Value(None)  # Stores preload config from other tabs
 
     # Handle preload data received via custom message from other tabs
     @reactive.effect
     @reactive.event(input.explore_preload_config)
-    def _receive_preload_config():
+    def _receive_preload_config() -> None:
         """Receive and process explore preload configuration."""
         try:
             import json
@@ -137,17 +142,12 @@ def explore_server(input: Inputs, output: Outputs, session: Session):
 
     # Initialize experiment dropdown on startup (default from settings)
     @reactive.effect
-    def _init_experiments():
-        experiments = get_experiments()
-        # Add empty option at the beginning to allow no selection
-        choices = {"" : "(select experiment)"} | experiments
-        default_exp = Settings().get("gui.default_experiment", "misc")
-        default = default_exp if default_exp in experiments else ""
-        ui.update_select("explore_experiment", choices=choices, selected=default)
+    def _init_experiments() -> None:
+        init_experiment_selector(session, "explore_experiment")
 
     # Apply preload when preload data is set
     @reactive.effect
-    def _apply_preload():
+    def _apply_preload() -> None:
         """Apply preload data to dropdowns and load CSV."""
         preload = preload_data.get()
         if preload:
@@ -157,7 +157,7 @@ def explore_server(input: Inputs, output: Outputs, session: Session):
             # Set pending task before changing experiment
             # This way when _update_tasks() runs, it will apply this selection
             if "csv_path" in preload and preload["csv_path"]:
-                session.pending_task_selection = preload["csv_path"]
+                cast(Any, session).pending_task_selection = preload["csv_path"]
 
             # Update experiment - this will trigger _update_tasks()
             # First reset to empty to ensure the event fires even if experiment doesn't change
@@ -168,15 +168,8 @@ def explore_server(input: Inputs, output: Outputs, session: Session):
     # Update task dropdown when experiment changes
     @reactive.effect
     @reactive.event(input.explore_experiment)
-    def _update_tasks():
-        if not (experiment := input.explore_experiment()):
-            # Reset task dropdown when no experiment selected
-            ui.update_select("explore_task", choices={"": "(select task)"}, selected="")
-            return
-
-        # Get tasks for this experiment
-        tasks = get_tasks_for_experiment(experiment)
-        choices = {"": "(select task)"} | tasks
+    def _update_tasks() -> None:
+        experiment = input.explore_experiment()
 
         # Determine which task to select
         selected_task = ""
@@ -184,17 +177,14 @@ def explore_server(input: Inputs, output: Outputs, session: Session):
             # Use pending task from preload if available
             task_path = session.pending_task_selection
             session.pending_task_selection = None  # Clear after using
-            if task_path in tasks:
-                selected_task = task_path
+            selected_task = task_path
 
-        # Always reset and update to ensure selection is cleared and refreshed
-        # This prevents old selections from persisting when experiment changes
-        ui.update_select("explore_task", choices=choices, selected=selected_task)
+        update_task_selector(session, experiment, "explore_task", selected=selected_task)
 
     # Load CSV when task is selected
     @reactive.effect
     @reactive.event(input.explore_task)
-    def _():
+    def _() -> None:
         if not (csv_path := input.explore_task()):
             # Reset data
             raw_data.set(None)
@@ -210,7 +200,7 @@ def explore_server(input: Inputs, output: Outputs, session: Session):
         finally:
             data_loading.set(False)
 
-    def _load_csv_file(file_path: str | Path):
+    def _load_csv_file(file_path: str | Path) -> None:
         """Load CSV file and update reactive values."""
         try:
             ui.notification_show("Loading data...", type="message", duration=None, id="explore_load_msg")
@@ -218,14 +208,15 @@ def explore_server(input: Inputs, output: Outputs, session: Session):
             df = load_csv(file_path)
 
             # Get metric names (numeric columns)
-            metric_cols = [col for col in df.columns if df[col].dtype in (pl.Float64, pl.Float32, pl.Int64, pl.Int32)]
+            metric_cols_dict = get_numeric_columns(df)
 
             # Set default metric
-            default_metric = "inner_time" if "inner_time" in metric_cols else ("outer_time" if "outer_time" in metric_cols else metric_cols[0] if metric_cols else "")
+            default_metric = select_preferred_metric(metric_cols_dict)
 
             # Get filterable columns using reusable utility
             from ..utils import get_filterable_columns
             filterable_cols = get_filterable_columns(df)
+            filterable_choices = {col: col for col in filterable_cols}
 
             # Store data FIRST (before UI updates) so render functions see valid data
             raw_data.set(df)
@@ -234,21 +225,36 @@ def explore_server(input: Inputs, output: Outputs, session: Session):
             # Show "Processing data..." message while plots/tables render
             ui.notification_show("Processing data...", type="message", duration=None, id="explore_load_msg")
 
-            # Prepend empty string sentinel to prevent auto-selection issues
-            PLACEHOLDER = ""
-            metric_choices = [PLACEHOLDER] + sorted(metric_cols)
-            filterable_choices = [PLACEHOLDER] + filterable_cols
-
             # Update UI inputs with server-side selectize and sentinel values
             # Metric to visualize: prepend empty string, select default if found
-            selected_metric = default_metric if default_metric in metric_cols else PLACEHOLDER
-            ui.update_selectize("explore_metric", choices=metric_choices, selected=selected_metric, server=True)
+            update_metric_selector(
+                session,
+                "explore_metric",
+                metric_cols_dict,
+                selected=default_metric,
+                placeholder=""
+            )
 
             # Metrics to compare: multiple selection, start empty
-            ui.update_selectize("explore_compare_metrics", choices=metric_choices, selected=[], server=True)
+            update_metric_selector(
+                session,
+                "explore_compare_metrics",
+                metric_cols_dict,
+                selected=None,
+                placeholder=""
+            )
 
             # Filter metric: prepend empty string, select placeholder (no filter by default)
-            ui.update_selectize("explore_filter_metric", choices=filterable_choices, selected=PLACEHOLDER, server=True)
+            update_metric_selector(
+                session,
+                "explore_filter_metric",
+                filterable_choices,
+                selected=None,
+                placeholder=""
+            )
+
+            # Remove the message after rendering completes
+            ui.notification_remove(id="explore_load_msg")
 
             # Remove the message after rendering completes
             ui.notification_remove(id="explore_load_msg")
@@ -261,7 +267,7 @@ def explore_server(input: Inputs, output: Outputs, session: Session):
 
     @output
     @render.ui
-    def explore_filter_ui():
+    def explore_filter_ui() -> ui.TagChild | None:
         """Render dynamic filter UI based on selected metric."""
         filter_metric = input.explore_filter_metric()
 
@@ -280,7 +286,7 @@ def explore_server(input: Inputs, output: Outputs, session: Session):
             return None
 
     @reactive.effect
-    def update_filtered_data():
+    def update_filtered_data() -> None:
         """Update filtered data when filter changes."""
         df = raw_data.get()
         if df is None:
@@ -332,18 +338,19 @@ def explore_server(input: Inputs, output: Outputs, session: Session):
 
     @output
     @render.text
-    def explore_load_status():
+    def explore_load_status() -> str:
         """Show loading status indicator."""
+        df = raw_data.get()
         if data_loading.get():
             return "⏳ Loading..."
-        elif raw_data.get() is not None:
-            return f"✓ Loaded ({raw_data.get().shape[0]} rows)"
+        elif df is not None:
+            return f"✓ Loaded ({df.shape[0]} rows)"
         else:
             return ""
 
     @output
     @render.data_frame
-    def explore_table():
+    def explore_table() -> pl.DataFrame:
         """Render summary statistics using Shiny data_frame renderer (Polars native)."""
         df = filtered_data.get()
         metric = input.explore_metric()
@@ -367,29 +374,30 @@ def explore_server(input: Inputs, output: Outputs, session: Session):
 
     @output
     @render.text
-    def explore_characteristics():
+    def explore_characteristics() -> str:
         """Render distribution characteristics."""
-        if filtered_data() is None:
+        df = filtered_data()
+        if df is None:
             return "No data loaded."
 
         if not (metric := input.explore_metric()):
             return "No metric selected."
 
         # Check if metric exists in data
-        if metric not in filtered_data().columns:
+        if metric not in df.columns:
             return f"Metric '{metric}' not found in data."
 
         # Get max_changepoint_points setting
         settings = Settings()
         max_changepoint_points = settings.get("gui.explore.max_changepoint_points", 5000)
 
-        values = filtered_data()[metric].to_numpy()
+        values = df[metric].to_numpy()
         result = characterize_distribution(values, max_changepoint_points=max_changepoint_points)
         return result
 
     @output
     @render.plot
-    def explore_plot():
+    def explore_plot() -> Figure | None:
         """Render distribution plot."""
         df = filtered_data.get()
         metric = input.explore_metric()
@@ -415,7 +423,7 @@ def explore_server(input: Inputs, output: Outputs, session: Session):
 
     @output
     @render.plot
-    def explore_cor_plot():
+    def explore_cor_plot() -> Figure | None:
         """Render pairwise correlation plot."""
         df = filtered_data.get()
         compare_metrics = input.explore_compare_metrics()

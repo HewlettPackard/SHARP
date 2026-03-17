@@ -8,14 +8,14 @@ and file state detection for profiling workflow.
 """
 
 from pathlib import Path
-from typing import Optional, Dict, Tuple
+from typing import Dict, Tuple
 import polars as pl
 
 from src.core.runlogs import parse_markdown_runtime_options, parse_markdown_metadata, load_csv
 from src.core.config.settings import Settings
 
 
-def check_prof_file_exists(csv_path: str) -> Optional[str]:
+def check_prof_file_exists(csv_path: str) -> str | None:
     """
     Check if a profiling variant of the CSV file exists.
 
@@ -78,7 +78,7 @@ def validate_markdown(md_path: str) -> tuple[bool, str]:
         return False, f"Error reading markdown: {str(e)}"
 
 
-def extract_run_time_from_md(md_path: str) -> Optional[float]:
+def extract_run_time_from_md(md_path: str) -> float | None:
     """
     Extract run duration from markdown YAML frontmatter.
 
@@ -113,12 +113,12 @@ def extract_backends_from_md(md_path: str) -> list[str]:
     """
     try:
         metadata = parse_markdown_metadata(Path(md_path))
-        return metadata.get("backends", [])
+        return list(metadata.get("backends", []))
     except Exception:
         return []
 
 
-def extract_repeater_max_from_md(md_path: str) -> Optional[int]:
+def extract_repeater_max_from_md(md_path: str) -> int | None:
     """
     Extract the number of iterations from markdown file.
 
@@ -138,16 +138,16 @@ def extract_repeater_max_from_md(md_path: str) -> Optional[int]:
         # First try to get row count from V4 format (most accurate)
         metadata = parse_markdown_metadata(Path(md_path))
         if metadata.get("rows") is not None:
-            return metadata["rows"]
+            return int(metadata["rows"])
 
         # Fall back to repeater_options for pre-V4 files
-        runtime_opts = parse_markdown_runtime_options(md_path)
+        runtime_opts = parse_markdown_runtime_options(Path(md_path))
 
         if 'repeater_options' in runtime_opts:
             # Find the max value from any repeater
             for repeater_key, repeater_opts in runtime_opts['repeater_options'].items():
                 if 'max' in repeater_opts:
-                    return repeater_opts['max']
+                    return int(repeater_opts['max'])
 
         return None
     except Exception:
@@ -232,7 +232,7 @@ def detect_file_state(csv_path: str) -> tuple[str, Dict[str, Path]]:
         return "state3", paths
 
 
-def load_csv_with_validation(csv_path: str, md_path: Optional[str] = None) -> Tuple[Optional[pl.DataFrame], Optional[str]]:
+def load_csv_with_validation(csv_path: str, md_path: str | None = None) -> Tuple[pl.DataFrame | None, str | None]:
     """
     Load CSV and optionally validate its markdown file.
 

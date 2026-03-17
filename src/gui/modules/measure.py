@@ -6,8 +6,8 @@ Provides interface for launching benchmark experiments with various configuratio
 © Copyright 2025--2025 Hewlett Packard Enterprise Development LP
 """
 
-from shiny import ui, reactive, render
-from typing import Dict, Any
+from shiny import ui, reactive, render, Inputs, Outputs, Session
+from typing import Dict, Any, List
 import polars as pl
 import time
 
@@ -41,7 +41,7 @@ def _get_benchmark_choices() -> Dict[str, str]:
         return {}
 
 
-def measure_ui():
+def measure_ui() -> Any:
     """
     Create UI for Measure tab.
 
@@ -116,7 +116,7 @@ def measure_ui():
     )
 
 
-def measure_server(input, output, session, refresh_trigger=None):
+def measure_server(input: Inputs, output: Outputs, session: Session, refresh_trigger: reactive.Value[int] | None = None) -> None:
     """
     Server logic for Measure tab.
 
@@ -127,22 +127,22 @@ def measure_server(input, output, session, refresh_trigger=None):
         refresh_trigger: Optional reactive value to trigger overview refresh
     """
     # Reactive values
-    run_results = reactive.value(None)
+    run_results: reactive.Value[pl.DataFrame | None] = reactive.Value(None)
     metadata_text = reactive.value("No results yet. Click Run to start an experiment.")
-    backend_choices = reactive.value({})
+    backend_choices: reactive.Value[Dict[str, str]] = reactive.Value({})
     bench_value = reactive.value("")  # For prepopulating bench field from rerun
-    completion_info = reactive.value(None)  # Stores {duration, experiment, task, csv_path} after successful run
+    completion_info: reactive.Value[Dict[str, Any] | None] = reactive.Value(None)  # Stores {duration, experiment, task, csv_path} after successful run
 
     # Initialize experiment name from settings
     @reactive.effect
-    def _init_experiment_name():
+    def _init_experiment_name() -> None:
         default_exp = Settings().get("gui.default_experiment", "misc")
         ui.update_text("experiment", value=default_exp)
 
     # Handle rerun configuration received from overview tab via JavaScript
     @reactive.effect
     @reactive.event(input.rerun_config_data)
-    def _receive_rerun_config():
+    def _receive_rerun_config() -> None:
         """Receive and parse rerun configuration from overview tab."""
         try:
             import json
@@ -156,7 +156,7 @@ def measure_server(input, output, session, refresh_trigger=None):
             import traceback
             traceback.print_exc()
 
-    def _apply_rerun_config(config: dict):
+    def _apply_rerun_config(config: dict[str, Any]) -> None:
         """Apply rerun configuration to form fields."""
         if not config:
             return
@@ -218,7 +218,7 @@ def measure_server(input, output, session, refresh_trigger=None):
 
     # Initialize backend choices on first load
     @reactive.effect
-    def _init_backends():
+    def _init_backends() -> None:
         try:
             backends = discover_backends()
             choices = {"(none)": "(none)"}  # Add "None" option for multi-backend cases
@@ -235,7 +235,7 @@ def measure_server(input, output, session, refresh_trigger=None):
             backend_choices.set({"(none)": "(none)"})
 
     @render.ui
-    def backend_selector():
+    def backend_selector() -> ui.TagChild:
         """Render backend selector with available choices."""
         choices = backend_choices.get()
         if not choices:
@@ -248,7 +248,7 @@ def measure_server(input, output, session, refresh_trigger=None):
         )
 
     @render.ui
-    def bench_selector():
+    def bench_selector() -> ui.TagChild:
         """Render benchmark selector with autocomplete from discovered benchmarks."""
         choices = _get_benchmark_choices()
         # Get the current value (may be set by rerun)
@@ -276,7 +276,7 @@ def measure_server(input, output, session, refresh_trigger=None):
 
     @reactive.effect
     @reactive.event(input.run_button)
-    def _on_run_button():
+    def _on_run_button() -> None:
         """Handle Run button click - launch experiment via ExecutionOrchestrator."""
         # Validate required fields
         if not input.bench() or input.bench().strip() == "":
@@ -322,7 +322,7 @@ def measure_server(input, output, session, refresh_trigger=None):
                 stopping_rule = str(stopping_rule)
             repeater_key = "CR" if stopping_rule == "COUNT" else stopping_rule
 
-            config = {}  # Empty config, will be populated by load_backend_options
+            config: dict[str, Any] = {}  # Empty config, will be populated by load_backend_options
             try:
                 # Handle backend selection: if "(none)" is selected, use empty list
                 # The orchestrator will default to 'local' if backend_names is empty
@@ -397,16 +397,16 @@ def measure_server(input, output, session, refresh_trigger=None):
                 )
 
                 # Define progress callbacks
-                def on_iteration_start(iteration: int):
+                def on_iteration_start(iteration: int) -> None:
                     p.set(iteration, message=f"Running iteration {iteration}/{input.n()}")
 
-                def on_iteration_complete(iteration: int, metrics: Dict[str, Any]):
+                def on_iteration_complete(iteration: int, metrics: Dict[str, Any]) -> None:
                     p.set(iteration, message=f"Completed iteration {iteration}/{input.n()}")
 
-                def on_convergence(status: str):
+                def on_convergence(status: str) -> None:
                     p.set(message="Finalizing results...")
 
-                def on_error(error: Exception):
+                def on_error(error: Exception) -> None:
                     # Clear results on error
                     run_results.set(None)
                     metadata_text.set(f"✗ Experiment error: {str(error)}")
@@ -491,7 +491,7 @@ def measure_server(input, output, session, refresh_trigger=None):
                 metadata_text.set(f"✗ Error launching experiment: {error_msg}\n\n{error_details}")
 
     @render.data_frame
-    def run_data():
+    def run_data() -> Any:
         """Render run results table with pagination."""
         results = run_results.get()
         if results is not None:
@@ -499,12 +499,12 @@ def measure_server(input, output, session, refresh_trigger=None):
             return render.DataTable(results)
 
     @render.text
-    def md_data():
+    def md_data() -> str:
         """Render metadata text."""
         return metadata_text.get()
 
     @render.ui
-    def completion_status_bar():
+    def completion_status_bar() -> ui.TagChild:
         """Render success status bar with Explore link after run completes."""
         info = completion_info.get()
         if not info:
@@ -545,7 +545,7 @@ def measure_server(input, output, session, refresh_trigger=None):
 
     @reactive.effect
     @reactive.event(input.explore_completed_run_click)
-    async def _navigate_to_explore_from_completion():
+    async def _navigate_to_explore_from_completion() -> None:
         """Navigate to Explore tab when completion status bar link is clicked."""
         try:
             info = completion_info.get()

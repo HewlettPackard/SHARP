@@ -4,7 +4,7 @@ Cutoff computation and management utilities for profile workflow.
 © Copyright 2025--2025 Hewlett Packard Enterprise Development LP
 """
 
-from typing import Optional
+from typing import Callable, Tuple
 import numpy as np
 from scipy import stats
 import polars as pl
@@ -61,7 +61,7 @@ def suggest_cutoff(x: np.ndarray) -> float:
             return float(np.median(x_clean))
 
 
-def compute_cutoff_from_data(data: pl.DataFrame, metric_col: Optional[str] = None) -> Optional[float]:
+def compute_cutoff_from_data(data: pl.DataFrame, metric_col: str | None = None) -> float | None:
     """
     Compute suggested cutoff for a given metric in profiling data.
 
@@ -93,7 +93,7 @@ def compute_cutoff_from_data(data: pl.DataFrame, metric_col: Optional[str] = Non
         return None
 
 
-def compute_suggested_cutoff(data: pl.DataFrame, metric_col: str) -> Optional[float]:
+def compute_suggested_cutoff(data: pl.DataFrame, metric_col: str) -> float | None:
     """
     Compute suggested cutoff from data distribution.
 
@@ -153,8 +153,8 @@ def validate_cutoff_range(
         if len(metric_values) == 0:
             return (0, 0)
 
-        n_below = (metric_values <= cutoff).sum()
-        n_above = (metric_values > cutoff).sum()
+        n_below = int((metric_values <= cutoff).sum())
+        n_above = int((metric_values > cutoff).sum())
 
         return (n_below, n_above)
 
@@ -167,8 +167,8 @@ def search_optimal_cutoff(
     metric_col: str,
     exclusions: list[str],
     max_search_points: int = 100,
-    progress_callback: Optional[callable] = None
-) -> Optional[float]:
+    progress_callback: Callable[[float, str], None] | None = None
+) -> float | None:
     """
     Search for optimal cutoff point that minimizes decision tree AIC.
 

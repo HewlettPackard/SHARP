@@ -9,16 +9,18 @@ estimating autocorrelation, and characterizing distributions.
 
 import numpy as np
 from scipy import stats
-from typing import Dict, Optional, Tuple, Any
+from typing import Any
 import warnings
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
+from matplotlib.figure import Figure
 
 # Threshold for automatic model selection in change point detection.
 # Below this sample size, use RBF (more accurate); above, use L2 (faster).
 AUTO_MODEL_THRESHOLD = 500
 
 
-def compute_summary(x: np.ndarray, digits: int = 5) -> Dict[str, float]:
+def compute_summary(x: np.ndarray, digits: int = 5) -> dict[str, float]:
     """
     Compute summary statistics for a given vector.
 
@@ -68,9 +70,9 @@ def compute_summary(x: np.ndarray, digits: int = 5) -> Dict[str, float]:
 
 
 def detect_change_points(x: np.ndarray, model: str = "auto",
-                        pen: Optional[float] = None,
-                        min_size: Optional[int] = None,
-                        auto_threshold: int = AUTO_MODEL_THRESHOLD) -> Dict[str, Any]:
+                        pen: float | None = None,
+                        min_size: int | None = None,
+                        auto_threshold: int = AUTO_MODEL_THRESHOLD) -> dict[str, Any]:
     """
     Detect change points using PELT algorithm.
 
@@ -135,7 +137,7 @@ def detect_change_points(x: np.ndarray, model: str = "auto",
 
 
 def estimate_acf_lag(x: np.ndarray, threshold: float = 0.2,
-                    max_lag: Optional[int] = None) -> Dict[str, Any]:
+                    max_lag: int | None = None) -> dict[str, Any]:
     """
     Estimate autocorrelation lag (where ACF drops below threshold).
 
@@ -214,7 +216,7 @@ def _is_unimodal(x: np.ndarray, bins: int = 20) -> bool:
             try:
                 skewness = stats.skew(x[~np.isnan(x)])
                 # If significantly skewed, treat 2 peaks as unimodal with noise
-                return abs(skewness) >= 0.5
+                return bool(abs(skewness) >= 0.5)
             except Exception:
                 return False
 
@@ -247,7 +249,7 @@ def _is_amodal(x: np.ndarray) -> bool:
         value_range = np.max(x_clean) - np.min(x_clean)
 
         # If mode and median are close and value range is large, likely amodal
-        return (abs(mode_val - median_val) / (value_range + 1e-10)) < 0.05
+        return bool((abs(mode_val - median_val) / (value_range + 1e-10)) < 0.05)
     except Exception:
         return False
 
@@ -282,7 +284,7 @@ def _find_modes(x: np.ndarray, bins: int = 20) -> list[float]:
         return [np.median(x_clean)]
 
 
-def _test_normality(x_clean: np.ndarray) -> Optional[str]:
+def _test_normality(x_clean: np.ndarray) -> str | None:
     """
     Test for normality and log-normality, returning narrative text.
 
@@ -323,8 +325,9 @@ def _test_normality(x_clean: np.ndarray) -> Optional[str]:
 
 def characterize_distribution(x: np.ndarray, skew_thresh: float = 0.5,
                               model: str = "auto",
-                              pen: Optional[float] = None,
-                              min_size: Optional[int] = None) -> str:
+                              pen: float | None = None,
+                              min_size: int | None = None,
+                              max_changepoint_points: int = 5000) -> str:
     """
     Characterize the distribution of a numeric vector with narrative text.
 
@@ -334,6 +337,8 @@ def characterize_distribution(x: np.ndarray, skew_thresh: float = 0.5,
         model: Change point model ("auto" adapts based on sample size)
         pen: Penalty for change point detection
         min_size: Minimum segment size for change points
+        max_changepoint_points: Maximum number of points to use for changepoint detection.
+                                Larger datasets will be downsampled.
 
     Returns:
         Narrative string describing the distribution
@@ -370,15 +375,32 @@ def characterize_distribution(x: np.ndarray, skew_thresh: float = 0.5,
         narrative.append(normality_result)
 
     # Changepoint analysis - model selection is adaptive (RBF for ≤500, L2 for larger)
-    from .narrative import characterize_changepoints
-    cp_narrative = characterize_changepoints(x_clean, model=model, pen=pen, min_size=min_size)
-    if cp_narrative:
-        narrative.append(cp_narrative)
+    from .narrative import describe_changepoints
+
+    # Downsample for expensive temporal analysis if needed
+    if len(x_clean) > max_changepoint_points:
+        # Use simple uniform sampling
+        indices = np.linspace(0, len(x_clean) - 1, max_changepoint_points, dtype=int)
+        x_cp = x_clean[indices]
+    else:
+        x_cp = x_clean
+
+    # Pre-calculate stats to avoid circular dependency in narrative module
+    acf_info = estimate_acf_lag(x_cp)
+    cp_result = detect_change_points(x_cp, model=model, pen=pen, min_size=min_size)
+
+    if 'error' not in cp_result:
+        cps = cp_result.get('cps', [])
+        min_seg_size = cp_result.get('min_size', 3)
+
+        cp_narrative = describe_changepoints(x_cp, cps, acf_info, min_seg_size=min_seg_size)
+        if cp_narrative:
+            narrative.append(cp_narrative)
 
     return " ".join(narrative)
 
 
-def _compute_histogram_bins(values: np.ndarray) -> Tuple[int, float]:
+def _compute_histogram_bins(values: np.ndarray) -> tuple[int, float]:
     """
     Compute adaptive histogram binning using Freedman-Diaconis rule.
 
@@ -407,7 +429,7 @@ def _compute_histogram_bins(values: np.ndarray) -> Tuple[int, float]:
     return n_bins, bin_width
 
 
-def _render_histogram(ax, values: np.ndarray, n_bins: int):
+def _render_histogram(ax: Any, values: np.ndarray, n_bins: int) -> Any:
     """Render histogram and return counts for downstream use."""
     hist_counts, bin_edges_hist, patches = ax.hist(
         values, bins=n_bins, color='deeppink', alpha=0.5,
@@ -416,7 +438,7 @@ def _render_histogram(ax, values: np.ndarray, n_bins: int):
     return hist_counts
 
 
-def _render_intervals(ax, values: np.ndarray):
+def _render_intervals(ax: Any, values: np.ndarray) -> None:
     """Render 95% and 67% quantile intervals."""
     q95_low, q95_high = np.quantile(values, [0.025, 0.975])
     q67_low, q67_high = np.quantile(values, [0.165, 0.835])
@@ -424,7 +446,7 @@ def _render_intervals(ax, values: np.ndarray):
     ax.axvspan(q67_low, q67_high, color='purple', alpha=0.18, label='67% interval')
 
 
-def _render_mode_marker(ax, values: np.ndarray, n_bins: int):
+def _render_mode_marker(ax: Any, values: np.ndarray, n_bins: int) -> None:
     """Render mode marker at the peak of the histogram."""
     counts, bin_edges = np.histogram(values, bins=n_bins)
     mode_bin = np.argmax(counts)
@@ -432,7 +454,7 @@ def _render_mode_marker(ax, values: np.ndarray, n_bins: int):
     ax.axvline(mode_x, color='orange', linestyle='--', linewidth=1.5, label='Mode')
 
 
-def _prepare_scatter_data(values: np.ndarray, max_scatter_points: int):
+def _prepare_scatter_data(values: np.ndarray, max_scatter_points: int) -> np.ndarray:
     """Downsample scatter data if needed for performance."""
     n = len(values)
     if n > max_scatter_points:
@@ -442,9 +464,9 @@ def _prepare_scatter_data(values: np.ndarray, max_scatter_points: int):
     return values
 
 
-def _render_scatter(ax, values: np.ndarray, jitter: np.ndarray, divider: Optional[float] = None,
+def _render_scatter(ax: Any, values: np.ndarray, jitter: np.ndarray, divider: float | None = None,
                     left_color: str = '#2ca02c', right_color: str = '#ff7f0e',
-                    divider_color: str = '#1f77b4', alpha: float = 0.4):
+                    divider_color: str = '#1f77b4', alpha: float = 0.4) -> None:
     """Render jittered scatter plot with optional divider coloring.
 
     Args:
@@ -471,7 +493,7 @@ def _render_scatter(ax, values: np.ndarray, jitter: np.ndarray, divider: Optiona
         ax.scatter(values, jitter, s=24, alpha=alpha, color='black', rasterized=True)
 
 
-def _render_boxplot(ax, values: np.ndarray, jitter_height: float, boxplot_y: float):
+def _render_boxplot(ax: Any, values: np.ndarray, jitter_height: float, boxplot_y: float) -> None:
     """Render boxplot overlay on scatter plot."""
     bp = ax.boxplot(values, vert=False, widths=jitter_height * 0.6,
                    positions=[boxplot_y], patch_artist=True, showfliers=False)
@@ -483,7 +505,7 @@ def _render_boxplot(ax, values: np.ndarray, jitter_height: float, boxplot_y: flo
         median.set_linewidth(2)
 
 
-def _add_plot_annotations(ax, n: int, bin_width: float, hist_counts_max: float, jitter_height: float):
+def _add_plot_annotations(ax: Any, n: int, bin_width: float, hist_counts_max: float, jitter_height: float) -> None:
     """Add sample size, binning, and axis information to the plot."""
     # Sample size and binning annotation
     info_text = f'n={n}\nbinwidth={bin_width:.2g}'
@@ -500,8 +522,8 @@ def _add_plot_annotations(ax, n: int, bin_width: float, hist_counts_max: float, 
     ax.set_ylim(bottom=y_bottom, top=y_top)
 
     # Enable y-axis with numeric labels
-    ax.yaxis.set_major_locator(plt.MaxNLocator(integer=True, nbins=6))
-    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: f'{int(x)}' if x == int(x) else ''))
+    ax.yaxis.set_major_locator(ticker.MaxNLocator(integer=True, nbins=6))
+    ax.yaxis.set_major_formatter(ticker.FuncFormatter(lambda x, p: f'{int(x)}' if x == int(x) else ''))
     ax.grid(alpha=0.3, axis='both')
 
     # Manage legend
@@ -511,10 +533,11 @@ def _add_plot_annotations(ax, n: int, bin_width: float, hist_counts_max: float, 
         pass
 
 
-def create_distribution_plot(values: np.ndarray, metric: str, divider: Optional[float] = None,
+def create_distribution_plot(values: np.ndarray, metric: str, divider: float | None = None,
                             max_scatter_points: int = 2000,
                             left_color: str = '#2ca02c', right_color: str = '#ff7f0e',
-                            divider_color: str = '#1f77b4', alpha: float = 0.4):
+                            divider_color: str = '#1f77b4', alpha: float = 0.4) -> Figure:
+
     """Create enriched distribution plot approximating R half-eye + boxplot.
 
     Features:

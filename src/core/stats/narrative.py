@@ -8,7 +8,7 @@ analyses (changepoints, test results, etc.).
 """
 
 import numpy as np
-from typing import Optional, Dict, Any, List
+from typing import Any, Callable
 from scipy import stats
 
 
@@ -68,21 +68,17 @@ def format_sig_figs(value: float, sig_figs: int = 3, is_integer: bool = False) -
         return formatted
 
 
-def _characterize_acf(x_clean: np.ndarray, acf_threshold: float) -> List[str]:
+def describe_acf(acf_info: dict[str, Any]) -> list[str]:
     """
     Generate narrative about autocorrelation in the time series.
 
     Args:
-        x_clean: Clean numeric array (no NaNs)
-        acf_threshold: Threshold for ACF significance
+        acf_info: Dictionary with 'max_acf' and 'lag' keys
 
     Returns:
         List of narrative strings about ACF
     """
-    from .distribution import estimate_acf_lag
-
     narrative = []
-    acf_info = estimate_acf_lag(x_clean, threshold=acf_threshold)
 
     if 'max_acf' in acf_info and not np.isnan(acf_info['max_acf']):
         max_acf = acf_info['max_acf']
@@ -103,9 +99,9 @@ def _characterize_acf(x_clean: np.ndarray, acf_threshold: float) -> List[str]:
     return narrative
 
 
-def _characterize_period(x_clean: np.ndarray, cps: List[int], n: int,
+def _characterize_period(x_clean: np.ndarray, cps: list[int], n: int,
                          min_seg_size: int, threshold_pct: float,
-                         period_type: str) -> tuple[List[str], List[int]]:
+                         period_type: str) -> tuple[list[str], list[int]]:
     """
     Detect and characterize a performance period (warmup or cooldown).
 
@@ -120,7 +116,10 @@ def _characterize_period(x_clean: np.ndarray, cps: List[int], n: int,
     Returns:
         Tuple of (narrative list, matched change points list)
     """
-    narrative = []
+    narrative: list[str] = []
+
+    idx_selector: Callable[[list[int]], int | None]
+    position_label: Callable[[int], str]
 
     if period_type == "warmup":
         threshold = int(threshold_pct * n)
@@ -163,29 +162,24 @@ def _characterize_period(x_clean: np.ndarray, cps: List[int], n: int,
     return narrative, matched_cps
 
 
-def characterize_changepoints(x: np.ndarray, model: str = "auto",
-                              pen: Optional[float] = None,
-                              min_size: Optional[int] = None,
-                              acf_threshold: float = 0.2,
-                              warmup_pct: float = 0.3,
-                              cooldown_pct: float = 0.7) -> str:
+def describe_changepoints(x: np.ndarray, cps: list[int], acf_info: dict[str, Any],
+                          min_seg_size: int = 3,
+                          warmup_pct: float = 0.3,
+                          cooldown_pct: float = 0.7) -> str:
     """
     Characterize warmup, cooldown, and change points in a time series.
 
     Args:
         x: Numeric array (time series)
-        model: Change point model ("auto" adapts based on sample size)
-        pen: Penalty for change point detection
-        min_size: Minimum segment size
-        acf_threshold: Threshold for ACF significance
+        cps: List of detected change points
+        acf_info: Dictionary with ACF analysis results
+        min_seg_size: Minimum segment size used in detection
         warmup_pct: Percentage threshold for warmup detection (0-1)
         cooldown_pct: Percentage threshold for cooldown detection (0-1)
 
     Returns:
         Narrative string describing temporal patterns
     """
-    from .distribution import detect_change_points
-
     x_clean = x[~np.isnan(x)]
     n = len(x_clean)
 
@@ -195,20 +189,11 @@ def characterize_changepoints(x: np.ndarray, model: str = "auto",
     narrative = []
 
     # ACF analysis
-    narrative.extend(_characterize_acf(x_clean, acf_threshold))
+    narrative.extend(describe_acf(acf_info))
 
-    # Change point detection
-    cp_result = detect_change_points(x_clean, model=model, pen=pen, min_size=min_size)
-
-    if 'error' in cp_result:
-        return " ".join(narrative)
-
-    cps = cp_result.get('cps', [])
     if len(cps) == 0:
         narrative.append("No significant change points detected; series appears stationary.")
         return " ".join(narrative)
-
-    min_seg_size = cp_result.get('min_size', 3)
 
     # Detect warmup
     warmup_narrative, early_cps = _characterize_period(x_clean, cps, n, min_seg_size, warmup_pct, "warmup")
@@ -259,7 +244,7 @@ def format_p_value(p: float, rounding: int = 2, p_option: str = "rounded") -> st
                     return f"{p:.{rounding}f}"
 
 
-def report_test(test_result: Dict[str, Any], rounding: int = 2,
+def report_test(test_result: dict[str, Any], rounding: int = 2,
                p_option: str = "rounded") -> str:
     """
     Generate a formatted report of a statistical test result.

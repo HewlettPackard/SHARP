@@ -20,7 +20,7 @@ from src.gui.utils.profile.files import (
 from src.core.config import discover_backends
 
 
-def build_choose_source_modal(prof_csv: Optional[str] = None):
+def build_choose_source_modal(prof_csv: str | None = None) -> ui.Tag:
     """
     Build modal for choosing profiling data source or action.
 
@@ -37,7 +37,7 @@ def build_choose_source_modal(prof_csv: Optional[str] = None):
     # Build message based on prof file availability
     has_prof_data = prof_csv is not None
 
-    if has_prof_data:
+    if prof_csv:
         file_display = Path(prof_csv).name
 
         message = ui.tags.div(
@@ -90,7 +90,7 @@ def build_choose_source_modal(prof_csv: Optional[str] = None):
     )
 
 
-def build_configure_modal(prof_md: Optional[str] = None):
+def build_configure_modal(prof_md: str | None = None) -> ui.Tag:
     """
     Build modal for configuring a profiling run.
 
@@ -195,7 +195,7 @@ def build_configure_modal(prof_md: Optional[str] = None):
     )
 
 
-def build_invalid_backend_modal(error_msg: str):
+def build_invalid_backend_modal(error_msg: str) -> ui.Tag:
     """
     Build modal for invalid backend configuration error.
 
@@ -223,7 +223,7 @@ def build_invalid_backend_modal(error_msg: str):
     )
 
 
-def build_profiling_error_modal(error_msg: str):
+def build_profiling_error_modal(error_msg: str) -> ui.TagChild:
     """
     Build modal for profiling execution error.
 
@@ -254,7 +254,7 @@ def build_profiling_error_modal(error_msg: str):
     )
 
 
-def build_try_mitigation_modal(mitigation_exists: bool, is_automated: bool):
+def build_try_mitigation_modal(mitigation_exists: bool, is_automated: bool) -> ui.Tag:
     """
     Build modal for attempting mitigation.
 

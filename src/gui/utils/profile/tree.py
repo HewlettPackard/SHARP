@@ -7,12 +7,13 @@ performance classification.
 © Copyright 2025--2025 Hewlett Packard Enterprise Development LP
 """
 
-from typing import Optional, Any, Dict, List
+from typing import Any, Dict, List, Callable
 from io import BytesIO
 import traceback
 import numpy as np
 import polars as pl
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
 from PIL import Image
 import graphviz
 from sklearn.tree import DecisionTreeClassifier
@@ -21,7 +22,7 @@ from src.core.stats.correlations import compute_generalized_correlation
 from src.core.config.settings import Settings
 
 
-def _encode_features(data: pl.DataFrame, feature_cols: list[str]) -> tuple[np.ndarray, list[str]]:
+def _encode_features(data: pl.DataFrame, feature_cols: list[str]) -> tuple[np.ndarray | None, list[str]]:
     """
     Encode features with one-hot encoding for categorical columns.
     Preserves NaN values for sklearn's missing value support.
@@ -161,7 +162,7 @@ def _filter_and_select_top_predictors(correlations: Dict[str, float], max_predic
     return sorted_preds[:num_to_select]
 
 
-def select_tree_predictors(data: pl.DataFrame, metric: str, exclude: list[str] = None,
+def select_tree_predictors(data: pl.DataFrame, metric: str, exclude: list[str] | None = None,
                           max_predictors: int = 100, max_correlation: float = 0.99) -> list[str]:
     """
     Select best predictors for decision tree, using generalized correlation.
@@ -210,8 +211,8 @@ def select_tree_predictors(data: pl.DataFrame, metric: str, exclude: list[str] =
 def select_complete_rows(
     data: pl.DataFrame,
     columns: list[str],
-    target_rows: int = None,
-    completeness_threshold: float = None
+    target_rows: int | None = None,
+    completeness_threshold: float | None = None
 ) -> pl.DataFrame:
     """
     Select rows from data that have high completeness in the specified columns.
@@ -281,8 +282,8 @@ def select_complete_rows(
 
 
 def compute_tree(data: pl.DataFrame, metric: str, cutoff: float,
-                exclude: list[str] = None, max_predictors: int = 100,
-                max_correlation: float = 0.99, predictors: list[str] = None) -> Optional[DecisionTreeClassifier]:
+                exclude: list[str] | None = None, max_predictors: int = 100,
+                max_correlation: float = 0.99, predictors: list[str] | None = None) -> DecisionTreeClassifier | None:
     """
     Train decision tree classifier for performance classification.
 
@@ -393,7 +394,7 @@ def _format_threshold(threshold: float) -> str:
         return f"{threshold:.2f}"
 
 
-def _create_dot_node(node_id: int, tree, feature_names: List[str],
+def _create_dot_node(node_id: int, tree: Any, feature_names: List[str],
                      left_color: str, right_color: str) -> str:
     """
     Create DOT graph node specification for a tree node.
@@ -421,7 +422,7 @@ def _create_dot_node(node_id: int, tree, feature_names: List[str],
         return f'{node_id} [label="{feature_name}", fillcolor="#f0f0f0"] ;'
 
 
-def _create_dot_edges(node_id: int, tree) -> List[str]:
+def _create_dot_edges(node_id: int, tree: Any) -> List[str]:
     """
     Create DOT graph edge specifications for a tree node's children.
 
@@ -478,7 +479,7 @@ def _build_tree_dot_graph(tree: DecisionTreeClassifier, feature_names: List[str]
     return '\n'.join(dot_lines)
 
 
-def _render_dot_to_matplotlib(dot_data: str, figsize: tuple = (14, 10)):
+def _render_dot_to_matplotlib(dot_data: str, figsize: tuple[int, int] = (14, 10)) -> Figure:
     """
     Render DOT graph to matplotlib figure.
 
@@ -502,7 +503,7 @@ def _render_dot_to_matplotlib(dot_data: str, figsize: tuple = (14, 10)):
     return fig
 
 
-def _create_error_figure(message: str, color: str = '#666') -> Any:
+def _create_error_figure(message: str, color: str = '#666') -> Figure:
     """
     Create a matplotlib figure with an error or info message.
 
@@ -521,7 +522,7 @@ def _create_error_figure(message: str, color: str = '#666') -> Any:
     return fig
 
 
-def render_tree_plot(tree: DecisionTreeClassifier, left_color: str, right_color: str) -> Any:
+def render_tree_plot(tree: DecisionTreeClassifier, left_color: str, right_color: str) -> Figure:
     """
     Render decision tree visualization using graphviz and matplotlib.
 
@@ -554,7 +555,7 @@ def render_tree_plot(tree: DecisionTreeClassifier, left_color: str, right_color:
 
 
 
-def _calculate_aic(y_true: np.ndarray, y_pred: np.ndarray, n_nodes: int) -> Optional[float]:
+def _calculate_aic(y_true: np.ndarray, y_pred: np.ndarray, n_nodes: int) -> float | None:
     """
     Calculate AIC for a classification tree.
 
@@ -579,7 +580,7 @@ def _calculate_aic(y_true: np.ndarray, y_pred: np.ndarray, n_nodes: int) -> Opti
     # AIC = 2k - 2ln(L)
     aic = 2 * n_nodes - 2 * log_likelihood
 
-    return aic
+    return float(aic)
 
 
 def summarize_tree(
@@ -587,8 +588,8 @@ def summarize_tree(
     data: pl.DataFrame,
     metric_col: str,
     cutoff: float,
-    exclude: list[str] = None
-) -> Optional[Dict[str, Any]]:
+    exclude: list[str] | None = None
+) -> Dict[str, Any] | None:
     """
     Summarize decision tree statistics including AIC.
 
@@ -681,8 +682,8 @@ def search_for_cutoff(
     metric_col: str,
     exclude: list[str],
     max_search_points: int = 100,
-    progress_callback: Optional[callable] = None
-) -> Optional[float]:
+    progress_callback: Callable[..., Any] | None = None
+) -> float | None:
     """
     Search for optimal cutoff point that minimizes decision tree AIC.
 

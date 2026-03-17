@@ -8,14 +8,15 @@ Provides reusable functions for comparing two datasets with plots and tables.
 
 import numpy as np
 import matplotlib.pyplot as plt
-from typing import Dict, Any
+from matplotlib.figure import Figure
+from typing import Dict, Any, Tuple
 
 from src.core.stats.distribution import compute_summary
 from src.core.stats.comparisons import density_comparison, ecdf_comparison
 from src.core.stats.narrative import format_sig_figs
 
 
-def _compute_pct_change(baseline_val: float, treatment_val: float) -> tuple:
+def _compute_pct_change(baseline_val: float, treatment_val: float) -> Tuple[str, float | None]:
     """
     Compute percentage change, handling special cases.
 
@@ -101,7 +102,7 @@ def compute_comparison_summary(baseline: np.ndarray, treatment: np.ndarray,
 
 
 def render_density_comparison_plot(baseline: np.ndarray, treatment: np.ndarray,
-                                   metric: str):
+                                   metric: str) -> Figure | None:
     """
     Create matplotlib figure comparing density distributions.
 
@@ -141,7 +142,7 @@ def render_density_comparison_plot(baseline: np.ndarray, treatment: np.ndarray,
 
 
 def render_ecdf_comparison_plot(baseline: np.ndarray, treatment: np.ndarray,
-                                metric: str):
+                                metric: str) -> Figure | None:
     """
     Create matplotlib figure comparing ECDF distributions.
 

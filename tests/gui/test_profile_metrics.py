@@ -11,9 +11,11 @@ import numpy as np
 import polars as pl
 
 from src.gui.utils.profile.metrics import (
-    get_numeric_columns,
-    select_default_metric,
     _filter_predictors_for_display,
+)
+from src.gui.utils.ui_helpers import (
+    get_numeric_columns,
+    select_preferred_metric,
 )
 
 
@@ -37,11 +39,11 @@ class TestGetNumericColumns:
         assert "float_col" in result
         assert "str_col" not in result
 
-    def test_empty_dataframe_returns_empty_list(self):
+    def test_empty_dataframe_returns_empty_dict(self):
         """Test handling of empty DataFrame."""
         empty_df = pl.DataFrame()
         result = get_numeric_columns(empty_df)
-        assert result == []
+        assert result == {}
 
     def test_all_string_columns(self):
         """Test DataFrame with only string columns."""
@@ -50,7 +52,7 @@ class TestGetNumericColumns:
             "b": ["p", "q"],
         })
         result = get_numeric_columns(str_df)
-        assert result == []
+        assert result == {}
 
     def test_all_numeric_columns(self):
         """Test DataFrame with only numeric columns."""
@@ -62,14 +64,14 @@ class TestGetNumericColumns:
         result = get_numeric_columns(num_df)
         assert len(result) == 3
 
-    def test_none_dataframe_returns_empty_list(self):
-        """Test that None DataFrame returns empty list."""
+    def test_none_dataframe_returns_empty_dict(self):
+        """Test that None DataFrame returns empty dict."""
         result = get_numeric_columns(None)
-        assert result == []
+        assert result == {}
 
 
-class TestSelectDefaultMetric:
-    """Tests for select_default_metric function."""
+class TestSelectPreferredMetric:
+    """Tests for select_preferred_metric function."""
 
     @pytest.fixture
     def metrics_df(self):
@@ -85,7 +87,8 @@ class TestSelectDefaultMetric:
 
     def test_prefers_perf_time(self, metrics_df):
         """Test that perf_time is preferred when available."""
-        result = select_default_metric(metrics_df)
+        metrics = get_numeric_columns(metrics_df)
+        result = select_preferred_metric(metrics)
         assert result == "perf_time"
 
     def test_falls_back_to_inner_time(self):
@@ -95,7 +98,8 @@ class TestSelectDefaultMetric:
             "inner_time": [1.0, 2.0],
             "other": [10, 20],
         })
-        result = select_default_metric(df)
+        metrics = get_numeric_columns(df)
+        result = select_preferred_metric(metrics)
         assert result == "inner_time"
 
     def test_falls_back_to_outer_time(self):
@@ -105,23 +109,26 @@ class TestSelectDefaultMetric:
             "outer_time": [1.0, 2.0],
             "other": [10, 20],
         })
-        result = select_default_metric(df)
+        metrics = get_numeric_columns(df)
+        result = select_preferred_metric(metrics)
         assert result == "outer_time"
 
-    def test_returns_empty_string_when_no_preferred(self):
-        """Test that no preferred metrics returns empty string."""
+    def test_returns_first_available_when_no_preferred(self):
+        """Test that no preferred metrics returns first available."""
         df = pl.DataFrame({
             "run_id": ["a", "b"],
             "custom_metric": [1.0, 2.0],
             "string_col": ["x", "y"],
         })
-        result = select_default_metric(df)
-        assert result == ""
+        metrics = get_numeric_columns(df)
+        result = select_preferred_metric(metrics)
+        assert result == "custom_metric"
 
     def test_empty_dataframe_returns_empty_string(self):
         """Test that empty DataFrame returns empty string."""
         empty_df = pl.DataFrame()
-        result = select_default_metric(empty_df)
+        metrics = get_numeric_columns(empty_df)
+        result = select_preferred_metric(metrics)
         assert result == ""
 
     def test_no_numeric_columns_returns_empty_string(self):
@@ -130,7 +137,8 @@ class TestSelectDefaultMetric:
             "a": ["x", "y"],
             "b": ["p", "q"],
         })
-        result = select_default_metric(str_df)
+        metrics = get_numeric_columns(str_df)
+        result = select_preferred_metric(metrics)
         assert result == ""
 
     def test_custom_preferred_metrics(self):
@@ -139,7 +147,8 @@ class TestSelectDefaultMetric:
             "custom_time": [1.0, 2.0],
             "other": [10, 20],
         })
-        result = select_default_metric(df, preferred_metrics=["custom_time"])
+        metrics = get_numeric_columns(df)
+        result = select_preferred_metric(metrics, preferences=["custom_time"])
         assert result == "custom_time"
 
 

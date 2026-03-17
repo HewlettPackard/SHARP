@@ -12,7 +12,7 @@ Handles profiling execution orchestration with clean separation of concerns:
 
 import traceback
 from pathlib import Path
-from typing import Optional, Callable, Dict, Any, Tuple
+from typing import Callable, Any, Iterable, cast
 
 from src.core.runlogs import (
     load_csv,
@@ -42,7 +42,7 @@ def determine_task_name_for_profiling(md_path: str) -> str:
         Task name with profiling suffix
     """
     runtime_opts = parse_markdown_runtime_options(Path(md_path))
-    original_task = runtime_opts.get('task', Path(md_path).stem)
+    original_task = str(runtime_opts.get('task', Path(md_path).stem))
 
     # Ensure profiling suffix from settings
     prof_suffix = Settings().get("profiling.prof_suffix", "-prof")
@@ -55,7 +55,7 @@ def build_orchestrator_options(
     md_path: str,
     backends: list[str],
     task_name: str
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Build orchestrator options for profiling/reproduction run.
 
@@ -86,13 +86,13 @@ def build_orchestrator_options(
     options = runtime_opts.copy()
 
     # Extract existing backends from source markdown (handle multiple possible key names)
-    existing_backends = []
+    existing_backends: list[str] = []
     if "backend_names" in runtime_opts and runtime_opts.get("backend_names"):
-        existing_backends = runtime_opts.get("backend_names")
+        existing_backends = list(cast(Iterable[str], runtime_opts.get("backend_names")))
     elif "backends" in runtime_opts and runtime_opts.get("backends"):
-        existing_backends = runtime_opts.get("backends")
+        existing_backends = list(cast(Iterable[str], runtime_opts.get("backends")))
     elif "backend_options" in runtime_opts and isinstance(runtime_opts.get("backend_options"), dict):
-        existing_backends = list(runtime_opts.get("backend_options").keys())
+        existing_backends = list(cast(dict[str, Any], runtime_opts.get("backend_options")).keys())
 
     # Ensure it's a list
     if not isinstance(existing_backends, list):
@@ -146,16 +146,16 @@ class ProfilingExecutor:
         self.total_iterations = extract_repeater_max_from_md(md_path) or 100
 
         # Callbacks
-        self.on_progress: Optional[Callable[[int, int], None]] = None
-        self.on_complete: Optional[Callable[[bool, Dict], None]] = None
-        self.on_error: Optional[Callable[[Exception], None]] = None
+        self.on_progress: Callable[[int, int], None] | None = None
+        self.on_complete: Callable[[bool, dict[str, Any]], None] | None = None
+        self.on_error: Callable[[Exception], None] | None = None
 
     def set_callbacks(
         self,
-        on_progress: Optional[Callable[[int, int], None]] = None,
-        on_complete: Optional[Callable[[bool, Dict], None]] = None,
-        on_error: Optional[Callable[[Exception], None]] = None
-    ):
+        on_progress: Callable[[int, int], None] | None = None,
+        on_complete: Callable[[bool, dict[str, Any]], None] | None = None,
+        on_error: Callable[[Exception], None] | None = None
+    ) -> None:
         """
         Set callbacks for execution events.
 
@@ -168,7 +168,7 @@ class ProfilingExecutor:
         self.on_complete = on_complete
         self.on_error = on_error
 
-    def execute(self):
+    def execute(self) -> None:
         """
         Execute the profiling run.
 
@@ -190,17 +190,21 @@ class ProfilingExecutor:
             )
 
             # Define callbacks
-            def on_iteration_start(iteration: int):
+            def on_iteration_start(iteration: int) -> None:
+                """Handle iteration start."""
                 if self.on_progress:
                     self.on_progress(iteration, self.total_iterations)
 
-            def on_iteration_complete(iteration: int, metrics: dict):
+            def on_iteration_complete(iteration: int, metrics: dict[str, Any]) -> None:
+                """Handle iteration completion."""
                 pass  # Could add detailed tracking here
 
-            def on_convergence(status: str):
+            def on_convergence(status: str) -> None:
+                """Handle convergence."""
                 pass  # Convergence notification
 
-            def on_error_callback(error: Exception):
+            def on_error_callback(error: Exception) -> None:
+                """Handle execution error."""
                 if self.on_error:
                     self.on_error(error)
 
@@ -231,7 +235,7 @@ class ProfilingExecutor:
                 self.on_error(e)
 
 
-def load_profiling_data(prof_csv_path: str) -> Tuple[Any, Optional[str]]:
+def load_profiling_data(prof_csv_path: str) -> tuple[Any, str | None]:
     """
     Load profiling results from CSV.
 

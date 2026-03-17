@@ -7,7 +7,7 @@ and correlations, and managing predictor exclusion for decision tree training.
 © Copyright 2025--2025 Hewlett Packard Enterprise Development LP
 """
 
-from typing import Optional, List, Dict
+from typing import Any, Callable
 import json
 import numpy as np
 import polars as pl
@@ -21,63 +21,11 @@ from src.core.config.settings import Settings
 DEFAULT_EXCLUDED_PREDICTORS = ["repeat", "inner_time", "outer_time", "perf_time"]
 
 
-def get_numeric_columns(data: pl.DataFrame) -> list[str]:
-    """
-    Get list of numeric columns from a DataFrame.
-
-    Args:
-        data: Polars DataFrame
-
-    Returns:
-        List of column names with numeric types (Float64, Int64)
-    """
-    if data is None or data.is_empty():
-        return []
-
-    try:
-        numeric_cols = data.select(pl.col(pl.Float64, pl.Int64)).columns
-        return list(numeric_cols)
-    except Exception:
-        return []
-
-
-def select_default_metric(
-    data: pl.DataFrame,
-    preferred_metrics: Optional[list[str]] = None
-) -> str:
-    """
-    Select default outcome metric with preference order.
-
-    Args:
-        data: Polars dataframe with numeric columns
-        preferred_metrics: List of metrics to prefer, in order
-
-    Returns:
-        Selected metric name, or empty string if none of preferred metrics found
-    """
-    if preferred_metrics is None:
-        preferred_metrics = ["perf_time", "inner_time", "outer_time"]
-
-    # Get all numeric columns
-    numeric_cols = data.select(pl.col(pl.Float64, pl.Int64)).columns
-
-    if not numeric_cols:
-        return ""
-
-    # Check preferred metrics in order
-    for pref in preferred_metrics:
-        if pref in numeric_cols:
-            return pref
-
-    # Return empty string if no preferred metrics found (user must select)
-    return ""
-
-
 # ============================================================================
 # Predictor Statistics and Exclusion
 # ============================================================================
 
-def compute_predictor_stats(data, metric_col: str, predictor_list: list = None) -> List[Dict]:
+def compute_predictor_stats(data: pl.DataFrame, metric_col: str, predictor_list: list[str] | None = None) -> list[dict[str, Any]]:
     """
     Compute statistics for potential predictors.
 
@@ -134,8 +82,8 @@ def compute_predictor_stats(data, metric_col: str, predictor_list: list = None) 
 # Predictor Exclusion UI Helpers
 # ============================================================================
 
-def _filter_predictors_for_display(stats_rows: List[Dict], max_corr: float,
-                                   max_preds: int, search: str) -> List[Dict]:
+def _filter_predictors_for_display(stats_rows: list[dict[str, Any]], max_corr: float,
+                                   max_preds: int, search: str) -> list[dict[str, Any]]:
     """
     Filter and sort predictor stats for display in the exclusion modal.
 
@@ -164,10 +112,13 @@ def _filter_predictors_for_display(stats_rows: List[Dict], max_corr: float,
 
     # Apply max_correlation filter: exclude predictors with |corr| >= max_corr
     # These will be auto-excluded, so we filter them out of the table entirely
-    filtered = [
-        r for r in filtered
-        if r.get("correlation") is None or np.isnan(r.get("correlation")) or abs(r.get("correlation")) < max_corr
-    ]
+    def _filter_by_max_corr(r: dict[str, Any]) -> bool:
+        corr = r.get("correlation")
+        if corr is None or np.isnan(corr):
+            return True
+        return float(abs(corr)) < max_corr
+
+    filtered = [r for r in filtered if _filter_by_max_corr(r)]
 
     # Limit number of predictors shown (after correlation filtering)
     if len(filtered) > max_preds:
@@ -176,8 +127,8 @@ def _filter_predictors_for_display(stats_rows: List[Dict], max_corr: float,
     return filtered
 
 
-def _build_predictor_table_rows(filtered_rows: List[Dict],
-                                current_exclusions: List[str]) -> List:
+def _build_predictor_table_rows(filtered_rows: list[dict[str, Any]],
+                                current_exclusions: list[str]) -> list[ui.TagChild]:
     """
     Build HTML table rows for the predictor exclusion modal.
 
@@ -188,7 +139,7 @@ def _build_predictor_table_rows(filtered_rows: List[Dict],
     Returns:
         List of Shiny UI table row elements
     """
-    table_rows = []
+    table_rows: list[ui.TagChild] = []
     for row in filtered_rows:
         pred_name = row["name"]
         checkbox_id = f"exclude_{pred_name}"
@@ -208,7 +159,7 @@ def _build_predictor_table_rows(filtered_rows: List[Dict],
     return table_rows
 
 
-def _generate_select_all_script(checkbox_ids: List[str]) -> str:
+def _generate_select_all_script(checkbox_ids: list[str]) -> str:
     """
     Generate JavaScript for Select/Deselect All functionality.
 
@@ -236,9 +187,9 @@ def _generate_select_all_script(checkbox_ids: List[str]) -> str:
 def create_predictor_exclusion_ui(
     input: Inputs,
     output: Outputs,
-    excluded_predictors: reactive.Value,
-    predictor_stats_full: reactive.Value,
-    predictor_modal_filters: reactive.Value
+    excluded_predictors: reactive.Value[list[str]],
+    predictor_stats_full: reactive.Value[list[dict[str, Any]]],
+    predictor_modal_filters: reactive.Value[dict[str, Any]]
 ) -> None:
     """
     Create the predictor table UI render function.
@@ -252,7 +203,7 @@ def create_predictor_exclusion_ui(
     """
     @output
     @render.ui
-    def predictor_table_ui():
+    def predictor_table_ui() -> ui.TagChild:
         """Dynamically render the predictor table based on current filter inputs."""
         stats_rows = predictor_stats_full.get()
 
@@ -308,11 +259,11 @@ def create_predictor_exclusion_ui(
 
 
 def build_predictor_exclusion_modal(
-    data,
+    data: pl.DataFrame,
     metric_col: str,
-    predictor_stats_full: reactive.Value,
-    predictor_modal_filters: reactive.Value,
-    predictor_stats_calc = None
+    predictor_stats_full: reactive.Value[list[dict[str, Any]]],
+    predictor_modal_filters: reactive.Value[dict[str, Any]],
+    predictor_stats_calc: Callable[..., list[dict[str, Any]]] | None = None
 ) -> None:
     """
     Build and show the predictor exclusion modal.
@@ -355,7 +306,7 @@ def build_predictor_exclusion_modal(
     )
 
 
-def _collect_auto_excluded_predictors(all_stats: List[Dict], max_corr: float) -> set:
+def _collect_auto_excluded_predictors(all_stats: list[dict[str, Any]], max_corr: float) -> set[str]:
     """
     Collect predictors that should be auto-excluded based on correlation threshold.
 
@@ -374,7 +325,7 @@ def _collect_auto_excluded_predictors(all_stats: List[Dict], max_corr: float) ->
     return auto_excluded
 
 
-def _collect_manually_excluded_predictors(input: Inputs, filtered_stats: List[Dict]) -> set:
+def _collect_manually_excluded_predictors(input: Inputs, filtered_stats: list[dict[str, Any]]) -> set[str]:
     """
     Collect predictors that are manually checked for exclusion.
 
@@ -402,9 +353,9 @@ def _collect_manually_excluded_predictors(input: Inputs, filtered_stats: List[Di
 
 def apply_exclusions(
     input: Inputs,
-    excluded_predictors: reactive.Value,
-    predictor_stats_full: reactive.Value,
-    predictor_modal_filters: reactive.Value
+    excluded_predictors: reactive.Value[list[str]],
+    predictor_stats_full: reactive.Value[list[dict[str, Any]]],
+    predictor_modal_filters: reactive.Value[dict[str, Any]]
 ) -> None:
     """
     Apply predictor exclusions when Apply button is clicked.

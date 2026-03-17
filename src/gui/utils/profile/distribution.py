@@ -6,6 +6,7 @@ Provides functions to render distribution plots and narratives.
 © Copyright 2025--2025 Hewlett Packard Enterprise Development LP
 """
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
 import numpy as np
 import polars as pl
 from shiny import ui
@@ -14,7 +15,7 @@ from src.core.stats.distribution import create_distribution_plot, characterize_d
 from src.core.config.settings import Settings
 
 
-def _create_standby_figure(message: str) -> plt.Figure:
+def _create_standby_figure(message: str) -> Figure:
     """
     Create a matplotlib figure with a standby/info message.
 
@@ -32,7 +33,7 @@ def _create_standby_figure(message: str) -> plt.Figure:
     return fig
 
 
-def render_distribution_plot(data: pl.DataFrame, metric_col: str, cutoff: float = None):
+def render_distribution_plot(data: pl.DataFrame | None, metric_col: str, cutoff: float | None = None) -> Figure | None:
     """
     Render distribution plot with optional cutoff divider.
 
@@ -75,7 +76,7 @@ def render_distribution_plot(data: pl.DataFrame, metric_col: str, cutoff: float 
     )
 
 
-def render_distribution_narrative(data: pl.DataFrame, metric_col: str):
+def render_distribution_narrative(data: pl.DataFrame | None, metric_col: str) -> ui.TagChild:
     """
     Generate narrative description of distribution characteristics.
 

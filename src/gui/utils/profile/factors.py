@@ -9,6 +9,8 @@ and comparison tables for selected performance factors.
 import numpy as np
 import polars as pl
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
+from matplotlib.axes import Axes
 from shiny import ui
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.metrics import r2_score
@@ -19,7 +21,7 @@ from src.core.stats.narrative import format_sig_figs
 from src.core.config.settings import Settings
 
 
-def _create_error_figure(message: str, color: str = '#999') -> plt.Figure:
+def _create_error_figure(message: str, color: str = '#999') -> Figure:
     """
     Create a simple error/message figure.
 
@@ -38,7 +40,7 @@ def _create_error_figure(message: str, color: str = '#999') -> plt.Figure:
     return fig
 
 
-def _prepare_plot_data(data: pl.DataFrame, factor_name: str, metric: str, cutoff: float):
+def _prepare_plot_data(data: pl.DataFrame, factor_name: str, metric: str, cutoff: float | None) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
     """
     Prepare and clean data for scatter plot.
 
@@ -52,12 +54,17 @@ def _prepare_plot_data(data: pl.DataFrame, factor_name: str, metric: str, cutoff
         Tuple of (factor_clean, metric_clean, categories_clean) or None if insufficient data
     """
     # Create binary classification
-    data_plot = data.with_columns([
-        pl.when(pl.col(metric) > cutoff)
-          .then(pl.lit('RIGHT'))
-          .otherwise(pl.lit('LEFT'))
-          .alias('category')
-    ])
+    if cutoff is None:
+        data_plot = data.with_columns([
+            pl.lit('DATA').alias('category')
+        ])
+    else:
+        data_plot = data.with_columns([
+            pl.when(pl.col(metric) > cutoff)
+            .then(pl.lit('RIGHT'))
+            .otherwise(pl.lit('LEFT'))
+            .alias('category')
+        ])
 
     # Extract data for plotting
     factor_values = data_plot[factor_name].to_numpy()
@@ -134,9 +141,9 @@ def _calculate_mcfadden_r2(X: np.ndarray, y_binary: np.ndarray) -> float:
     return max(0.0, 1 - (ll_fitted / ll_null)) if ll_null != 0 else 0.0
 
 
-def _plot_scatter_with_regression(ax: plt.Axes, factor_clean: np.ndarray, metric_clean: np.ndarray,
+def _plot_scatter_with_regression(ax: Axes, factor_clean: np.ndarray, metric_clean: np.ndarray,
                                    cat_clean: np.ndarray, model: LinearRegression,
-                                   factor_name: str, metric: str):
+                                   factor_name: str, metric: str) -> None:
     """
     Plot scatter points with regression line.
 
@@ -172,7 +179,7 @@ def _plot_scatter_with_regression(ax: plt.Axes, factor_clean: np.ndarray, metric
     ax.grid(True, alpha=0.3)
 
 
-def render_factor_info_card(factor_name: str):
+def render_factor_info_card(factor_name: str) -> ui.TagChild:
     """
     Render information card for a performance factor.
 
@@ -213,7 +220,8 @@ def render_factor_info_card(factor_name: str):
     )
 
 
-def render_factor_scatter_plot(data: pl.DataFrame, factor_name: str, metric: str, cutoff: float):
+def render_factor_scatter_plot(data: pl.DataFrame, factor_name: str, metric: str,
+                               cutoff: float | None = None) -> Figure | None:
     """
     Render scatter plot of factor vs performance metric with classification.
 
@@ -262,7 +270,7 @@ def render_factor_scatter_plot(data: pl.DataFrame, factor_name: str, metric: str
     return fig
 
 
-def render_factor_comparison_table(data: pl.DataFrame, factor_name: str, metric: str, cutoff: float):
+def render_factor_comparison_table(data: pl.DataFrame, factor_name: str, metric: str, cutoff: float | None) -> ui.TagChild:
     """
     Render comparison table showing factor statistics for LEFT vs RIGHT groups.
 
@@ -281,6 +289,9 @@ def render_factor_comparison_table(data: pl.DataFrame, factor_name: str, metric:
     if factor_name not in data.columns or metric not in data.columns:
         return ui.p(f'Factor "{factor_name}" or metric "{metric}" not in data',
                    style='color: red;')
+
+    if cutoff is None:
+        return ui.p('No cutoff value defined', style='color: #999; font-style: italic;')
 
     # Create binary classification
     data_groups = data.with_columns([

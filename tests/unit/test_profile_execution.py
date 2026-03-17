@@ -6,7 +6,7 @@ Unit tests for profile tab execution helpers.
 
 import pytest
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 from unittest.mock import Mock, patch, MagicMock
 
 from src.gui.utils.profile.execution import (
@@ -319,7 +319,7 @@ class TestMitigationConfigLoading:
         from src.gui.utils.profile.execution import MITIGATIONS_YAML
         from src.core.config.backend_loader import load_backend_configs
 
-        config: Dict[str, Any] = {}
+        config: dict[str, Any] = {}
         load_backend_configs([MITIGATIONS_YAML], config)
 
         assert "backend_options" in config

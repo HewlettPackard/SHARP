@@ -11,7 +11,7 @@ from shiny import ui
 from src.core.metrics.factors import get_factor_info, get_mitigation_info
 
 
-def render_mitigation_selector(factor_name: str):
+def render_mitigation_selector(factor_name: str | None) -> ui.TagChild:
     """
     Render dropdown selector for mitigations related to selected factor.
 
@@ -73,7 +73,7 @@ def render_mitigation_selector(factor_name: str):
     )
 
 
-def render_mitigation_info_card(mitigation_name: str):
+def render_mitigation_info_card(mitigation_name: str | None) -> ui.TagChild:
     """
     Render mitigation information card with description, references, and Try it button.
 

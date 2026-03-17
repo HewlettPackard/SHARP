@@ -18,12 +18,14 @@ from shiny import ui, render, reactive, Inputs, Outputs, Session
 from shiny.types import SilentException
 import polars as pl
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
 from pathlib import Path
-from typing import Dict
+from typing import Any, List, Dict
 import traceback as tb
 
 from src.core.runlogs import load_csv, get_experiments, get_tasks_for_experiment
 from src.gui.utils import apply_filter, get_filterable_columns, create_filter_ui
+from src.gui.utils.ui_helpers import *
 from src.gui.utils.comparisons import render_density_comparison_plot, compute_comparison_summary
 from src.gui.utils.profile.tree import *
 from src.gui.utils.profile.metrics import *
@@ -41,7 +43,7 @@ from src.core.config.settings import Settings
 from src.core.metrics.factors import load_factors
 
 
-def profile_ui() -> ui.TagChild:
+def profile_ui() -> Any:
     """Create Profile tab UI."""
     return ui.nav_panel(
         "Profile",
@@ -171,7 +173,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
     # ========== COMPUTED STATE ==========
     # Derive metadata paths from the current task selection using pure function
     @reactive.Calc
-    def metadata_paths() -> Dict[str, str | None]:
+    def metadata_paths() -> dict[str, str | None]:
         """
         Compute file paths from current task selection.
 
@@ -196,30 +198,30 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
     # ========== END COMPUTED STATE ==========
 
     # Reactive value for mitigation data (used for comparison)
-    mitigation_data = reactive.value(None)
+    mitigation_data: reactive.Value[pl.DataFrame | None] = reactive.Value(None)
 
     # Suppress modal display when we programmatically change the task selection
     suppress_modal = reactive.value(False)
 
     # Note: We do NOT store all metrics to avoid huge websocket payloads
     # Reactive value for suggested cutoff point
-    suggested_cutoff = reactive.value(None)
+    suggested_cutoff: reactive.Value[float | None] = reactive.Value(None)
 
     # Reactive value for user-selected cutoff (overrides suggested cutoff)
-    user_cutoff = reactive.value(None)
+    user_cutoff: reactive.Value[float | None] = reactive.Value(None)
 
     # Reactive value for excluded predictors - initialize with defaults
-    excluded_predictors = reactive.value(DEFAULT_EXCLUDED_PREDICTORS.copy())
+    excluded_predictors: reactive.Value[List[str]] = reactive.Value(DEFAULT_EXCLUDED_PREDICTORS.copy())
 
     # Reactive values for predictor exclusion modal
-    predictor_modal_filters = reactive.Value({})
-    predictor_stats_full = reactive.Value([])
+    predictor_modal_filters: reactive.Value[Dict[str, Any]] = reactive.Value({})
+    predictor_stats_full: reactive.Value[List[Dict[str, Any]]] = reactive.Value([])
 
     # Reactive value for profiling parameters (used when confirming overwrite)
-    profiling_params = reactive.value(None)
+    profiling_params: reactive.Value[Dict[str, Any] | None] = reactive.Value(None)
 
     # Reactive value for selected factor (from tree node click)
-    selected_factor = reactive.value(None)
+    selected_factor: reactive.Value[str | None] = reactive.Value(None)
 
     # Log module initialization
     try:
@@ -246,28 +248,13 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
     # --- UI Initialization ---
     # Initialize experiment dropdown on startup
     @reactive.effect
-    def _init_experiments():
-        experiments = get_experiments()
-        # Use experiments as provided; default selection from settings
-        choices = experiments
-        default_exp = Settings().get("gui.default_experiment", "misc")
-        default_sel = default_exp if default_exp in experiments else (next(iter(experiments), ""))
-        ui.update_select("profile_experiment", choices=choices, selected=default_sel)
+    def _init_experiments() -> None:
+        init_experiment_selector(session, "profile_experiment", include_empty=False)
 
     # Update task dropdown when experiment changes
     @reactive.effect
-    def _update_tasks():
-        if not (experiment := input.profile_experiment()):
-            ui.update_select("profile_task", choices={"": "(select task)"}, selected="")
-            return
-
-        if not (tasks := get_tasks_for_experiment(experiment)):
-            ui.update_select("profile_task", choices={"": "(no tasks)"}, selected="")
-            return
-
-        # Reset task select to force reactive update
-        # metadata_paths will recompute automatically from the new selection
-        ui.update_select("profile_task", choices=tasks, selected="")
+    def _update_tasks() -> None:
+        experiment = input.profile_experiment()
 
         # Clear stale data from previous experiment
         mitigation_data.set(None)
@@ -275,11 +262,13 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
         user_cutoff.set(None)
         suggested_cutoff.set(None)
 
+        update_task_selector(session, experiment, "profile_task", include_empty=False)
+
     # --- Modal and Profiling Workflow ---
     # Show modal when task selected
     @reactive.effect
     @reactive.event(input.profile_task)
-    def _check_prof_file():
+    def _check_prof_file() -> None:
         """Show appropriate modal when task is selected."""
         if not (task_csv := input.profile_task()):
             return
@@ -311,19 +300,19 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
     # Handle modal button: Cancel / OK
     @reactive.effect
     @reactive.event(input.modal_cancel)
-    def _handle_cancel():
+    def _handle_cancel() -> None:
         ui.modal_remove()
 
     # Handle modal button: Error modal OK
     @reactive.effect
     @reactive.event(input.modal_error_ok, ignore_none=True)
-    def _handle_error_ok():
+    def _handle_error_ok() -> None:
         ui.modal_remove()
 
     # Handle modal button: Use Existing (State 1)
     @reactive.effect
     @reactive.event(input.modal_use_existing)
-    def _handle_use_existing():
+    def _handle_use_existing() -> None:
         """Handle 'Use Existing' button click in modal."""
         paths = metadata_paths()
         prof_csv_path = paths.get('prof_csv')
@@ -341,7 +330,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
     # Handle modal button: Use Original CSV (State 2)
     @reactive.effect
     @reactive.event(input.modal_use_original)
-    def _handle_use_original():
+    def _handle_use_original() -> None:
         """Handle 'Use Original CSV' button click in modal."""
         paths = metadata_paths()
         original_csv_path = paths.get('original_csv')
@@ -358,7 +347,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
     # Handle modal button: Run Profiling (Profile Task button from choose source modal)
     @reactive.effect
     @reactive.event(input.modal_run_profiling)
-    def _handle_run_profiling():
+    def _handle_run_profiling() -> None:
         paths = metadata_paths()
         md_path = paths.get("original_md")
 
@@ -384,7 +373,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
     # Handle modal button: Start Profiling (State 4)
     @reactive.effect
     @reactive.event(input.modal_start_profiling)
-    def _handle_start_profiling():
+    def _handle_start_profiling() -> None:
         """Handle Start Profiling button - validate, determine task name, and execute."""
         try:
             selected_backends = list(input.profile_backends_selector())
@@ -413,7 +402,16 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
 
             # Validate backend composability
             profiling_backends = discover_backends(profiling=True)
-            is_valid, error_msg = validate_backend_chain(selected_backends, profiling_backends)
+
+            # Convert to format expected by validation (dict of dicts with composable flag)
+            validation_backends: dict[str, dict[str, Any]] = {}
+            for name, config in profiling_backends.items():
+                if name in config.backend_options:
+                    opt = config.backend_options[name]
+                    # Handle Pydantic v1/v2 compatibility
+                    validation_backends[name] = opt.model_dump() if hasattr(opt, 'model_dump') else opt.dict()
+
+            is_valid, error_msg = validate_backend_chain(selected_backends, validation_backends)
             if not is_valid:
                 modal = build_invalid_backend_modal(error_msg)
                 ui.modal_show(modal)
@@ -439,18 +437,18 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
     # Handle overwrite confirmation: Cancel
     @reactive.effect
     @reactive.event(input.modal_cancel_overwrite)
-    def _handle_cancel_overwrite():
+    def _handle_cancel_overwrite() -> None:
         ui.modal_remove()
         profiling_params.set(None)  # Clear stored parameters
 
     # Handle overwrite confirmation: Confirm
     @reactive.effect
     @reactive.event(input.modal_confirm_overwrite)
-    def _handle_confirm_overwrite():
+    def _handle_confirm_overwrite() -> None:
         ui.modal_remove()
         _execute_profiling_run()
 
-    def _execute_profiling_run():
+    def _execute_profiling_run() -> None:
         """Execute the profiling run with stored parameters and update UI."""
         params = profiling_params.get()
         if not params:
@@ -468,14 +466,14 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
         executor = ProfilingExecutor(md_path, backends, task_name)
 
         # Define progress callback
-        def on_progress(iteration: int, total: int):
+        def on_progress(iteration: int, total: int) -> None:
             progress.set(
                 value=iteration / total if total > 0 else 0,
                 message=f"Profiling: iteration {iteration}/{total}"
             )
 
         # Define completion callback
-        def on_complete(success: bool, result_dict: dict):
+        def on_complete(success: bool, result_dict: dict[str, Any]) -> None:
             progress.close()
 
             if success:
@@ -528,7 +526,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
     # --- Data Loading and Paths ---
     # Load and validate profiling data when task changes
     @reactive.Calc
-    def csv_data():
+    def csv_data() -> pl.DataFrame | None:
         """Load CSV data for the currently selected task."""
         if not (task_csv := input.profile_task()):
             return None
@@ -539,7 +537,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
             return None
 
     @reactive.Calc
-    def prof_csv_path():
+    def prof_csv_path() -> str | None:
         """Get the prof_csv path if it exists."""
         paths = metadata_paths()
         prof_csv = paths.get("prof_csv")
@@ -549,7 +547,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
         return None
 
     @reactive.Calc
-    def prof_csv_data():
+    def prof_csv_data() -> pl.DataFrame | None:
         """Load -prof CSV if it exists."""
         if not (prof_path := prof_csv_path()):
             return None
@@ -560,7 +558,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
             return None
 
     @reactive.Calc
-    def markdown_path():
+    def markdown_path() -> str | None:
         """Derive markdown path from selected CSV."""
         paths = metadata_paths()
         # If we have prof data, use prof_md; otherwise use original_md
@@ -569,7 +567,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
         return paths.get("original_md")
 
     @reactive.Calc
-    def markdown_valid():
+    def markdown_valid() -> dict[str, Any] | None:
         """Check if markdown file is valid."""
         if not (md_path := markdown_path()):
             return None
@@ -579,16 +577,20 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
 
     # --- Cutoff Management ---
     @reactive.effect
-    def _compute_suggested_cutoff():
+    def _compute_suggested_cutoff() -> None:
         """Compute suggested cutoff whenever profiling data loads."""
         data = active_data()
         metric_col = validated_metric()
+
+        if data is None:
+            suggested_cutoff.set(None)
+            return
 
         cutoff = compute_suggested_cutoff(data, metric_col)
         suggested_cutoff.set(cutoff)
 
     @reactive.effect
-    def _validate_cutoff_in_range():
+    def _validate_cutoff_in_range() -> None:
         """Reset user cutoff if it's out of range (no points on either side) when filter changes."""
         data = active_data()
         metric_col = validated_metric()
@@ -610,7 +612,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
 
     # --- Metric and Filter Inputs ---
     @reactive.effect
-    def _update_metric_choices():
+    def _update_metric_choices() -> None:
         """Update metric choices when data loads (server-side selectize with empty string sentinel)."""
         try:
             # Use base_data() not active_data() to avoid dependency on filter
@@ -630,25 +632,26 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
                 return
 
             # Get all numeric columns using utility function
-            numeric_cols = get_numeric_columns(data)
+            numeric_cols_dict = get_numeric_columns(data)
 
-            if not numeric_cols:
+            if not numeric_cols_dict:
                 ui.update_selectize("profile_metric", choices=[], selected=None, server=True)
                 return
 
-            # Prepend empty string as sentinel to prevent auto-selection
-            PLACEHOLDER = ""
-            choices_with_placeholder = [PLACEHOLDER] + sorted(numeric_cols)
-
             # Select default metric from preferred list (perf_time, inner_time, outer_time)
             # Returns empty string if none found
-            default_metric = select_default_metric(data)
-            selected_metric = default_metric if default_metric else PLACEHOLDER
+            default_metric = select_preferred_metric(numeric_cols_dict)
 
             # Update selectize with server-side rendering
             # Empty string will be auto-selected if no preferred metric found
             try:
-                ui.update_selectize("profile_metric", choices=choices_with_placeholder, selected=selected_metric, server=True)
+                update_metric_selector(
+                    session,
+                    "profile_metric",
+                    numeric_cols_dict,
+                    selected=default_metric,
+                    placeholder=""
+                )
             except Exception:
                 import traceback
                 traceback.print_exc()
@@ -663,7 +666,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
 
     @reactive.effect
     @reactive.event(input.profile_metric)  # Only trigger when outcome metric INPUT changes
-    def _update_filter_choices():
+    def _update_filter_choices() -> None:
         """Update filter choices when metric changes (server-side with placeholder to prevent auto-filtering)."""
         try:
             # Only populate filter choices when a valid outcome metric is selected
@@ -707,7 +710,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
 
     @output
     @render.ui
-    def profile_filter_ui():
+    def profile_filter_ui() -> ui.TagChild:
         """Render dynamic filter UI based on selected metric."""
         filter_metric = input.profile_filter_metric()
 
@@ -730,7 +733,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
     # --- Cutoff Interaction ---
     # Handle plot click to set custom cutoff
     @reactive.effect
-    def _handle_plot_click():
+    def _handle_plot_click() -> None:
         """Update cutoff when user clicks on distribution plot."""
         click_data = input.profile_distribution_plot_click()
         if click_data is not None and "x" in click_data:
@@ -741,7 +744,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
     # Handle search for cutoff button
     @reactive.effect
     @reactive.event(input.search_cutoff_btn)
-    def _search_cutoff_space():
+    def _search_cutoff_space() -> None:
         """Search for effective cutoff point that minimizes AIC."""
         data = active_data()
         metric_col = validated_metric()
@@ -762,7 +765,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
             p.set(message=f"Searching {len(data):,} rows...", detail="Starting search...")
 
             # Define progress callback to update the progress bar
-            def update_progress(progress_pct: float, detail: str):
+            def update_progress(progress_pct: float, detail: str) -> None:
                 value = int(progress_pct * max_search_points)
                 p.set(value=value, detail=detail)
 
@@ -783,7 +786,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
 
     # --- Model Training ---
     @reactive.Calc
-    def computed_trained_tree():
+    def computed_trained_tree() -> Any | None:
         """
         Compute trained decision tree whenever metric, cutoff, or exclusions change.
         Only trains after metric is selected.
@@ -857,7 +860,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
     create_predictor_exclusion_ui(input, output, excluded_predictors, predictor_stats_full, predictor_modal_filters)
 
     @reactive.Calc
-    def base_data():
+    def base_data() -> pl.DataFrame | None:
         """Get the base dataset (prof or csv) without filtering."""
         try:
             return prof_csv_data() if prof_csv_path() else csv_data()
@@ -865,7 +868,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
             return None
 
     @reactive.Calc
-    def original_baseline_data():
+    def original_baseline_data() -> pl.DataFrame | None:
         """Get the original baseline dataset (not profiling) for mitigation comparison.
 
         This loads the original CSV (e.g., matmul.csv) even when viewing profiling data
@@ -885,7 +888,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
         except Exception:
             return None
 
-    def filter_value():
+    def filter_value() -> Any | None:
         """Get current filter value, or None if input doesn't exist yet."""
         try:
             return input.profile_filter_value()
@@ -893,17 +896,17 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
             return None
 
     @reactive.Calc
-    def active_data():
+    def active_data() -> pl.DataFrame | None:
         """Get the currently active dataset (profiling or original), with filtering applied."""
         if (data := base_data()) is None:
             return None
         return apply_filter(data, input.profile_filter_metric(), filter_value())
 
     @reactive.Calc
-    def validated_metric():
+    def validated_metric() -> str:
         """Get validated metric from active data columns. Returns empty string if invalid."""
         try:
-            metric = input.profile_metric()
+            metric = str(input.profile_metric())
             if not metric or metric.strip() == "":
                 return ""
 
@@ -925,7 +928,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
 
     # Reactive computation of predictor stats - automatically recomputes when metric or data changes
     @reactive.Calc
-    def predictor_stats():
+    def predictor_stats() -> list[dict[str, Any]]:
         """Compute predictor statistics for all potential predictors (after variance filter).
 
         We compute for all predictors with variance > 0, not just the top N, to ensure
@@ -961,7 +964,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
     # Eagerly populate predictor_stats_full when stats are computed
     # This ensures the modal table has data immediately when opened
     @reactive.effect
-    def _update_predictor_stats_full():
+    def _update_predictor_stats_full() -> None:
         """Update predictor_stats_full whenever predictor_stats changes."""
         stats = predictor_stats()
         if stats:
@@ -969,7 +972,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
 
     @reactive.effect
     @reactive.event(input.exclude_predictors_btn)
-    def _show_exclude_predictors_modal():
+    def _show_exclude_predictors_modal() -> None:
         """Open predictor exclusion modal."""
         data = active_data()
         metric = validated_metric()
@@ -983,7 +986,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
 
     @reactive.effect
     @reactive.event(input.apply_predictor_exclusions)
-    def _apply_predictor_exclusions():
+    def _apply_predictor_exclusions() -> None:
         """Apply predictor exclusions when Apply button is clicked."""
         apply_exclusions(input, excluded_predictors, predictor_stats_full, predictor_modal_filters)
 
@@ -991,7 +994,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
 
     @output
     @render.ui
-    def profile_input_panel():
+    def profile_input_panel() -> ui.TagChild:
         """Left panel for user controls and filtering."""
         data = active_data()
 
@@ -1032,7 +1035,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
 
     @output
     @render.plot
-    def profile_distribution_plot():
+    def profile_distribution_plot() -> Figure | None:
         """Render distribution plot using helper function."""
         data = active_data()
         metric_col = validated_metric()
@@ -1045,7 +1048,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
 
     @output
     @render.ui
-    def profile_distribution_narrative():
+    def profile_distribution_narrative() -> ui.TagChild:
         """Show distribution narrative using helper function."""
         data = active_data()
         metric_col = validated_metric()
@@ -1057,7 +1060,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
 
     @output
     @render.plot
-    def profile_tree_plot():
+    def profile_tree_plot() -> Figure | None:
         """Render decision tree visualization with custom styling."""
         try:
             # Compute tree on-demand (like R version) - avoids cascade issues
@@ -1077,7 +1080,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
 
     @output
     @render.ui
-    def profile_factor_selector():
+    def profile_factor_selector() -> ui.TagChild:
         """Render dropdown selector for factors used in the tree."""
         try:
             tree = computed_trained_tree()
@@ -1134,7 +1137,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
     # Handler for factor selection from dropdown
     @reactive.effect
     @reactive.event(input.profile_selected_factor)
-    def _handle_factor_selection():
+    def _handle_factor_selection() -> None:
         """Handle factor selection from dropdown."""
         try:
             factor_name = input.profile_selected_factor()
@@ -1145,7 +1148,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
 
     @output
     @render.ui
-    def profile_factor_tabset():
+    def profile_factor_tabset() -> ui.TagChild:
         """Render factor description and mitigation tabs (only when factor selected)."""
         try:
             factor_name = selected_factor()
@@ -1174,7 +1177,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
 
     @output
     @render.ui
-    def profile_factor_info_card():
+    def profile_factor_info_card() -> ui.TagChild:
         """Render factor information card using helper function."""
         try:
             factor_name = selected_factor()
@@ -1192,7 +1195,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
 
     @output
     @render.plot
-    def profile_factor_vs_perf_plot():
+    def profile_factor_vs_perf_plot() -> Figure | None:
         """Render scatter plot using helper function."""
         try:
             factor_name = selected_factor()
@@ -1207,6 +1210,9 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
                 return fig
 
             data = active_data()
+            if data is None:
+                return None
+
             metric = validated_metric()
             cutoff_val = user_cutoff() if user_cutoff() is not None else suggested_cutoff()
 
@@ -1224,7 +1230,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
 
     @output
     @render.ui
-    def profile_factor_comparison_table():
+    def profile_factor_comparison_table() -> ui.TagChild:
         """Render comparison table using helper function."""
         try:
             factor_name = selected_factor()
@@ -1235,6 +1241,9 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
                 )
 
             data = active_data()
+            if data is None:
+                return ui.div()
+
             metric = validated_metric()
             cutoff_val = user_cutoff() if user_cutoff() is not None else suggested_cutoff()
 
@@ -1246,7 +1255,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
 
     @output
     @render.ui
-    def profile_mitigation_selector():
+    def profile_mitigation_selector() -> ui.TagChild:
         """Render dropdown selector for mitigations related to selected factor."""
         try:
             factor_name = selected_factor()
@@ -1258,7 +1267,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
 
     @output
     @render.ui
-    def profile_mitigation_info_card():
+    def profile_mitigation_info_card() -> ui.TagChild:
         """Render mitigation information card."""
         try:
             mitigation_name = input.profile_selected_mitigation()
@@ -1274,7 +1283,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
     # Handler for "Try it!" button
     @reactive.effect
     @reactive.event(input.profile_try_mitigation)
-    def _handle_try_mitigation():
+    def _handle_try_mitigation() -> None:
         """Handle try mitigation button click - check existence and show modal."""
         try:
             mitigation_name = input.profile_selected_mitigation()
@@ -1318,7 +1327,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
     # Handler for "Use data" button in mitigation modal
     @reactive.effect
     @reactive.event(input.profile_use_mitigation_data)
-    def _handle_use_mitigation_data():
+    def _handle_use_mitigation_data() -> None:
         """Load existing mitigation data."""
         try:
             mitigation_name = input.profile_selected_mitigation()
@@ -1353,7 +1362,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
     # Handler for "Run it!" / "Rerun it" button in mitigation modal
     @reactive.effect
     @reactive.event(input.profile_run_mitigation)
-    def _handle_run_mitigation():
+    def _handle_run_mitigation() -> None:
         """Run SHARP with mitigation applied."""
         try:
             mitigation_name = input.profile_selected_mitigation()
@@ -1387,14 +1396,14 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
             executor = ProfilingExecutor(str(md_path), backends, task_name)
 
             # Define progress callback
-            def on_progress(iteration: int, total: int):
+            def on_progress(iteration: int, total: int) -> None:
                 progress.set(
                     value=iteration / total if total > 0 else 0,
                     message=f"Mitigation {mitigation_name}: iteration {iteration}/{total}"
                 )
 
             # Define completion callback
-            def on_complete(success: bool, result_dict: dict):
+            def on_complete(success: bool, result_dict: dict[str, Any]) -> None:
                 progress.close()
 
                 if success:
@@ -1439,14 +1448,14 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
     # Handler for "Cancel" button in mitigation modal
     @reactive.effect
     @reactive.event(input.profile_cancel_mitigation)
-    def _handle_cancel_mitigation():
+    def _handle_cancel_mitigation() -> None:
         """Cancel mitigation modal."""
         ui.modal_remove()
 
     # Update mitigation comparison metric choices when data loads
     @reactive.effect
     @reactive.event(mitigation_data)
-    def _update_mitigation_metric_choices():
+    def _update_mitigation_metric_choices() -> None:
         """Update mitigation comparison metric dropdown when mitigation data loads."""
         mit_data = mitigation_data.get()
         # Use original baseline for comparison, not profiling data
@@ -1478,7 +1487,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
     # Mitigation comparison outputs
     @output
     @render.plot
-    def profile_mitigation_density_plot():
+    def profile_mitigation_density_plot() -> Figure | None:
         """Render density comparison plot for baseline vs mitigation."""
         mit_data = mitigation_data.get()
         base = original_baseline_data()
@@ -1501,7 +1510,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
 
     @output
     @render.data_frame
-    def profile_mitigation_comparison_table():
+    def profile_mitigation_comparison_table() -> pl.DataFrame | None:
         """Render comparison statistics table for baseline vs mitigation."""
         mit_data = mitigation_data.get()
         base = original_baseline_data()

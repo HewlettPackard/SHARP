@@ -7,15 +7,18 @@ Shows summary statistics and quick navigation to other tabs.
 © Copyright 2025--2025 Hewlett Packard Enterprise Development LP
 """
 
-from shiny import ui, reactive, render
+from shiny import ui, reactive, render, Inputs, Outputs, Session
+from typing import Any, cast
 from datetime import timedelta
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
+from typing import Any, List, Dict
 
 from src.core.config.settings import Settings
 from src.gui.utils import scan_runlogs, load_csv, parse_markdown_runtime_options
 
 
-def summary_ui() -> ui.nav_panel:
+def summary_ui() -> Any:
     """
     Create Summary tab UI.
 
@@ -88,7 +91,7 @@ def summary_ui() -> ui.nav_panel:
     )
 
 
-def summary_server(input, output, session, refresh_trigger=None):
+def summary_server(input: Inputs, output: Outputs, session: Session, refresh_trigger: reactive.Value[int] | None = None) -> None:
     """
     Server logic for Summary tab.
 
@@ -102,17 +105,17 @@ def summary_server(input, output, session, refresh_trigger=None):
     recent_runs_limit = settings.get("gui.overview.recent_runs_count", 10)
 
     # Reactive values
-    all_runs_data = reactive.value([])  # All runs across all experiments
-    recent_runs_data = reactive.value([])  # Limited to recent_runs_count for display
+    all_runs_data: reactive.Value[List[Dict[str, Any]]] = reactive.Value([])  # All runs across all experiments
+    recent_runs_data: reactive.Value[List[Dict[str, Any]]] = reactive.Value([])  # Limited to recent_runs_count for display
 
     @reactive.effect
-    def _load_all_runs():
+    def _load_all_runs() -> None:
         """Load all runs data in background thread."""
         # React to refresh trigger if provided
         if refresh_trigger is not None:
             _ = refresh_trigger.get()  # Create dependency on trigger
 
-        def load_data():
+        def load_data() -> None:
             # Scan all runs for statistics
             all_runs = scan_runlogs(limit=None)
             all_runs_data.set(all_runs)
@@ -124,12 +127,12 @@ def summary_server(input, output, session, refresh_trigger=None):
         load_data()
 
     @render.text
-    def total_runs():
+    def total_runs() -> str:
         """Render total number of runs (across all experiments)."""
         return str(len(all_runs_data.get()))
 
     @render.text
-    def avg_time():
+    def avg_time() -> str:
         """Render average execution time (across all experiments)."""
         runs = all_runs_data.get()
 
@@ -160,7 +163,7 @@ def summary_server(input, output, session, refresh_trigger=None):
         return f"{avg:.2f}s"
 
     @render.plot
-    def activity_graph():
+    def activity_graph() -> Figure:
         """Render activity bar chart for last 30 days using matplotlib."""
         runs = all_runs_data.get()
 
@@ -228,7 +231,7 @@ def summary_server(input, output, session, refresh_trigger=None):
         return fig
 
     @render.ui
-    def recent_runs_table():
+    def recent_runs_table() -> ui.TagChild:
         """Render recent runs table with action buttons."""
         runs = recent_runs_data.get()
 
@@ -299,21 +302,21 @@ def summary_server(input, output, session, refresh_trigger=None):
 
     @reactive.effect
     @reactive.event(input.quick_launch)
-    def navigate_to_measure():
+    def navigate_to_measure() -> None:
         """Navigate to measure tab when Quick Launch is clicked."""
         ui.update_navset("main_nav", selected="Measure")
 
     # Dynamic rerun button handlers
     # Store runs data for access by JavaScript handlers
     @reactive.effect
-    def _update_rerun_data():
+    def _update_rerun_data() -> None:
         """Update stored runs data when recent_runs_data changes."""
-        session.rerun_runs_data = recent_runs_data.get()
+        cast(Any, session).rerun_runs_data = recent_runs_data.get()
 
     # Handle rerun button clicks from JavaScript
     @reactive.effect
     @reactive.event(input.rerun_click)
-    async def _handle_rerun_click():
+    async def _handle_rerun_click() -> None:
         """Handle rerun_click input value set by JavaScript."""
         try:
             rerun_index = input.rerun_click()
@@ -337,7 +340,7 @@ def summary_server(input, output, session, refresh_trigger=None):
     # Handle explore button clicks from JavaScript
     @reactive.effect
     @reactive.event(input.explore_click)
-    async def _handle_explore_click():
+    async def _handle_explore_click() -> None:
         """Handle explore_click input value set by JavaScript."""
         try:
             explore_index = input.explore_click()

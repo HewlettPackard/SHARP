@@ -7,7 +7,7 @@ for use across Profile, Explore, and Compare tabs.
 © Copyright 2025--2025 Hewlett Packard Enterprise Development LP
 """
 
-from typing import Optional, Union, List
+from typing import Union, List, Any
 import polars as pl
 from shiny import ui
 
@@ -17,7 +17,7 @@ def create_filter_ui(
     filter_metric: str,
     filter_input_id: str,
     label: str = "Filter value"
-) -> Optional[ui.Tag]:
+) -> ui.Tag | None:
     """
     Create dynamic filter UI based on the selected metric's data type.
 
@@ -92,7 +92,7 @@ def create_filter_ui(
 def apply_filter(
     data: pl.DataFrame,
     filter_metric: str,
-    filter_value: Union[List, int, float, str, None]
+    filter_value: Union[List[Any], int, float, str, None]
 ) -> pl.DataFrame:
     """
     Apply filter to data based on metric and value.
@@ -133,7 +133,7 @@ def apply_filter(
     try:
         # Categorical filter
         if col.dtype == pl.Categorical or col.dtype == pl.Utf8:
-            if filter_value and len(filter_value) > 0:
+            if isinstance(filter_value, (list, tuple)) and len(filter_value) > 0:
                 return data.filter(pl.col(filter_metric).is_in(filter_value))
             else:
                 return data
@@ -158,7 +158,7 @@ def apply_filter(
         return data
 
 
-def get_filterable_columns(data: pl.DataFrame, exclude_cols: Optional[List[str]] = None) -> List[str]:
+def get_filterable_columns(data: pl.DataFrame, exclude_cols: List[str] | None = None) -> List[str]:
     """
     Get list of columns suitable for filtering (non-unique categorical or numeric).
 
@@ -201,7 +201,7 @@ def get_filterable_columns(data: pl.DataFrame, exclude_cols: Optional[List[str]]
 def is_full_range_filter(
     data: pl.DataFrame,
     filter_column: str,
-    filter_value: Union[List, int, float, str, None]
+    filter_value: Union[List[Any], int, float, str, None]
 ) -> bool:
     """
     Check if a numeric range filter covers the full range (i.e., no actual filtering).
@@ -229,12 +229,12 @@ def is_full_range_filter(
         if col.dtype not in (pl.Float64, pl.Float32, pl.Int64, pl.Int32):
             return False
 
-        col_min = float(col.drop_nulls().min())
-        col_max = float(col.drop_nulls().max())
+        col_min = float(col.drop_nulls().min())  # type: ignore
+        col_max = float(col.drop_nulls().max())  # type: ignore
 
         # Check if filter range matches data range (within floating point tolerance)
-        return (abs(filter_value[0] - col_min) < 1e-9 and
-                abs(filter_value[1] - col_max) < 1e-9)
+        return bool(abs(float(filter_value[0]) - col_min) < 1e-9 and
+                abs(float(filter_value[1]) - col_max) < 1e-9)
 
     except Exception:
         return False

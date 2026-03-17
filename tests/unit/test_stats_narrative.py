@@ -13,9 +13,31 @@ import pytest
 from src.core.stats.narrative import (
     format_sig_figs,
     format_p_value,
-    characterize_changepoints,
+    describe_changepoints,
     report_test,
 )
+from src.core.stats.distribution import (
+    detect_change_points,
+    estimate_acf_lag
+)
+
+
+def characterize_changepoints(x, model="auto", pen=None, min_size=None, acf_threshold=0.2, warmup_pct=0.3, cooldown_pct=0.7):
+    """Wrapper to adapt old test calls to new API."""
+    x_clean = x[~np.isnan(x)]
+    if len(x_clean) < 10:
+        return ""
+
+    acf_info = estimate_acf_lag(x_clean, threshold=acf_threshold)
+    cp_result = detect_change_points(x_clean, model=model, pen=pen, min_size=min_size)
+
+    if 'error' in cp_result:
+        return ""
+
+    cps = cp_result.get('cps', [])
+    min_seg_size = cp_result.get('min_size', 3)
+
+    return describe_changepoints(x_clean, cps, acf_info, min_seg_size, warmup_pct, cooldown_pct)
 
 
 # ============================================================================

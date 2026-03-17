@@ -8,8 +8,10 @@ Provides interface for comparing two experiment runs with statistical analysis.
 
 from pathlib import Path
 
-from shiny import ui, reactive, render
+from shiny import ui, reactive, render, Inputs, Outputs, Session
 import polars as pl
+from matplotlib.figure import Figure
+from typing import Any, Dict, List
 
 from src.core.config.settings import Settings
 from src.core.stats.narrative import generate_comparison_narrative
@@ -20,9 +22,18 @@ from src.gui.utils.comparisons import (
     render_density_comparison_plot,
     render_ecdf_comparison_plot
 )
+from src.gui.utils.ui_helpers import (
+    init_experiment_selector,
+    update_task_selector,
+    get_numeric_columns,
+    select_preferred_metric,
+    update_metric_selector
+)
 
 
-def compare_ui():
+from typing import Any
+
+def compare_ui() -> Any:
     """
     Create UI for Compare tab.
 
@@ -92,7 +103,7 @@ def compare_ui():
     )
 
 
-def compare_server(input, output, session):
+def compare_server(input: Inputs, output: Outputs, session: Session) -> None:
     """
     Server logic for Compare tab.
 
@@ -102,58 +113,59 @@ def compare_server(input, output, session):
         session: Shiny session object
     """
     # Reactive values for storing loaded data
-    baseline_df = reactive.value(None)
-    treatment_df = reactive.value(None)
+    baseline_df: reactive.Value[pl.DataFrame | None] = reactive.Value(None)
+    treatment_df: reactive.Value[pl.DataFrame | None] = reactive.Value(None)
     baseline_loading = reactive.value(False)
     treatment_loading = reactive.value(False)
 
     # Reactive values for filtered data
-    baseline_filtered = reactive.value(None)
-    treatment_filtered = reactive.value(None)
+    baseline_filtered: reactive.Value[pl.DataFrame | None] = reactive.Value(None)
+    treatment_filtered: reactive.Value[pl.DataFrame | None] = reactive.Value(None)
 
     # Initialize experiment dropdowns on startup
     @reactive.effect
-    def _init_experiments():
+    def _init_experiments() -> None:
         """Populate experiment dropdowns with all available experiments."""
-        experiments = get_experiments()
-        # Default selection from settings
-        default_exp = Settings().get("gui.default_experiment", "misc")
-        default_sel = default_exp if default_exp in experiments else (next(iter(experiments), ""))
-        ui.update_select('baseline_experiment', choices=experiments, selected=default_sel)
-        ui.update_select('treatment_experiment', choices=experiments, selected=default_sel)
+        init_experiment_selector(session, 'baseline_experiment', include_empty=True)
+        init_experiment_selector(session, 'treatment_experiment', include_empty=True)
 
     # Update baseline task dropdown when experiment changes
     @reactive.effect
     @reactive.event(input.baseline_experiment)
-    def _update_baseline_tasks():
+    def _update_baseline_tasks() -> None:
         """Update baseline task choices when experiment changes."""
-        if not (experiment := input.baseline_experiment()):
-            return
+        experiment = input.baseline_experiment()
 
-        tasks = get_tasks_for_experiment(experiment)
-        # Auto-select first task if available
-        selected = list(tasks.values())[0] if tasks else None
-        ui.update_select('baseline_task', choices=tasks, selected=selected)
+        update_task_selector(
+            session,
+            experiment,
+            'baseline_task',
+            include_empty=False,
+            select_first=True
+        )
 
-        # Also sync treatment experiment to match baseline
-        ui.update_select('treatment_experiment', selected=experiment)
+        # Also sync treatment experiment to match baseline if baseline changed
+        if experiment:
+            ui.update_select('treatment_experiment', selected=experiment)
 
     # Update treatment task dropdown when experiment changes
     @reactive.effect
     @reactive.event(input.treatment_experiment)
-    def _update_treatment_tasks():
+    def _update_treatment_tasks() -> None:
         """Update treatment task choices when experiment changes."""
-        if not (experiment := input.treatment_experiment()):
-            return
+        experiment = input.treatment_experiment()
 
-        tasks = get_tasks_for_experiment(experiment)
-        # Auto-select first task if available
-        selected = list(tasks.values())[0] if tasks else None
-        ui.update_select('treatment_task', choices=tasks, selected=selected)
+        update_task_selector(
+            session,
+            experiment,
+            'treatment_task',
+            include_empty=False,
+            select_first=True
+        )
 
     @reactive.effect
     @reactive.event(input.baseline_task)
-    def _load_baseline():
+    def _load_baseline() -> None:
         """Load baseline CSV file."""
         csv_path = input.baseline_task()
 
@@ -184,7 +196,7 @@ def compare_server(input, output, session):
 
     @reactive.effect
     @reactive.event(input.treatment_task)
-    def _load_treatment():
+    def _load_treatment() -> None:
         """Load treatment CSV file."""
         csv_path = input.treatment_task()
 
@@ -215,7 +227,7 @@ def compare_server(input, output, session):
 
     @output
     @render.text
-    def baseline_status():
+    def baseline_status() -> str:
         """Show baseline load status."""
         if baseline_loading.get():
             return '⏳ Loading data...'
@@ -226,7 +238,7 @@ def compare_server(input, output, session):
 
     @output
     @render.text
-    def treatment_status():
+    def treatment_status() -> str:
         """Show treatment load status."""
         if treatment_loading.get():
             return '⏳ Loading data...'
@@ -237,7 +249,7 @@ def compare_server(input, output, session):
 
     @reactive.effect
     @reactive.event(baseline_df, treatment_df)
-    def _update_metric_choices():
+    def _update_metric_choices() -> None:
         """Update metric dropdown when both files are loaded."""
         b_df = baseline_df.get()
         t_df = treatment_df.get()
@@ -246,25 +258,28 @@ def compare_server(input, output, session):
             return
 
         # Find common metric columns (exclude metadata columns)
-        metadata_cols = {'rank', 'repeat', 'benchmark'}
-        b_cols = set(b_df.columns) - metadata_cols
-        t_cols = set(t_df.columns) - metadata_cols
-        common_metrics = sorted(list(b_cols & t_cols))
+        # Use get_numeric_columns to ensure we only get numeric types
+        b_metrics = get_numeric_columns(b_df)
+        t_metrics = get_numeric_columns(t_df)
 
-        if common_metrics:
-            # Prepend empty string sentinel
-            PLACEHOLDER = ""
-            choices_with_placeholder = [PLACEHOLDER] + common_metrics
+        common_keys = sorted(list(set(b_metrics.keys()) & set(t_metrics.keys())))
+        common_choices = {k: k for k in common_keys}
 
+        if common_keys:
             # Prefer inner_time, then outer_time
-            default = 'inner_time' if 'inner_time' in common_metrics else (
-                'outer_time' if 'outer_time' in common_metrics else common_metrics[0] if common_metrics else PLACEHOLDER
+            default = select_preferred_metric(common_choices)
+
+            update_metric_selector(
+                session,
+                'compare_metric',
+                common_choices,
+                selected=default,
+                placeholder=""
             )
-            ui.update_selectize('compare_metric', choices=choices_with_placeholder, selected=default, server=True)
 
     @reactive.effect
     @reactive.event(input.compare_metric)  # Only trigger when metric changes
-    def _update_filter_choices():
+    def _update_filter_choices() -> None:
         """Update filter metric choices when metric to visualize is selected (server-side with sentinel)."""
         metric = input.compare_metric()
 
@@ -285,19 +300,24 @@ def compare_server(input, output, session):
         b_filterable = set(get_filterable_columns(b_df))
         t_filterable = set(get_filterable_columns(t_df))
         common_filterable = sorted(list(b_filterable & t_filterable))
+        common_choices = {k: k for k in common_filterable}
 
         if not common_filterable:
             ui.update_selectize('compare_filter_metric', choices=[], selected=None, server=True)
             return
 
         # Prepend empty string sentinel for no filter
-        PLACEHOLDER = ""
-        choices_with_placeholder = [PLACEHOLDER] + common_filterable
-        ui.update_selectize('compare_filter_metric', choices=choices_with_placeholder, selected=PLACEHOLDER, server=True)
+        update_metric_selector(
+            session,
+            'compare_filter_metric',
+            common_choices,
+            selected=None,
+            placeholder=""
+        )
 
     @output
     @render.ui
-    def compare_filter_ui():
+    def compare_filter_ui() -> ui.TagChild | None:
         """Render dynamic filter UI based on selected metric."""
         filter_metric = input.compare_filter_metric()
 
@@ -317,7 +337,7 @@ def compare_server(input, output, session):
             return None
 
     @reactive.effect
-    def _apply_filters():
+    def _apply_filters() -> None:
         """Apply filter to both baseline and treatment data."""
         b_df = baseline_df.get()
         t_df = treatment_df.get()
@@ -389,7 +409,7 @@ def compare_server(input, output, session):
 
     @output
     @render.plot
-    def compare_density():
+    def compare_density() -> Figure | None:
         """Render density comparison plot."""
         b_df = baseline_filtered.get()
         t_df = treatment_filtered.get()
@@ -404,7 +424,7 @@ def compare_server(input, output, session):
 
     @output
     @render.plot
-    def compare_ecdf():
+    def compare_ecdf() -> Figure | None:
         """Render ECDF comparison plot."""
         b_df = baseline_filtered.get()
         t_df = treatment_filtered.get()
@@ -419,7 +439,7 @@ def compare_server(input, output, session):
 
     @output
     @render.data_frame
-    def compare_table():
+    def compare_table() -> pl.DataFrame | None:
         """Render comparison statistics table."""
         b_df = baseline_filtered.get()
         t_df = treatment_filtered.get()
@@ -451,7 +471,7 @@ def compare_server(input, output, session):
 
     @output
     @render.ui
-    def compare_narrative():
+    def compare_narrative() -> ui.TagChild:
         """Render comparison narrative with MathJax."""
         b_df = baseline_filtered.get()
         t_df = treatment_filtered.get()
@@ -493,7 +513,7 @@ def compare_server(input, output, session):
 
     @output
     @render.ui
-    def metadata_comparison():
+    def metadata_comparison() -> ui.TagChild:
         """Render metadata comparison between baseline and treatment runs."""
         # Get CSV paths directly from inputs
         baseline_csv = input.baseline_task()

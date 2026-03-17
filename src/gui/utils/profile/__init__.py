@@ -22,7 +22,6 @@ from .cutoff import (
 )
 
 from .metrics import (
-    select_default_metric,
     compute_predictor_stats,
     create_predictor_exclusion_ui,
     build_predictor_exclusion_modal,
@@ -63,7 +62,6 @@ __all__ = [
     "search_for_cutoff",
     "select_complete_rows",
     # Metric functions
-    "select_default_metric",
     "suggest_cutoff",
     "compute_cutoff_from_data",
     "compute_predictor_stats",
