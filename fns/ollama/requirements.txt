@@ -1,7 +1,0 @@
-bjoern==3.2.2
-blinker>=1.7
-Flask>=3.0
-flask_sockets>=0.2.1
-gevent>=24.2.0
-sentry-sdk>=1.40
-Werkzeug>=3.0

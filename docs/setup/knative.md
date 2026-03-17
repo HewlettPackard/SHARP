@@ -4,11 +4,23 @@
 
 * Create and test a simple "Hello world" Knative Service using the tutorial [here](https://knative.dev/docs/getting-started/first-service/)
 
-* Using custom python functions given in the framework:
-In the fns directory,open the Makefile and update the value of the IMAGE_REPO parameter to the image repository you want to use. Remember to perform `docker login` to the repo to enable pushing and pulling of images.
-* Run `make prep-knative FNS="sleep/"` to deploy sleep as a knative function. Test the function using the command `make test-knative FNS="sleep/`. The function should print the total time taken to perform sleep for 2 seconds. Delete the function using the command `make clean-knative FNS="sleep/`.
+## Using SHARP benchmarks with Knative
 
-* If you want to recreate all the knative function images required by this benchmark suite, go to `fns/` and run `make clean-knative`. Then you can run `make prep-knative` to prepare all the functions.
+SHARP no longer ships repo-managed Knative service manifests. To run a benchmark with the Knative backend, deploy a Knative service yourself and give it the same name as the benchmark you will launch from SHARP.
+
+For example, to run `uv run launch -b knative sleep 2`, make sure a Knative service named `sleep` already exists and accepts the request format expected by that benchmark.
+
+If you need a container image for the service, build it from the benchmark definition:
+
+```sh
+uv run build -t docker --registry <registry> sleep
+```
+
+Then point your `ksvc` at the resulting image and verify the deployment:
+
+```sh
+kubectl get ksvc sleep
+```
 
 
 ## Troubleshooting

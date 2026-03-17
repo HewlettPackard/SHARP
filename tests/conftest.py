@@ -83,7 +83,6 @@ class LauncherTestHelper:
         self.launcher_path = project_root / "src" / "cli" / "launch.py"
         self.runlogs_dir = "runlogs"
         self.runlogs_path = project_root / self.runlogs_dir
-        self.fns_dir = project_root / "fns"
         self.experiment_name = "tests"
         self.skip_sys_specs = False
 

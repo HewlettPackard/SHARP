@@ -6,41 +6,61 @@ Tests the complete comparison workflow using real benchmark runs.
 © Copyright 2025--2025 Hewlett Packard Enterprise Development LP
 """
 
+import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+FIXTURE_DATA_DIR = PROJECT_ROOT / 'tests' / 'fixtures' / 'compare_cli'
+
+
 @pytest.fixture
 def test_data_dir():
     """Path to test comparison data."""
-    return Path(__file__).parent.parent.parent / 'runlogs' / 'test_compare'
+    return FIXTURE_DATA_DIR
+
+
+@pytest.fixture
+def experiment_name(test_data_dir):
+    """Create a temporary experiment directory under runlogs for -e tests."""
+    runlogs_dir = PROJECT_ROOT / 'runlogs'
+    runlogs_dir.mkdir(exist_ok=True)
+    temp_dir = Path(tempfile.mkdtemp(prefix='compare_cli_', dir=runlogs_dir))
+
+    try:
+        for source_path in test_data_dir.iterdir():
+            shutil.copy2(source_path, temp_dir / source_path.name)
+        yield temp_dir.name
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def run_compare(*args: str) -> subprocess.CompletedProcess[str]:
+    """Run the compare CLI from the project root."""
+    return subprocess.run(
+        ['uv', 'run', 'compare', *args],
+        capture_output=True,
+        text=True,
+        cwd=PROJECT_ROOT,
+    )
 
 
 def test_compare_help():
     """Test that compare --help works."""
-    result = subprocess.run(
-        ['uv', 'run', 'compare', '--help'],
-        capture_output=True,
-        text=True,
-    )
+    result = run_compare('--help')
     assert result.returncode == 0
     assert 'Compare two benchmark runs' in result.stdout
     assert '--metrics' in result.stdout
     assert '--format' in result.stdout
 
 
-def test_compare_with_experiment_flag(test_data_dir):
+def test_compare_with_experiment_flag(experiment_name):
     """Test comparing two runs using -e experiment flag."""
-    if not test_data_dir.exists():
-        pytest.skip("Test data not available")
-
-    result = subprocess.run(
-        ['uv', 'run', 'compare', '-e', 'test_compare', 'sleep_fast.csv', 'sleep_slow.csv'],
-        capture_output=True,
-        text=True,
-    )
+    result = run_compare('-e', experiment_name, 'sleep_fast.csv', 'sleep_slow.csv')
 
     assert result.returncode == 0
     assert 'Statistical Comparison' in result.stdout
@@ -50,34 +70,19 @@ def test_compare_with_experiment_flag(test_data_dir):
 
 def test_compare_with_full_paths(test_data_dir):
     """Test comparing two runs using full paths."""
-    if not test_data_dir.exists():
-        pytest.skip("Test data not available")
-
     fast_path = test_data_dir / 'sleep_fast.csv'
     slow_path = test_data_dir / 'sleep_slow.csv'
 
-    result = subprocess.run(
-        ['uv', 'run', 'compare', str(fast_path), str(slow_path)],
-        capture_output=True,
-        text=True,
-    )
+    result = run_compare(str(fast_path), str(slow_path))
 
     assert result.returncode == 0
     assert 'Statistical Comparison' in result.stdout
     assert 'inner_time' in result.stdout
 
 
-def test_compare_csv_format(test_data_dir):
+def test_compare_csv_format(experiment_name):
     """Test CSV output format."""
-    if not test_data_dir.exists():
-        pytest.skip("Test data not available")
-
-    result = subprocess.run(
-        ['uv', 'run', 'compare', '-e', 'test_compare', '--format', 'csv',
-         'sleep_fast.csv', 'sleep_slow.csv'],
-        capture_output=True,
-        text=True,
-    )
+    result = run_compare('-e', experiment_name, '--format', 'csv', 'sleep_fast.csv', 'sleep_slow.csv')
 
     assert result.returncode == 0
     assert 'metric,baseline_n,baseline_median' in result.stdout
@@ -86,17 +91,9 @@ def test_compare_csv_format(test_data_dir):
     assert '|' not in result.stdout
 
 
-def test_compare_plaintext_format(test_data_dir):
+def test_compare_plaintext_format(experiment_name):
     """Test plaintext output format."""
-    if not test_data_dir.exists():
-        pytest.skip("Test data not available")
-
-    result = subprocess.run(
-        ['uv', 'run', 'compare', '-e', 'test_compare', '--format', 'plaintext',
-         'sleep_fast.csv', 'sleep_slow.csv'],
-        capture_output=True,
-        text=True,
-    )
+    result = run_compare('-e', experiment_name, '--format', 'plaintext', 'sleep_fast.csv', 'sleep_slow.csv')
 
     assert result.returncode == 0
     assert 'Statistical Comparison' in result.stdout
@@ -105,16 +102,10 @@ def test_compare_plaintext_format(test_data_dir):
     assert '|' not in result.stdout
 
 
-def test_compare_multiple_metrics(test_data_dir):
+def test_compare_multiple_metrics(experiment_name):
     """Test comparing multiple metrics."""
-    if not test_data_dir.exists():
-        pytest.skip("Test data not available")
-
-    result = subprocess.run(
-        ['uv', 'run', 'compare', '-e', 'test_compare', '-m', 'inner_time,outer_time',
-         'sleep_fast.csv', 'sleep_slow.csv'],
-        capture_output=True,
-        text=True,
+    result = run_compare(
+        '-e', experiment_name, '-m', 'inner_time,outer_time', 'sleep_fast.csv', 'sleep_slow.csv'
     )
 
     assert result.returncode == 0
@@ -122,26 +113,13 @@ def test_compare_multiple_metrics(test_data_dir):
     assert 'outer_time' in result.stdout
 
 
-def test_compare_show_all_metadata(test_data_dir):
+def test_compare_show_all_metadata(experiment_name):
     """Test --show-all flag for metadata."""
-    if not test_data_dir.exists():
-        pytest.skip("Test data not available")
-
     # Without --show-all
-    result_default = subprocess.run(
-        ['uv', 'run', 'compare', '-e', 'test_compare',
-         'sleep_fast.csv', 'sleep_slow.csv'],
-        capture_output=True,
-        text=True,
-    )
+    result_default = run_compare('-e', experiment_name, 'sleep_fast.csv', 'sleep_slow.csv')
 
     # With --show-all
-    result_all = subprocess.run(
-        ['uv', 'run', 'compare', '-e', 'test_compare', '--show-all',
-         'sleep_fast.csv', 'sleep_slow.csv'],
-        capture_output=True,
-        text=True,
-    )
+    result_all = run_compare('-e', experiment_name, '--show-all', 'sleep_fast.csv', 'sleep_slow.csv')
 
     assert result_default.returncode == 0
     assert result_all.returncode == 0
@@ -153,43 +131,23 @@ def test_compare_show_all_metadata(test_data_dir):
 
 def test_compare_nonexistent_file():
     """Test error handling for nonexistent files."""
-    result = subprocess.run(
-        ['uv', 'run', 'compare', 'nonexistent1.csv', 'nonexistent2.csv'],
-        capture_output=True,
-        text=True,
-    )
+    result = run_compare('nonexistent1.csv', 'nonexistent2.csv')
 
     assert result.returncode == 1
     assert 'Error' in result.stderr
 
 
-def test_compare_missing_metric(test_data_dir):
+def test_compare_missing_metric(experiment_name):
     """Test error handling when requested metric doesn't exist."""
-    if not test_data_dir.exists():
-        pytest.skip("Test data not available")
-
-    result = subprocess.run(
-        ['uv', 'run', 'compare', '-e', 'test_compare', '-m', 'nonexistent_metric',
-         'sleep_fast.csv', 'sleep_slow.csv'],
-        capture_output=True,
-        text=True,
-    )
+    result = run_compare('-e', experiment_name, '-m', 'nonexistent_metric', 'sleep_fast.csv', 'sleep_slow.csv')
 
     assert result.returncode == 1
     assert 'Error' in result.stderr or 'not found' in result.stderr
 
 
-def test_compare_different_benchmarks(test_data_dir):
+def test_compare_different_benchmarks(experiment_name):
     """Test comparing different benchmarks (should work but show more differences)."""
-    if not test_data_dir.exists():
-        pytest.skip("Test data not available")
-
-    result = subprocess.run(
-        ['uv', 'run', 'compare', '-e', 'test_compare',
-         'sleep_fast.csv', 'nope_test.csv'],
-        capture_output=True,
-        text=True,
-    )
+    result = run_compare('-e', experiment_name, 'sleep_fast.csv', 'nope_test.csv')
 
     assert result.returncode == 0
     assert 'Statistical Comparison' in result.stdout
@@ -201,14 +159,9 @@ def test_compare_different_benchmarks(test_data_dir):
 
 def test_compare_metadata_parsing(test_data_dir):
     """Test that metadata sections are correctly parsed from v4 .md files."""
-    if not test_data_dir.exists():
-        pytest.skip("Test data not available")
-
     from src.core.runlogs.metadata_compare import load_metadata
 
     md_file = test_data_dir / 'sleep_fast.md'
-    if not md_file.exists():
-        pytest.skip("Metadata file not available")
 
     sections = load_metadata(md_file)
 
@@ -232,14 +185,9 @@ def test_compare_metadata_parsing(test_data_dir):
 
 def test_compare_metadata_flattening(test_data_dir):
     """Test that nested metadata is flattened for comparison."""
-    if not test_data_dir.exists():
-        pytest.skip("Test data not available")
-
     from src.core.runlogs.metadata_compare import load_metadata, flatten_dict
 
     md_file = test_data_dir / 'sleep_fast.md'
-    if not md_file.exists():
-        pytest.skip("Metadata file not available")
 
     sections = load_metadata(md_file)
     sys_config = sections['Initial system configuration']
@@ -281,14 +229,9 @@ def test_compare_significance_filtering():
 
 def test_core_count_extraction(test_data_dir):
     """Test that core count is correctly extracted from metadata."""
-    if not test_data_dir.exists():
-        pytest.skip("Test data not available")
-
     from src.core.runlogs.metadata_compare import load_metadata, extract_core_count
 
     md_file = test_data_dir / 'sleep_fast.md'
-    if not md_file.exists():
-        pytest.skip("Metadata file not available")
 
     metadata = load_metadata(md_file)
     core_count = extract_core_count(metadata)

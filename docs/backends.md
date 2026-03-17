@@ -12,13 +12,13 @@ SHARP automatically loads backend configuration files when you specify a backend
 **Examples:**
 ```bash
 # Auto-loads backends/docker.yaml
-./launcher.py -b docker my_function
+uv run launch -b docker my_function
 
 # Auto-loads backends/perf.yaml and backends/mpi.yaml in that order
-./launcher.py -b perf -b mpi my_function
+uv run launch -b perf -b mpi my_function
 
 # Explicit -f still works (and takes precedence over auto-loading)
-./launcher.py -f backends/docker.yaml -b docker my_function
+uv run launch -f backends/docker.yaml -b docker my_function
 ```
 
 **Configuration Merge Order:**
@@ -34,7 +34,7 @@ This means if you specify `-f backends/docker.yaml -b docker`, the file is loade
   - Default backend when no other backend is specified
   - Auto-loaded when using `-b local` or when no backends specified
   - Supports filesystem cache flushing for cold-start measurements
-  - Usage: `-b local` or simply omit the `-b` flag
+  - Usage: `uv run launch -b local my_function` or simply `uv run launch my_function`
 
 ### `docker.yaml`
 - **Docker**: Manages Docker containers for function execution, including commands for restarting containers and making HTTP requests to container IP addresses.
@@ -119,32 +119,32 @@ This means if you specify `-f backends/docker.yaml -b docker`, the file is loade
 
 1. Local execution (auto-loaded):
 ```bash
-./launcher.py my_function
+uv run launch my_function
 # or explicitly:
-./launcher.py -b local my_function
+uv run launch -b local my_function
 ```
 
 2. Combining performance monitoring with MPI (auto-loaded):
 ```bash
-./launcher.py -b perf -b mpi my_function
+uv run launch -b perf -b mpi my_function
 # Equivalent to the old way:
-# ./launcher.py -f backends/perf.yaml -f backends/mpi.yaml -b perf -b mpi my_function
+# uv run launch -f backends/perf.yaml -f backends/mpi.yaml -b perf -b mpi my_function
 ```
 
 3. Measuring resource usage on remote hosts (auto-loaded):
 ```bash
-./launcher.py -b ssh -b bintime my_function
+uv run launch -b ssh -b bintime my_function
 ```
 
 4. Power monitoring with system information (auto-loaded):
 ```bash
-./launcher.py -b power_iLO -b uname my_function
+uv run launch -b power_iLO -b uname my_function
 ```
 
 5. Mixing explicit config files with auto-loading:
 ```bash
 # Custom config overrides auto-loaded defaults
-./launcher.py -f my_custom_docker.yaml -b docker my_function
+uv run launch -f my_custom_docker.yaml -b docker my_function
 ```
 
 Remember that backend order matters as each backend wraps around the next one in the command line order and the arguments are only included for the innermost(rightmost) backend.

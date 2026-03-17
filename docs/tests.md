@@ -409,3 +409,149 @@ SHARP uses **pytest** as its primary testing framework. All tests are compatible
 - All other unit tests - Use `unittest.TestCase` but run via pytest
 
 The current approach allows gradual migration while maintaining full compatibility.
+
+## Testing Philosophy
+
+**Version**: 1.0 (Established December 2025)
+
+### Core Principles
+
+#### 1. Tests Should Catch Real Bugs
+
+Every test should answer: **"What bug would this catch if it regressed?"**
+
+- Tests verify actual behavior, not implementation details
+- Tests check real error conditions, edge cases, and integration points
+- Tests do NOT exist purely to achieve coverage metrics
+- Tests exercise code paths that could actually fail in production
+
+#### 2. Prefer Real Execution Over Mocking
+
+**Default**: Use real execution with temporary directories, actual files, and real processes.
+
+**When to mock**:
+- Testing GUI orchestration that coordinates other components
+- The mocked functionality has comprehensive tests elsewhere
+- Testing callback behavior or error propagation
+- Real execution would be prohibitively slow or require external resources
+
+**Current status**: Only 1 mock-heavy file (test_profile_execution.py) out of 45 test files, and those mocks are justified.
+
+#### 3. Coverage Percentage is Secondary
+
+**Philosophy**: 50% coverage with meaningful tests > 95% coverage with trivial tests
+
+- SHARP has 44% overall coverage with 793 meaningful tests
+- 20 files have 100% coverage (core utilities, config system)
+- Lower coverage in GUI modules is acceptable (tested through UI interaction)
+- Lower coverage in CLI entry points is acceptable (tested through integration tests)
+
+**Use coverage to**:
+- Identify completely untested code
+- Find missing error paths in critical code
+- Discover dead code that can be removed
+
+**Do NOT use coverage to**:
+- Set arbitrary percentage targets
+- Write trivial tests just to hit coverage goals
+- Measure test suite quality
+
+#### 4. Test Patterns
+
+**Use pytest fixtures**:
+```python
+@pytest.fixture
+def orchestrator_config(tmp_path):
+    """Provide complete orchestrator configuration."""
+    return {'benchmark_spec': {'entry_point': '/bin/sleep', 'args': ['0.1']}}
+
+def test_orchestrator_executes(orchestrator_config):
+    """Test full orchestrator execution."""
+    orchestrator = ExecutionOrchestrator(orchestrator_config)
+    result = orchestrator.run()
+    assert result.success
+```
+
+**Test real file I/O**:
+```python
+def test_save_markdown_with_system_specs(tmp_path):
+    """Markdown output includes system specifications."""
+    writer = RunLogger(str(tmp_path / "exp"), "task")
+    writer.save_md()
+
+    md_path = tmp_path / "exp" / "task.md"
+    with open(md_path) as f:
+        content = f.read()
+
+    assert "## Initial system configuration" in content
+```
+
+**Use synthetic data for statistical tests**:
+```python
+from tests.fixtures.distributions import distributions
+
+def test_rse_repeater_converges_on_normal():
+    """RSE repeater converges when relative error drops below threshold."""
+    repeater = RSERepeater({'threshold_value': 0.05})
+
+    for sample in distributions.normal(mean=100, std=5, size=100):
+        rundata = MockRunData({'time': sample})
+        if repeater(rundata):
+            break
+
+    assert repeater.converged
+```
+
+### What NOT to Test
+
+❌ **Implementation details**: Don't test private methods or internal state
+❌ **Framework behavior**: Don't test that pytest fixtures work
+❌ **Library functionality**: Don't test that Pydantic validates (test your schemas)
+❌ **Tautologies**: Don't write tests that can't fail
+
+### Test Documentation
+
+Every test should have:
+1. **Descriptive name**: `test_sweep_generates_all_combinations`
+2. **Docstring**: Explains what behavior is being validated
+3. **Clear assertions**: What would break if this fails?
+
+### Test Maintenance
+
+**When a bug is found**:
+1. Write a failing test that reproduces the bug
+2. Fix the bug
+3. Verify the test now passes
+4. Document the regression in test docstring
+
+**When refactoring**:
+1. Run tests before refactoring (establish baseline)
+2. Refactor incrementally (small changes)
+3. Run tests after each change (immediate feedback)
+4. Update tests only if behavior changes
+
+### Test Review Checklist
+
+Before merging new tests:
+- [ ] Test has descriptive name and docstring
+- [ ] Test uses real execution (or justifies mocking)
+- [ ] Test would catch an actual bug if code regressed
+- [ ] Test runs in reasonable time (<1s unit, <10s integration)
+- [ ] Test cleans up resources (tmp_path handles this)
+- [ ] Test is deterministic (no random failures)
+- [ ] Test error messages are clear
+- [ ] Test follows existing patterns
+
+### Quality Metrics
+
+**Phase 6.1 Audit Results** (December 2025):
+- ✅ 793 passing tests across 45 files
+- ✅ 44% meaningful coverage (not artificially inflated)
+- ✅ Minimal mock usage (1 mock-heavy file, justified)
+- ✅ Strong integration test coverage (14 files)
+- ✅ Real execution dominates (80%+ of tests)
+- ✅ Zero trivial tests identified
+
+**References**:
+- Test Quality Audit: `/test_quality_audit_findings.md`
+- Coverage Report: `htmlcov/index.html`

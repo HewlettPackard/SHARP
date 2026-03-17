@@ -40,14 +40,15 @@ The change point analysis is integrated into `characterize_distribution()` and a
 ```python
 from src.core.stats.distribution import (
     detect_change_points,
-    characterize_changepoints,
     estimate_acf_lag,
     AUTO_MODEL_THRESHOLD,
 )
+from src.core.stats.narrative import describe_changepoints
 
 # Main function (called automatically by characterize_distribution)
-characterize_changepoints(x, model="auto", pen=None, min_size=None,
-                         acf_threshold=0.2, warmup_pct=0.3, cooldown_pct=0.7)
+# Note: Requires pre-calculated cps and acf_info
+describe_changepoints(x, cps, acf_info, min_seg_size=3,
+                     warmup_pct=0.3, cooldown_pct=0.7)
 
 # Helper functions
 detect_change_points(x, model="auto", pen=None, min_size=None,

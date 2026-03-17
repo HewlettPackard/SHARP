@@ -209,5 +209,5 @@ fission env create --name cudasrc \
       --poolsize 2
 ```
 
-(This command can be run by calling `make cudasrc-env` from `fns/`, after you've updated image locations.)
+(Repeat this command directly, or add it to your own deployment automation after you've updated image locations.)
 You should now be ready to package and run Fission functions using CUDA.

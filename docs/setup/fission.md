@@ -70,7 +70,7 @@ spec:
     Note that you must set `--mincpu`, `--minmemory`, and `--poolsize` in such a way that Kubernetes can still schedule your function environments!
     For example, if you set `--mincpu 1000` and `--poolsize 10`, Kubernetes will need 10 CPUs available or run into errors.
     Note that CPUs are in milli-CPUs and memory is in MB.
-    You can reproduce this step by running `make python-src` from `fns/`. You may have to edit the Makefile to point at the correct Docker registry.
+    You can automate this in your own deployment scripts if you create these environments often.
     If you're accessing docker images via a k8s secret, as explained in the [README](./README.md), you'll need to add `--imagepullsecret=docker-registry-secret` to this command line and to the Makefile.
 
 * Test a more complicated Python program with dependencies and paramemters:
@@ -80,11 +80,24 @@ spec:
     fission fn test --name matmul -b '100'
     kubectl logs --namespace fission-function -l environmentName=python-src --tail -1 # to check logs
     ```
-* Make changes to `matmul/user.py` and retry, if you like: `make prep-fission`.
 
-* To build the environment images and push them to the required docker repository, go to `fns/`, update the Makefile variable `IMAGE_REPO` to the desired repository and run `make deploy`.
+  ## Using SHARP benchmarks with Fission
 
-* If you want to recreate all the fission environments required by this benchmark suite, go to `fns/` and run `make fission-env-clean fission-env`. Then you can run `make prep-fission` to prepare all the functions.
+  SHARP no longer ships repo-managed `prep-fission` targets. To run a benchmark with the Fission backend, deploy a Fission function yourself and give it the same name as the benchmark you will launch from SHARP.
+
+  For example, to run `uv run launch -b fission sleep 2`, make sure a Fission function named `sleep` already exists and returns output that matches the benchmark's metric extraction rules.
+
+  If your deployment is container-based, you can use SHARP's Docker packaging as a starting point:
+
+  ```sh
+  uv run build -t docker --registry <registry> sleep
+  ```
+
+  Then create the Fission package and function from that image or from your own source bundle. Before launching from SHARP, verify the deployment with:
+
+  ```sh
+  fission fn info --name sleep
+  ```
 
 
 ## Troubleshooting
@@ -183,7 +196,7 @@ fission env create --name python-src \
       --poolsize 2
 ```
 
-(This command can be run by calling `make pythonrc-src` from `fns/`, after you've updated image locations.)
+(Repeat this command directly or from your own deployment automation after you've updated image locations.)
 Note that you don't necessarily have to add your dependencies to the execution environment if you have it install during your package build.
 
 ## Debugging Fission

@@ -8,11 +8,11 @@ Provides functions for comparing distributions (ECDF, density plots, statistical
 
 import numpy as np
 from scipy import stats
-from typing import Dict, Any, Optional
+from typing import Any
 
 
 def mann_whitney_test(baseline: np.ndarray, treatment: np.ndarray,
-                     alternative: str = 'two-sided') -> Dict[str, Any]:
+                     alternative: str = 'two-sided') -> dict[str, Any]:
     """
     Perform Mann-Whitney U test (non-parametric comparison of two distributions).
 
@@ -54,7 +54,7 @@ def mann_whitney_test(baseline: np.ndarray, treatment: np.ndarray,
 
 
 def ecdf_comparison(baseline: np.ndarray, treatment: np.ndarray,
-                   metric: str) -> Dict[str, Any]:
+                   metric: str) -> dict[str, Any]:
     """
     Generate ECDF (Empirical Cumulative Distribution Function) comparison data.
 
@@ -103,7 +103,7 @@ def ecdf_comparison(baseline: np.ndarray, treatment: np.ndarray,
 
 
 def density_comparison(baseline: np.ndarray, treatment: np.ndarray,
-                      metric: str, bw_method: Optional[str] = None) -> Dict[str, Any]:
+                      metric: str, bw_method: str | None = None) -> dict[str, Any]:
     """
     Generate kernel density estimation comparison data.
 
@@ -155,7 +155,7 @@ def density_comparison(baseline: np.ndarray, treatment: np.ndarray,
 
 def comparison_table(baseline: np.ndarray, treatment: np.ndarray,
                     metric: str, better: str = 'lower',
-                    digits: int = 5) -> Dict[str, Any]:
+                    digits: int = 5) -> dict[str, Any]:
     """
     Generate a comparison table with summary statistics and statistical tests.
 

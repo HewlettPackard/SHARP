@@ -9,8 +9,8 @@ The accepted subset of the workflow standard includes:
 
  * States of the types: Operation, Sleep, Parallel
  * `parallel` actionMode for actions
- * Action timeouts, which are passed along to `launcher.py`
- * A susbset of functions, designed to be run by `launcher.py` or the shell
+ * Action timeouts, which are passed along to the launcher
+ * A susbset of functions, designed to be run by the launcher or the shell
  * functionRef arguments, which are passed to launcher
 
 It doesn't include:

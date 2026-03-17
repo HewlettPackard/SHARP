@@ -1,19 +1,18 @@
 
 #!/usr/bin/env python3
 """
-Tests to ensure that SHARP can run representative built-in function with all backends.
+Tests to ensure that SHARP can run representative built-in benchmarks with all backends.
 
 This suite verifies that the installation of SHARP was complete in the sense
-that all of its built-in functions can be run with all of its backends.
+that representative built-in benchmarks can be run with all supported backends.
 
 © Copyright 2025--2025 Hewlett Packard Enterprise Development LP
 """
 
 import os
-import shutil
 import subprocess
+
 import pytest
-from pathlib import Path
 
 os.environ["HWLOC_COMPONENTS"] = "-gl"  # Get rid of pesky X11 warning in MPI
 
@@ -22,9 +21,7 @@ _mydir, _ = os.path.split(os.path.abspath(__file__))
 _project_root, _ = os.path.split(_mydir)
 _venv_path = os.path.join(_project_root, ".venv", "bin", "activate")
 
-"""
-All combinations of functions and backends to run
-"""
+"""All combinations of benchmarks and backends to run."""
 fn_combinations = [
     {"fn": "nope", "args": "", "backends": ["local", "docker", "knative", "fission", "mpi", "ssh"]},
     {"fn": "bounce", "args": "hello world", "backends": ["local"]},
@@ -49,37 +46,53 @@ all_combinations = [
 ]
 
 
-def check_docker_container(fn: str) -> bool:
-    """Check if a Docker container with exact name is running.
+def check_docker_image(fn: str) -> bool:
+    """Check if a Docker image exists for the benchmark.
 
     Args:
-        fn: Function name (exact container name)
+        fn: Benchmark name
 
     Returns:
-        True if container is running, False otherwise
+        True if image exists, False if not or Docker is unavailable
     """
-    result = subprocess.run(
-        ["docker", "ps", "-q", "-f", f"name=^{fn}$"],
-        capture_output=True,
-        text=True
-    )
-    return bool(result.stdout.strip())
+    try:
+        result = subprocess.run(
+            ["docker", "images", "-q", f"sharp-{fn}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return bool(result.stdout.strip())
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
 
 
-def missing_backend_requirements(backend: str) -> list[str]:
-    """Return missing CLI requirements for a backend."""
-    required_commands = {
-        "docker": ["docker"],
-        "knative": ["kubectl", "curl"],
-        "fission": ["fission", "kubectl"],
-        "mpi": ["mpirun"],
-        "ssh": ["ssh"],
-    }
-    return [
-        command
-        for command in required_commands.get(backend, [])
-        if shutil.which(command) is None
-    ]
+def check_fission_function(fn: str) -> bool:
+    """Check if a Fission function with the benchmark name exists."""
+    try:
+        result = subprocess.run(
+            ["fission", "fn", "info", "--name", fn],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return result.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
+
+
+def check_knative_service(fn: str) -> bool:
+    """Check if a Knative service with the benchmark name exists."""
+    try:
+        result = subprocess.run(
+            ["kubectl", "get", "ksvc", fn, "-o", "name"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return result.returncode == 0 and bool(result.stdout.strip())
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return False
 
 
 @pytest.fixture
@@ -98,21 +111,77 @@ def setup_test(launcher_helper, request):
     ids=[combo[0] for combo in all_combinations]
 )
 def test_install(setup_test, name, backend, fn, args):
-    """Launcher can run for a given combination of backend and function."""
+    """Launcher can run for a given combination of backend and benchmark."""
     helper = setup_test
 
-    missing_requirements = missing_backend_requirements(backend)
-    if missing_requirements:
+    if backend == "docker" and not check_docker_image(fn):
         pytest.skip(
-            f"Backend '{backend}' requires missing command(s): {', '.join(missing_requirements)}"
+            f"Docker backend test skipped: Docker image 'sharp-{fn}' not found.\n"
+            f"To enable this test:\n"
+            f"  1. Install Docker: See docs/setup/README.md\n"
+            f"  2. Build the image: uv run build -t docker {fn}\n"
+            f"  3. Re-run tests: pytest {__file__}::{name}\n"
         )
 
-    # Check if Docker container exists when using docker backend
-    if backend == "docker" and not check_docker_container(fn):
-        pytest.skip(
-            f"Docker container '{fn}' is not running. "
-            f"Start it with: cd fns/{fn} && make prep-docker"
-        )
+    if backend == "mpi":
+        try:
+            subprocess.run(["mpirun", "--version"], capture_output=True, check=True, timeout=5)
+        except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            pytest.skip(
+                f"MPI backend test skipped: mpirun not found.\n"
+                f"To enable this test:\n"
+                f"  1. Install MPI: See docs/setup/README.md and docs/setup/MPI.md\n"
+                f"  2. Verify: mpirun --version\n"
+                f"  3. Re-run tests: pytest {__file__}::{name}\n"
+            )
+
+    if backend == "fission":
+        try:
+            subprocess.run(["fission", "version"], capture_output=True, check=True, timeout=5)
+        except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            pytest.skip(
+                f"Fission backend test skipped: Fission CLI not found.\n"
+                f"To enable this test:\n"
+                f"  1. Install Fission: See docs/setup/fission.md\n"
+                f"  2. Verify: fission version\n"
+                f"  3. Re-run tests: pytest {__file__}::{name}\n"
+            )
+
+        if not check_fission_function(fn):
+            pytest.skip(
+                f"Fission backend test skipped: Fission function '{fn}' not found.\n"
+                f"Deploy a function named '{fn}' first, then re-run: pytest {__file__}::{name}\n"
+            )
+
+    if backend == "knative":
+        try:
+            subprocess.run(["kubectl", "version", "--client"], capture_output=True, check=True, timeout=5)
+        except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            pytest.skip(
+                f"Knative backend test skipped: kubectl not found.\n"
+                f"To enable this test:\n"
+                f"  1. Install Kubernetes tooling and Knative: See docs/setup/knative.md\n"
+                f"  2. Verify: kubectl version --client\n"
+                f"  3. Re-run tests: pytest {__file__}::{name}\n"
+            )
+
+        if not check_knative_service(fn):
+            pytest.skip(
+                f"Knative backend test skipped: Knative service '{fn}' not found.\n"
+                f"Deploy a service named '{fn}' first, then re-run: pytest {__file__}::{name}\n"
+            )
+
+    if backend == "ssh":
+        try:
+            subprocess.run(["ssh", "-V"], capture_output=True, check=False, timeout=5)
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pytest.skip(
+                f"SSH backend test skipped: ssh command not found.\n"
+                f"To enable this test:\n"
+                f"  1. Install OpenSSH client\n"
+                f"  2. Verify: ssh -V\n"
+                f"  3. Re-run tests: pytest {__file__}::{name}\n"
+            )
 
     # Use parameterized test name as part of task name for uniqueness
     unique_task = f"{helper.task_name}_{name}"
@@ -126,9 +195,8 @@ def test_install(setup_test, name, backend, fn, args):
     assert returncode == 0, "Expected zero exit code"
     assert stdout, "Expected output in stdout"
 
-    # Skip test only if Docker container/image is missing (infrastructure issue)
-    if "No such container" in stderr or "Connection refused" in stderr or "docker: command not found" in stderr:
-        pytest.skip(f"Docker container for '{fn}' is not available on this system")
+    if "No such image" in stderr or "Connection refused" in stderr or "docker: command not found" in stderr:
+        pytest.skip(f"Docker image for '{fn}' is not available on this system")
 
     # Warnings in stderr are acceptable (e.g., "executing function return status 1")
     # Only fail if there are actual errors (not just warnings)

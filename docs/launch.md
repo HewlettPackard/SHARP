@@ -37,7 +37,7 @@ A header field is a field whose value is the same for the entire task, such as t
 
 In addition to the CSV file, a per-task human-readable markdown file is created with a short description of the task and all the options used in its invocation. The file is called task.md, substituting for the actual task name.
 The markdown file also contains specific information identifying the system-under-test, including hardware and operating-system descriptors.
-The different sections for system information, and the commands to generate their data, can be found in `launcher/sys_spec.yaml` and may be overridden by your own configuration.
+The different sections for system information, and the commands to generate their data, can be found in `src/core/config/sys_spec.yaml` and may be overridden by your own configuration.
 
 The location of log files is under a per-experiment directory. The top-level directory customizable and defaults to `../runlogs`.
 
@@ -208,7 +208,7 @@ For example, you can add a layer to measure the memory consumption of the progra
 To do that, you might run something like:
 
 ```
-./launcher.py -f memory.yaml -b local -b memory /bin/ls -l
+uv run launch -f memory.yaml -b local -b memory /bin/ls -l
 ```
 
 This run will add a new `max_rss` column to the output CSV file with the memory consumption in KB.
@@ -514,7 +514,7 @@ Default (looks for sub-repeater options in the same dictionary):
 
 ## Extending to other backends
 
-The code is designed to be extensible. Every backend is represented by a launcher class that needs to implement a small API for its own backend. The API is described in the parent class Launcher (in `launcher.py`). A new subclass for a new backend merely needs to override whatever function makes sense. Minimally, the `__call__()` operator that actually invokes the function needs to be overridden. Additional, per-backend options can still be passed via the `options` dictionary.
+The code is designed to be extensible. Every backend is represented by a backend configuration that follows the schema defined in `docs/schemas/backend.md`. To add a new backend, create a YAML file in the `backends/` directory following the schema. The backend configuration includes a command template with placeholders that are expanded at runtime. Additional backend-specific options can be passed via the `-j` flag or backend-specific command-line arguments.
 
 We provide PEP-484 type annotations for all components of the launcher. This should help understand the relevant APIs. It is recommended to check for type errors using `mypy`:
 

@@ -122,21 +122,21 @@ backend_options:
 **Example** (local - direct execution):
 ```yaml
 command_template: "$CMD $ARGS"
-# Usage: launcher.py -b local sleep 1.5
+# Usage: uv run launch -b local sleep 1.5
 # Expands to: sleep 1.5
 ```
 
 **Example** (perf - wrapping the command):
 ```yaml
 command_template: "perf stat -e cycles,instructions $CMD $ARGS"
-# Usage: launcher.py -b perf sleep 1.5
+# Usage: uv run launch -b perf sleep 1.5
 # Expands to: perf stat -e cycles,instructions sleep 1.5
 ```
 
 **Example** (MPI with custom placeholders):
 ```yaml
 command_template: "mpirun -np $MPIPROCS $CMD $ARGS"
-# Usage: launcher.py -b mpi --mpiprocs 4 sleep 1.5
+# Usage: uv run launch -b mpi --mpl 4 sleep 1.5
 # Expands to: mpirun -np 4 sleep 1.5
 ```
 

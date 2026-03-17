@@ -8,7 +8,7 @@ future support for permutation-based importance (model-agnostic).
 © Copyright 2025--2025 Hewlett Packard Enterprise Development LP
 """
 from abc import ABC, abstractmethod
-from typing import Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable, Any
 from sklearn.tree import DecisionTreeClassifier
 
 
@@ -26,7 +26,7 @@ class FeatureImportanceCalculator(ABC):
     """Abstract base class for feature importance calculators."""
 
     @abstractmethod
-    def compute_importance(self, model) -> dict[str, float]:
+    def compute_importance(self, model: Any) -> dict[str, float]:
         """
         Compute feature importance scores.
 
@@ -39,7 +39,7 @@ class FeatureImportanceCalculator(ABC):
         pass
 
     @abstractmethod
-    def get_ranked_features(self, model) -> list[tuple[str, float]]:
+    def get_ranked_features(self, model: Any) -> list[tuple[str, float]]:
         """
         Get features ranked by importance (descending).
 
@@ -114,7 +114,7 @@ class TreeFeatureImportance(FeatureImportanceCalculator):
         return sorted(importance_dict.items(), key=lambda x: x[1], reverse=True)
 
 
-def get_feature_importance(model) -> dict[str, float]:
+def get_feature_importance(model: Any) -> dict[str, float]:
     """
     Get feature importance scores for a trained model.
 
@@ -143,7 +143,7 @@ def get_feature_importance(model) -> dict[str, float]:
         raise ValueError(f"Unsupported model type: {type(model)}")
 
 
-def get_ranked_features(model) -> list[tuple[str, float]]:
+def get_ranked_features(model: Any) -> list[tuple[str, float]]:
     """
     Get features ranked by importance (descending).
 

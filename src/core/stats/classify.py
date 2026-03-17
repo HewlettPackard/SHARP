@@ -28,7 +28,7 @@ def format_tree_text(tree: DecisionTreeClassifier, feature_names: list[str]) -> 
         if not feature_names:
             feature_names = [f"Feature_{i}" for i in range(tree.n_features_in_)]
         tree_text = export_text(tree, feature_names=feature_names)
-        return tree_text
+        return str(tree_text)
     except Exception as e:
         return f"Error formatting tree: {str(e)}"
 

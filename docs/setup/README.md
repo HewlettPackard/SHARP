@@ -1,108 +1,69 @@
 # Setup instructions for SHARP
 
-To run this benchmark, you'll need one or more hosts (physical or virtual), running one or more job-launching backend. This guide provides instructions for a few alternatives for the backends. Docker is assumed for all FaaS alternatives, but can probably be switched for other container systems supported by the backend.
+To run SHARP, you'll need one or more hosts or VMs plus at least one execution backend. This guide covers the common host setup first, then links to backend-specific setup notes.
 
 ## Get host(s)
 
 * Provision physical hosts or VMs with any of the supported accelerators.
-* The rest of the instructions assume Ubuntu 20.04 as the OS on these hosts. The python interpreter should be version 3.9 or higher.
-* Install core prerequisites (required for launcher/CLI/GUI):
+* The rest of the instructions assume a recent Ubuntu-based distribution on those hosts.
+
+## Install uv and Python dependencies
+
+Install `uv`, then create the project environment from the repository root:
+
+```sh
+curl -LsSf https://astral.sh/uv/install.sh | sh
+cd sharp
+uv sync --extra dev
+```
+
+This creates `.venv/` and installs the Python packages pinned in `uv.lock`. The supported Python version is defined in `pyproject.toml`.
+
+## Install host packages
+
+Install the packages needed on the control host for common SHARP workflows:
 
   ```sh
-  sudo apt install make \
-        llvm \
-        g++ \
-        python3-pip \
-        apt-transport-https \
-        ca-certificates \
-        curl \
-        rename \
-        fuse libfuse2 \
-        appimagetool
+  sudo apt install curl git make rename
   ```
 
-  **Notes**:
-  - `fuse`, `libfuse2`, and `appimagetool` are **required** for AppImage support (packaging and execution)
-  - Benchmark-specific dependencies (NumPy, SciPy, Flask, etc.) are bundled in AppImages/Docker images, not installed system-wide
-  - Python packages are managed via `uv` (see "Install Python packages" section below)
-
-* Install backend-specific packages (optional, depending on which backends you'll use):
+Install additional system packages only for the features you plan to use:
 
   ```sh
-  # For Docker backend
+  # Docker backend or container-based FaaS backends
   sudo apt install docker.io
 
-  # For MPI backend
-  sudo apt install libopenmpi-dev
+  # AppImage packaging or local AppImage execution
+  sudo apt install fuse libfuse2 appimagetool
 
-  # For specific benchmarks that need system libraries
+  # Native builds for compiled benchmarks
+  sudo apt install build-essential
+
+  # MPI backend or MPI benchmarks
+  sudo apt install openmpi-bin libopenmpi-dev
+
+  # Specific benchmarks that need extra system libraries
   sudo apt install libcurl4-openssl-dev
   ```
 
 * To run CUDA functions, set up the docker utilities for Nvidia [here](https://docs.nvidia.com/ai-enterprise/deployment-guide/dg-docker.html).
 
-There may be other application-specific prerequsites, documented in their setup guides.
-
-## Set up proxy
-
-* Add the following to `~/.bashrc`:
-
-  ```sh
-  export HTTP_PROXY=http://web-proxy.labs.hpecorp.net:8080/
-  export HTTPS_PROXY=http://web-proxy.labs.hpecorp.net:8080/
-  export NO_PROXY=localhost,127.0.0.1,10.96.0.0/12,192.168.59.0/24,192.168.39.0/24,192.168.49.0/24
-  ```
-
-* Add the following line to `~/.curlrc`:
-
-  ```sh
-  proxy=http://web-proxy.labs.hpecorp.net:8080/
-  ```
-
-* Create `~/.docker/config.json` with:
-
-  ```json
-  {
-  "proxies":
-  {
-    "default":
-    {
-      "httpProxy":"http://web-proxy.labs.hpecorp.net:8080/",
-      "httpsProxy": "http://web-proxy.labs.hpecorp.net:8080/",
-      "noProxy": "*.test.example.com,.example2.com,127.0.0.0/8"
-    }
-  }
-  }
-
-  ```
-
-* Run: `sudo mkdir -p /etc/systemd/system/docker.service.d`
-* If using a privte docker repository,
-* Edit (or create) `/etc/systemd/system/docker.service.d/http-proxy.conf` to include these lines:
-
-  ```conf
-  [Service]
-  Environment="HTTP_PROXY=http://web-proxy.labs.hpecorp.net:8080/"
-  Environment="HTTPS_PROXY=http://web-proxy.labs.hpecorp.net:8080/"
-  ```
+There may be other benchmark-specific prerequisites, documented in each suite's setup guide.
 
 ## Configure Docker
 
 * Set up user: `sudo usermod -aG docker $USER && newgrp docker`
-* Run it: `sudo systemcl start docker && systemctl enable docker`
+* Run it: `sudo systemctl start docker && sudo systemctl enable docker`
 * Log in: `docker login`
 
-Please follow the instructions [here](./docker.md) to use docker as a backend to launch different functions.
+Please follow the instructions [here](./docker.md) to use Docker as a backend or as the image runtime for packaged functions.
 
 ## Set up Kubernetes
 
-There are several alternatives here, depending on the scale and complexity of your cluster. Follow the link to configure one of these:
+This step is only needed for Kubernetes-based backends such as Fission and Knative. Choose one of these:
 
-1. [minikube](./minikube.md): A small, self-contained, and relatively simple Kubernetes sandbox for one node.
-
-2. [k3s](./3s.md): Lightweight Kubernetes distribution that skips many components and bundles everything into a single executable.
-
-3. [k8s](./k8s.md): Full Kubernetes deployment.
+1. [k3s](./k3s.md): Lightweight Kubernetes distribution for simple single-node or small-cluster deployments.
+2. [k8s](./k8s.md): Full Kubernetes deployment.
 
 If using a private docker repository, you may want to set up access like this:
 
@@ -113,44 +74,36 @@ kubectl create secret docker-registry docker-registry-secret --docker-server=[..
 
 ## Set up FaaS
 
-Choose one or more of the following FaaS frameworks and install it:
+Choose one or more of the following execution environments and install it:
 
 1. [Fission](./fission.md)
 2. [Knative](./knative.md)
-3. [Docker](./docker.md)   -- Technically, not serverless, but lets you run functions locally in a container without additional hosts or prerequisites.
+3. [Docker](./docker.md) for local containerized execution without Kubernetes
 
-## Install Python packages
+## Build benchmark artifacts
 
-SHARP uses `uv` for Python package management. Install dependencies using:
+SHARP now packages benchmarks from the YAML definitions under `benchmarks/`.
 
-```sh
-cd sharp
-uv sync --extra dev
-```
-
-This will create a virtual environment in `.venv/` and install all required packages from `pyproject.toml` using the locked versions in `uv.lock`.
-
-**Note**: If you don't have `uv` installed, install it first:
-```sh
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
-In addition, some of the benchmarking functions have their own prerequisites that need to be installed *at all the hosts you are benchmarking*, that is, not necessarily the same host you're running SHARP from. Depending on which functions and which backend you're planning to run in your benchmarks, you may need to install some or all of the prerequisites.
-
-## Prepare FaaS containers/pods for functions
-
-From the `fns` directory, run `make prep-*`, where `*` stands for the framework you've installed and want to run on. For example, `make prep-fission`, `make prep-knative`, or `make prep-docker`. Ensure no errors occurred.
-You can then try to test-run any function by going to its subdirectory and running `make test-*`, using the same framework list as above, e.g., `make test-docker`.
-
-
-## Create a container for report creation
-
-From the `examples` directory, run this command to build the `reporter` image that is used to convert raw benchmark outputs into human-readable reports:
+For local artifact creation, use the build tool:
 
 ```sh
-docker build --network=host -t report .
+uv run build -t appimage sleep
+uv run build -t docker sleep
+
+# Build an entire suite
+uv run build -t docker benchmarks/micro/cpu
 ```
+
+If you want to push a Docker image to a registry for later deployment, add `--registry`:
+
+```sh
+uv run build -t docker --registry <registry> sleep
+```
+
+Fission and Knative no longer use a repo-managed deployment directory inside this repository. Instead, deploy the function or service yourself, using the same name as the benchmark you will launch from SHARP. A Docker image built with `uv run build -t docker` can serve as the starting point for those deployments.
+
+Some benchmark implementations also need extra software on the hosts being measured, not just on the control host where you launch SHARP. Check the relevant benchmark suite documentation before running large experiments.
 
 ## Set up MPI
 
-This step is optional and is only required to run MPI application benchmark. Please follow the instructions [here](./MPI.md).
+This step is optional and only required for MPI benchmarks or the MPI backend. Please follow the instructions [here](./MPI.md).

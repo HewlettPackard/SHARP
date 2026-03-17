@@ -5,8 +5,20 @@
 
 # Scalable Heterogeneous Architecture for Reproducible Performance
 
-A simple synthetic performance benchmark for heterogeneous and serverless architectures.
+A framework for collecting, organizing, and analyzing reproducible performance measurements across heterogeneous and serverless environments.
 
+## Purpose
+
+SHARP helps you run repeatable performance experiments across local binaries, containers, MPI jobs, and FaaS platforms while keeping collection and analysis decoupled. It records each run as structured CSV data plus Markdown metadata so measurements can be launched on one system and explored later from the CLI or the GUI.
+
+## Main features and capabilities
+
+* Launch benchmarks from the command line or web-based GUI.
+* Inspect completed runs in the web GUI or generate comparisons in the CLI.
+* Collect measurements independently from analysis so raw run logs can be archived, shared, and revisited later.
+* Run direct scripts and binaries, or package benchmarks as Docker images and AppImages when the backend requires self-contained artifacts.
+* Compose execution backends with profiling and instrumentation backends, then compare runs with built-in statistics and visualization tools.
+* Use profiling backends and GUI-driven variability-guided optimization (VGO) workflows to identify sources of performance variation; see [the profiling framework guide](./docs/profiling.md).
 
 ## Prerequisites
 
@@ -18,27 +30,24 @@ Default settings (backends, repeaters, output directories, GUI options) are conf
 
 ## Quick start
 
-After [setting up](./docs/setup/README.md) the software and hardware, check if you can run functions correctly on your chosen backend, say, `fission`:
+After [setting up](./docs/setup/README.md) the software and hardware, create the project environment and list the shipped benchmarks:
 
 ```sh
-uv run launch -v -b local sleep 1
+uv sync --extra dev
+uv run launch --list-benchmarks
 ```
 
-This should take about one second and produce some output.
-If there are no errors, proceed to run a single benchmark:
+Then run a simple local benchmark:
 
 ```sh
-cd examples
-rm -rf reports/misc-local
-make backend=local benchmarks="parallel_sleep"
-cd ..
+uv run launch -v -b local micro/sleep 1
 ```
 
-This should produce a PDF report file (and various other formats) as `reports/misc-local/report.df`. Inspect the file and ensure it shows no error messages.
+This should take about one second and write a CSV file plus accompanying Markdown metadata under `runlogs/`. You can inspect those files directly, compare runs with `uv run compare`, or open the GUI with `uv run gui`.
 
 ## Graphical user interface
 
-Alternatively, you can try out SHARP with a GUI that lets your run measurements, visualize the results, and compare different runs. Setup and run instructions can be found [here](docs/setup/GUI.md).
+SHARP includes a Shiny-based GUI for browsing run logs, visualizing distributions, and comparing experiments. Start it with `uv run gui` and open the configured address in your browser. Background on the analysis workflow is documented [here](./docs/gui.md).
 
 ## Hardware support
 
@@ -56,13 +65,16 @@ Currently supports (using Kubernetes):
 
 ## Metrics
 
-All benchmarks collect a metric called `outer_time` that measures how long (in seconds) each run took from the perspective of the launcher, i.e., including both benchmark execution and all setup and overhead time.
-In addition, any benchmark can have any arbitrary metric logged in the CSV files and reported in the PDF file, as long as it outputs it to stdout.
+Every run records an `outer_time` metric in the CSV output. This is the end-to-end wall-clock time seen by the launcher, including benchmark execution and orchestration overhead.
+
+The accompanying Markdown metadata records when the experiment started, which benchmark and backends were used, the runtime options, host information, SHARP version information, and an executable checksum when one is available.
+
+Benchmarks and profiling backends can emit additional metrics through stdout extraction, including multi-metric `auto` backends such as `perf`, `strace`, or `bintime`.
 Complete documentation on how to add or customize metrics can be found [here](./docs/metrics.md).
 
 ## Benchmark Suites
 
-SHARP includes several benchmark suites organized by category. All benchmarks can be listed with:
+SHARP ships benchmark definitions under `benchmarks/`. All available benchmarks can be listed with:
 
 ```sh
 uv run launch --list-benchmarks
@@ -107,31 +119,19 @@ The Rodinia HPC benchmark suite (29 benchmarks total):
 
 For complete documentation and usage examples, see the [benchmark guide](./benchmarks/README.md).
 
-
-## Example workflows / benchmarks
-
-A small library of simple benchmarks and workflows is prebuilt with SHARP:
-
- * [parallel sleep](./docs/examples/psleep.md): Evaluate the scaling of the backend as the number of jobs increases.
- * [start latency](./docs/examples/start-latency.md): Measure cold- and hot-start latencies.
- * [performance prediction](./docs/examples/perfpred.md): Measure variability in the input metrics and performance predictions of AUB's benchmark suites.
-
-The last [benchmark]((./docs/exanples/perfpred.md) has a generic reporting mechanism that only visualizes the distributions of all the collected metrics.
-In can be used as a template for any other benchmark where this visualization is enough (or a good starting point).
-To adapt it to your needs, simply copy the `perfpred` directory under `examples/` and edit the files to use your own metrics and descriptions.
-
 ---
 
 ## Directory structure
 
 The code is organized into these subdirectories:
 
+ * `settings.yaml` - Default launcher, backend, repeater, and GUI settings
  * `src/` - Core framework implementation (config, execution, metrics, stats, etc.)
- * `benchmarks/` - Benchmark suite definitions and sources (organized by suite)
+ * `benchmarks/` - Benchmark suite definitions and shared sources
  * `backends/` - Backend configuration files (local, docker, ssh, mpi, profiling tools)
- * `runlogs/` - Experiment output directory (CSV data + markdown metadata)
- * `docs/` - Documentation (setup, backends, metrics, packaging, etc.)
+ * `runlogs/` - Experiment output directory (CSV data plus Markdown metadata)
+ * `docs/` - User-facing documentation, setup notes, and schema references
  * `tests/` - Test suite (unit, integration, smoke tests)
- * `build/` - (optional) Build artifacts (AppImages, Docker images)
+ * `build/` - Optional build artifacts such as AppImages and Docker context output
 
-For detailed architecture documentation, see [DESIGN.md](./DESIGN.md).
+For detailed architecture documentation, see [docs/DESIGN_V4.md](./docs/DESIGN_V4.md).

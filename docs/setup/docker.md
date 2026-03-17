@@ -4,18 +4,39 @@
 
 * Set up user: `sudo usermod -aG docker $USER && newgrp docker`
 
-* Run it: `sudo systemcl start docker && systemctl enable docker`
+* Run it: `sudo systemctl start docker && sudo systemctl enable docker`
 
 * Log in: `docker login`
 
-* Using custom python functions given in the framework:
-In the fns directory,open the Makefile and update the value of the IMAGE_REPO parameter to the image repository you want to use. Remember to perform `docker login` to the repo to enable pushing and pulling of images.
-* Run `make prep-docker FNS="sleep/"` to deploy sleep as a docker image. Test the function using the command `make test-docker FNS="sleep/`. The function should print the total time taken to perform sleep for 2 seconds. Delete the function using the command `make clean-docker FNS="sleep/`.
+* Build a Docker image for a benchmark from its YAML definition:
 
-* If you want to recreate all the docker function images required by this benchmark suite, go to `fns/` and run `make clean-docker`. Then you can run `make prep-docker` to prepare all the functions.
+	```sh
+	uv run build -t docker sleep
+	```
+
+	This produces an image tagged `sharp-sleep:latest` and a manifest under `build/docker/sleep/`.
+
+* To build and push directly to a registry:
+
+	```sh
+	uv run build -t docker --registry <registry> sleep
+	```
+
+* To run the benchmark through SHARP's Docker backend:
+
+	```sh
+	uv run launch -b docker sleep 2
+	```
+
+* To build a whole suite at once:
+
+	```sh
+	uv run build -t docker benchmarks/micro/cpu
+	```
 
 
 ## Troubleshooting
 
-* To see if container creation was successful: `docker ps | grep <function name>`. Since we use the same Dockerfile used for creating docker images for knative, the image name would look like `knative-<function name>`.
-* To look at the function's container log, use: `docker logs <function name>`.
+* To see if the image was created successfully: `docker images | grep sharp-<benchmark>`.
+* To inspect the generated build context and manifest: `ls build/docker/<benchmark>/`.
+* To look at the benchmark's container output directly, run: `docker run --rm sharp-<benchmark>:latest ...`.
