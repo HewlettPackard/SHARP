@@ -1,52 +1,68 @@
 # Benchmark Comparison Tool
 
-The `compare` command performs statistical analysis and metadata comparison between two benchmark runs. It generates comprehensive comparison reports showing performance differences, statistical significance, and configuration changes.
+The `compare` command performs statistical analysis and metadata comparison between two benchmark runs. It generates comprehensive comparison reports showing performance differences, statistical significance, and configuration changes, along with natural language interpretation of the results.
 
 ## Usage
 
 ```bash
-compare [OPTIONS] CURRENT PREVIOUS
+compare [OPTIONS] BASELINE TREATMENT
 ```
+
+The baseline run represents the reference or control condition, while the treatment run represents the modified or experimental condition being evaluated.
 
 ### Basic Examples
 
 Compare two runs in the same experiment:
 ```bash
-compare -e myexp run1.csv run2.csv
+compare -e myexp run1 run2
 ```
 
-Compare runs using full paths:
+Compare runs using full paths (extension optional):
 ```bash
-compare runlogs/exp1/matmul.csv runlogs/exp2/matmul.csv
+compare runlogs/exp1/matmul runlogs/exp2/matmul
 ```
 
 Compare multiple metrics:
 ```bash
-compare -e myexp -m inner_time,outer_time,cycles run1.csv run2.csv
+compare -e myexp -m inner_time,outer_time,cycles run1 run2
 ```
 
 Output as CSV for downstream analysis:
 ```bash
-compare --format csv run1.csv run2.csv
+compare --format csv run1 run2
 ```
 
 Show all metadata differences (not just significant ones):
 ```bash
-compare --show-all run1.csv run2.csv
+compare --show-all run1 run2
+```
+
+Compare specific launch IDs within a multi-launch file:
+```bash
+compare -e myexp --baseline-launch-id abc123 --treatment-launch-id def456 sweep.csv sweep.csv
 ```
 
 ## Command-Line Options
 
 | Option | Description |
 |--------|-------------|
-| `CURRENT` | Current run CSV file (or filename if `-e` specified) |
-| `PREVIOUS` | Previous run CSV file (or filename if `-e` specified) |
+| `BASELINE` | Baseline (reference) run CSV file (or filename if `-e` specified) |
+| `TREATMENT` | Treatment (experimental) run CSV file (or filename if `-e` specified) |
 | `-e, --experiment NAME` | Experiment directory (searches in `runlogs/<experiment>/`) |
+| `--baseline-launch-id ID` | Launch ID for baseline run (required if CSV has multiple launch IDs) |
+| `--treatment-launch-id ID` | Launch ID for treatment run (required if CSV has multiple launch IDs) |
 | `-m, --metrics LIST` | Comma-separated metrics to compare (default: `inner_time`) |
 | `--format {md,csv,plaintext}` | Output format (default: `md`) |
 | `--show-all` | Show all metadata fields, not just differences |
 | `-v, --verbose` | Verbose output (include debug info) |
 | `-h, --help` | Show help message |
+
+**Note**: The `.csv` extension is optional. If omitted, it will be added automatically:
+```bash
+# Both are equivalent
+compare -e myexp baseline treatment
+compare -e myexp baseline.csv treatment.csv
+```
 
 ## Statistical Comparison
 
@@ -72,11 +88,11 @@ The tool performs rigorous statistical analysis on metric distributions using th
 
 For each compared metric, the report shows:
 
-- **Baseline/Treatment**: Median ± standard deviation, sample size (Baseline is first file, Treatment is second)
-- **Change**: Percent change in median (negative = faster for time metrics)
+- **Baseline/Treatment**: Median ± standard deviation, sample size
+- **Change**: Percent change in median (negative = improvement for time metrics)
 - **p-value**: Statistical significance (typically < 0.05 is significant)
 - **Effect**: Cohen's d effect size
-- **Improved**: Whether performance improved (for time metrics, lower is better)
+- **Improved**: Whether performance improved (based on metric's `lower_is_better` setting)
 
 ### Example Output (Markdown)
 
@@ -88,6 +104,33 @@ For each compared metric, the report shows:
 | inner_time | 1.456 ± 0.052 | 1.234 ± 0.045 | -15.2% | 0.0001 | -0.89 | Yes |
 | cycles | 2.3e6 ± 1.1e5 | 2.5e6 ± 1.2e5 | +8.7% | 0.0023 | 0.54 | No |
 ```
+
+## Narrative Comparison
+
+In addition to statistical tables, the tool generates natural language interpretations of the results. This narrative section provides human-readable summaries of:
+
+- **Mean/median changes**: Whether treatment improved or degraded relative to baseline
+- **Statistical significance**: Whether changes are statistically meaningful
+- **Dispersion analysis**: How variability (standard deviation, CV, IQR) changed
+- **Tail behavior**: Changes in tail latency characteristics
+
+The narrative uses color coding (in markdown/HTML output) to highlight:
+- **Green (bold)**: Improvements in performance or reduced variability
+- **Red (underlined)**: Degradations in performance or increased variability
+
+### Example Narrative Output
+
+```markdown
+## Narrative Comparison
+
+**inner_time:**
+Treatment mean significantly decreased compared to baseline.
+Treatment median significantly decreased.
+Dispersion (standard deviation) decreased notably.
+Relative variability (CV) decreased.
+```
+
+This natural language interpretation complements the statistical tables by explaining what the numbers mean in practical terms.
 
 ## Metadata Comparison
 
@@ -200,7 +243,7 @@ This allows field-by-field comparison with appropriate thresholds.
 Use `--show-all` to include non-significant differences:
 
 ```bash
-compare --show-all run1.csv run2.csv
+compare --show-all run1 run2
 ```
 
 This displays all fields that differ, including those below significance thresholds. Useful for detailed environment audits.
@@ -209,10 +252,10 @@ This displays all fields that differ, including those below significance thresho
 
 ### Markdown (default)
 
-Human-readable tables with clear headers. Suitable for documentation, reports, or viewing in terminals with markdown support.
+Human-readable tables with clear headers, including narrative interpretation. Suitable for documentation, reports, or viewing in terminals with markdown support.
 
 ```bash
-compare run1.csv run2.csv
+compare baseline treatment
 ```
 
 ### CSV
@@ -220,19 +263,20 @@ compare run1.csv run2.csv
 Machine-readable format for downstream analysis (spreadsheets, scripting):
 
 ```bash
-compare --format csv run1.csv run2.csv > comparison.csv
+compare --format csv baseline treatment > comparison.csv
 ```
 
-CSV includes two sections:
-1. Statistical comparison: `metric,current_median,current_std,previous_median,...`
-2. Metadata comparison: `section,field,current,previous,significant`
+CSV includes statistical comparison data but excludes narrative interpretation:
+- Statistical comparison: `metric,baseline_median,baseline_std,treatment_median,...`
+
+**Note**: CSV format does not include narrative comparison. Use markdown or plaintext for narrative output.
 
 ### Plaintext
 
-Plain text tables without markdown formatting. Good for terminals or log files:
+Plain text tables without markdown formatting, including narrative interpretation. Good for terminals or log files:
 
 ```bash
-compare --format plaintext run1.csv run2.csv
+compare --format plaintext baseline treatment
 ```
 
 Example:
@@ -241,12 +285,21 @@ STATISTICAL COMPARISON
 ============================================================
 
 inner_time:
-  Current:  1.234 ± 0.045 (n=100)
-  Previous: 1.456 ± 0.052 (n=100)
-  Change:   -15.2%
-  p-value:  0.0001
-  Effect:   -0.89
-  Improved: YES
+  Baseline:  1.456 ± 0.052 (n=100)
+  Treatment: 1.234 ± 0.045 (n=100)
+  Change:    -15.2%
+  p-value:   0.0001
+  Effect:    -0.89
+  Improved:  YES
+
+============================================================
+Narrative Comparison
+============================================================
+
+inner_time:
+Treatment mean significantly decreased compared to baseline.
+Treatment median significantly decreased.
+Dispersion (standard deviation) decreased notably.
 ```
 
 ## Configuration
@@ -292,10 +345,10 @@ Compare runs as part of automated workflows:
 ```bash
 # Run experiment twice
 uv run launch -e exp1 -t baseline benchmark args
-uv run launch -e exp1 -t optimized benchmark args
+uv run launch -e exp1 -t treatment benchmark args
 
 # Compare results
-uv run compare -e exp1 baseline.csv optimized.csv --format csv > results.csv
+uv run compare -e exp1 baseline treatment --format csv > results.csv
 
 # Check for regression
 if grep -q "Improved,No" results.csv; then
@@ -314,7 +367,10 @@ Ensure files exist and paths are correct:
 ls runlogs/myexp/
 
 # Use full paths if -e doesn't work
-compare runlogs/myexp/run1.csv runlogs/myexp/run2.csv
+compare runlogs/myexp/baseline runlogs/myexp/treatment
+
+# Note: .csv extension is optional
+compare runlogs/myexp/baseline.csv runlogs/myexp/treatment.csv
 ```
 
 ### "Metric not found" Error
