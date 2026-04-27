@@ -76,7 +76,7 @@ class BaseBuilder:
         return None
 
     def _copy_sources_to_dir(self, sources_dir: Path, benchmark_dir: Path | None,
-                             target_dir: Path, entry: BenchmarkEntry | None = None) -> None:
+                             target_dir: Path) -> None:
         """
         Copy source files to a target directory.
 
@@ -87,7 +87,6 @@ class BaseBuilder:
             sources_dir: Directory containing fetched external sources
             benchmark_dir: Directory containing benchmark.yaml and local files
             target_dir: Directory to copy files into
-            entry: Optional BenchmarkEntry (unused in base implementation but kept for compatibility)
         """
         # Helper to copy files/dirs
         def copy_item(item: Path, dest_dir: Path) -> None:

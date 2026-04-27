@@ -177,7 +177,7 @@ class AppImageBuilder(BaseBuilder):
             self._create_appdir_structure(appdir, benchmark_name)
 
             # Copy sources to AppDir (external sources + local benchmark files)
-            self._copy_sources_to_dir(sources_dir, benchmark_dir, appdir / 'usr' / 'bin', entry)
+            self._copy_sources_to_dir(sources_dir, benchmark_dir, appdir / 'usr' / 'bin')
 
             # Run pre_build hook (before dependencies)
             if build_config.pre_build:
