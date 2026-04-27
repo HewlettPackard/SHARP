@@ -18,6 +18,7 @@ data:
   backends_dir: backends  # Directory containing backend configuration files
   benchmarks_dir: benchmarks  # Directory containing benchmark definitions
   output_precision: 5  # Decimal places for numeric output in CSV/reports
+  row_count_for_type: 1000  # Number of rows polars scans for column type inference
   runlogs_dir: runlogs  # Directory where experiment results are stored
 
 gui:
@@ -29,9 +30,12 @@ gui:
   # Distribution plot visualization settings
   distribution:
     alpha: 0.4  # Transparency for distribution plot fill
-    divider_color: '#1f77b4'  # Color for distribution divider line (blue)
-    left_color: '#2ca02c'  # Color for left distribution region (green)
-    right_color: '#ff7f0e'  # Color for right distribution region (orange)
+    divider_color: '#1f77b4'  # Color for distribution divider line
+    fast_color: '#a1e736'  # Color for fast/better performance region
+    slow_color: '#dd560e'  # Color for slow/worse performance region
+    fast_label: FAST  # Label for better performance class
+    slow_label: SLOW  # Label for worse performance class
+    palette: bright # Color palette for non-binary labelers (tab10, deep, muted, pastel, bright, dark, colorblind, viridis)
 
   # Explore tab settings
   explore:
@@ -45,15 +49,27 @@ profiling:
   # Profiling workflow configuration
   prof_suffix: -prof  # Suffix appended to profiling run task names (e.g., task-prof)
   max_correlation: 0.99  # Maximum correlation threshold for predictor inclusion
-  max_predictors: 100  # Maximum number of predictors to consider in analysis
+  max_predictors: 200  # Maximum number of predictors to consider in analysis (increased from 100 due to 10-16x speedup in selection)
   max_search: 100  # Maximum iterations for optimal cutoff search algorithm
 
   # Required metadata fields for profiling reproduction (--repro flag)
   required_md_fields:
-    - benchmark_spec  # Benchmark specification from markdown metadata
-    - backend_options  # Backend configuration from markdown metadata
+  - benchmark_spec    # Benchmark specification from markdown metadata
+  - backend_options    # Backend configuration from markdown metadata
+
+  # Predictor selection optimization parameters
+  predictor_selection:
+    max_categorical_unique: 100  # Maximum unique values for a column to be treated as categorical
+    min_eta: 0.01  # Minimum eta-squared (effect size) for categorical predictors
+    max_per_group: 3  # Maximum representatives to select per metric group
+    chunk_size: 5000  # Chunk size for vectorized correlation computation
 
   # Decision tree training parameters
   tree_training:
     completeness_threshold: 0.95  # Minimum data completeness ratio for tree training
-    target_rows: 1000  # Target number of rows for balanced training dataset
+    target_rows: 5000  # Target number of rows for balanced training dataset (increased from 1000 due to predictor selection and class-aware downsampling speedups)
+
+    # Class-aware downsampling parameters for efficient training
+    min_class_size: 300  # Classes with fewer samples than this are never downsampled (preserve rare cases)
+    cv_threshold: 0.15  # Coefficient of variation threshold: classes below this are "concentrated" and safe to downsample
+    base_sample_ratio: 0.20  # For concentrated classes, keep this fraction of samples (20% → 5x reduction)

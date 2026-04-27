@@ -17,8 +17,8 @@ benchmarks:
 # GSL source - use local copy (downloaded separately due to FTP issues)
 # To download: wget https://ftp.gnu.org/gnu/gsl/gsl-2.7.1.tar.gz -O /tmp/gsl-2.7.1.tar.gz
 sources:
-  - type: path
-    location: /tmp/gsl-2.7.1.tar.gz
+  - type: download
+    location: https://ftp.gnu.org/gnu/gsl/gsl-2.7.1.tar.gz
 
 # Unified declarative requirements
 build:
