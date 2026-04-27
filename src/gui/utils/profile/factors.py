@@ -19,6 +19,8 @@ from sklearn.preprocessing import StandardScaler
 from src.core.metrics.factors import get_factor_info
 from src.core.stats.narrative import format_sig_figs
 from src.core.config.settings import Settings
+from src.core.profile.labeler import PerformanceLabeler
+from src.gui.utils.profile.distribution import get_class_colors
 
 
 def _create_error_figure(message: str, color: str = '#999') -> Figure:
@@ -40,7 +42,8 @@ def _create_error_figure(message: str, color: str = '#999') -> Figure:
     return fig
 
 
-def _prepare_plot_data(data: pl.DataFrame, factor_name: str, metric: str, cutoff: float | None) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+def _prepare_plot_data(data: pl.DataFrame, factor_name: str, metric: str,
+                       labeler: PerformanceLabeler | None = None) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
     """
     Prepare and clean data for scatter plot.
 
@@ -48,39 +51,30 @@ def _prepare_plot_data(data: pl.DataFrame, factor_name: str, metric: str, cutoff
         data: DataFrame with factor and metric columns
         factor_name: Name of the factor column
         metric: Name of the performance metric column
-        cutoff: Cutoff value for binary classification
+        labeler: Optional labeler for assigning class labels
 
     Returns:
-        Tuple of (factor_clean, metric_clean, categories_clean) or None if insufficient data
+        Tuple of (factor_clean, metric_clean, labels_clean) or None if insufficient data
     """
-    # Create binary classification
-    if cutoff is None:
-        data_plot = data.with_columns([
-            pl.lit('DATA').alias('category')
-        ])
-    else:
-        data_plot = data.with_columns([
-            pl.when(pl.col(metric) > cutoff)
-            .then(pl.lit('RIGHT'))
-            .otherwise(pl.lit('LEFT'))
-            .alias('category')
-        ])
+    # Extract data
+    factor_values = data[factor_name].to_numpy()
+    metric_values = data[metric].to_numpy()
 
-    # Extract data for plotting
-    factor_values = data_plot[factor_name].to_numpy()
-    metric_values = data_plot[metric].to_numpy()
-    categories = data_plot['category'].to_numpy()
-
-    # Remove NaN values
+    # Remove NaN values first
     valid_mask = ~(np.isnan(factor_values) | np.isnan(metric_values))
     factor_clean = factor_values[valid_mask]
     metric_clean = metric_values[valid_mask]
-    cat_clean = categories[valid_mask]
 
     if len(factor_clean) < 2:
         return None
 
-    return factor_clean, metric_clean, cat_clean
+    # Assign labels using labeler if provided
+    if labeler is not None:
+        labels_clean = labeler.label(metric_clean)
+    else:
+        labels_clean = np.array(['DATA'] * len(metric_clean))
+
+    return factor_clean, metric_clean, labels_clean
 
 
 def _calculate_linear_r2(X: np.ndarray, y: np.ndarray) -> tuple[LinearRegression, float]:
@@ -142,7 +136,7 @@ def _calculate_mcfadden_r2(X: np.ndarray, y_binary: np.ndarray) -> float:
 
 
 def _plot_scatter_with_regression(ax: Axes, factor_clean: np.ndarray, metric_clean: np.ndarray,
-                                   cat_clean: np.ndarray, model: LinearRegression,
+                                   labels: np.ndarray, model: LinearRegression,
                                    factor_name: str, metric: str) -> None:
     """
     Plot scatter points with regression line.
@@ -151,22 +145,20 @@ def _plot_scatter_with_regression(ax: Axes, factor_clean: np.ndarray, metric_cle
         ax: Matplotlib axes to plot on
         factor_clean: Clean factor values
         metric_clean: Clean metric values
-        cat_clean: Category labels
+        labels: Class labels for each point
         model: Fitted linear regression model
         factor_name: Factor column name
         metric: Metric column name
     """
-    # Get colors from settings
-    settings = Settings()
-    dist_colors = settings.get("gui.distribution", {})
-    left_color = dist_colors.get("left_color", "#2ca02c")
-    right_color = dist_colors.get("right_color", "#ff7f0e")
+    # Get unique class names and their colors
+    unique_labels = list(np.unique(labels))
+    colors = get_class_colors(unique_labels)
 
-    # Plot scatter points by category
-    for category, color in [('LEFT', left_color), ('RIGHT', right_color)]:
-        mask = cat_clean == category
+    # Plot scatter by class
+    for label, color in zip(unique_labels, colors):
+        mask = labels == label
         ax.scatter(factor_clean[mask], metric_clean[mask],
-                  c=color, label=category, alpha=0.6, s=50)
+                  c=color, label=label, alpha=0.6, s=50)
 
     # Add regression line
     x_line = np.linspace(factor_clean.min(), factor_clean.max(), 100)
@@ -221,7 +213,7 @@ def render_factor_info_card(factor_name: str) -> ui.TagChild:
 
 
 def render_factor_scatter_plot(data: pl.DataFrame, factor_name: str, metric: str,
-                               cutoff: float | None = None) -> Figure | None:
+                               labeler: PerformanceLabeler | None = None) -> Figure | None:
     """
     Render scatter plot of factor vs performance metric with classification.
 
@@ -229,7 +221,7 @@ def render_factor_scatter_plot(data: pl.DataFrame, factor_name: str, metric: str
         data: DataFrame with factor and metric columns
         factor_name: Name of the factor column
         metric: Name of the performance metric column
-        cutoff: Cutoff value for binary classification
+        labeler: Optional labeler for assigning class labels to points
 
     Returns:
         Matplotlib figure or None if error
@@ -242,23 +234,30 @@ def render_factor_scatter_plot(data: pl.DataFrame, factor_name: str, metric: str
         return _create_error_figure(f'Factor "{factor_name}" or metric "{metric}" not in data', color='red')
 
     # Prepare and clean data
-    plot_data = _prepare_plot_data(data, factor_name, metric, cutoff)
+    plot_data = _prepare_plot_data(data, factor_name, metric, labeler)
     if plot_data is None:
         return _create_error_figure('Insufficient data points for plotting')
 
-    factor_clean, metric_clean, cat_clean = plot_data
+    factor_clean, metric_clean, labels = plot_data
 
     # Calculate statistics
     X = factor_clean.reshape(-1, 1)
     y = metric_clean
-    y_binary = (cat_clean == 'RIGHT').astype(int)
+
+    # For binary R², check if we have exactly 2 classes
+    unique_labels = np.unique(labels)
+    if len(unique_labels) == 2:
+        # Use first class as "positive" (typically SLOW)
+        y_binary = (labels == unique_labels[1]).astype(int)
+        log_r2 = _calculate_mcfadden_r2(X, y_binary)
+    else:
+        log_r2 = 0.0  # Can't compute for non-binary case
 
     model, r2_continuous = _calculate_linear_r2(X, y)
-    log_r2 = _calculate_mcfadden_r2(X, y_binary)
 
     # Create plot
     fig, ax = plt.subplots(figsize=(10, 6))
-    _plot_scatter_with_regression(ax, factor_clean, metric_clean, cat_clean, model, factor_name, metric)
+    _plot_scatter_with_regression(ax, factor_clean, metric_clean, labels, model, factor_name, metric)
 
     ax.set_title(f'{factor_name} explains {r2_continuous*100:.2f}% of variation in {metric}\n'
                 f'and {log_r2*100:.2f}% of variation in performance classes',
@@ -270,15 +269,16 @@ def render_factor_scatter_plot(data: pl.DataFrame, factor_name: str, metric: str
     return fig
 
 
-def render_factor_comparison_table(data: pl.DataFrame, factor_name: str, metric: str, cutoff: float | None) -> ui.TagChild:
+def render_factor_comparison_table(data: pl.DataFrame, factor_name: str, metric: str,
+                                   labeler: PerformanceLabeler | None = None) -> ui.TagChild:
     """
-    Render comparison table showing factor statistics for LEFT vs RIGHT groups.
+    Render comparison table showing factor statistics by performance class.
 
     Args:
         data: DataFrame with factor and metric columns
         factor_name: Name of the factor column
         metric: Name of the performance metric column
-        cutoff: Cutoff value for binary classification
+        labeler: Labeler for assigning class labels
 
     Returns:
         Shiny UI table with group statistics
@@ -290,16 +290,19 @@ def render_factor_comparison_table(data: pl.DataFrame, factor_name: str, metric:
         return ui.p(f'Factor "{factor_name}" or metric "{metric}" not in data',
                    style='color: red;')
 
-    if cutoff is None:
-        return ui.p('No cutoff value defined', style='color: #999; font-style: italic;')
+    if labeler is None:
+        return ui.p('No labeler defined', style='color: #999; font-style: italic;')
 
-    # Create binary classification
+    # Add class labels to data
+    metric_values = data[metric].to_numpy()
+    labels = labeler.label(metric_values)
     data_groups = data.with_columns([
-        pl.when(pl.col(metric) > cutoff)
-          .then(pl.lit('RIGHT'))
-          .otherwise(pl.lit('LEFT'))
-          .alias('category')
+        pl.Series('category', labels)
     ])
+
+    # Get class names and colors
+    class_names = labeler.get_class_names()
+    class_colors = get_class_colors(class_names)
 
     # Compute statistics per group
     try:
@@ -320,17 +323,8 @@ def render_factor_comparison_table(data: pl.DataFrame, factor_name: str, metric:
                 'std': row['std']
             }
 
-        # Get colors from settings
-        settings = Settings()
-        dist_colors = settings.get("gui.distribution", {})
-        left_color = dist_colors.get("left_color", "#2ca02c")
-        right_color = dist_colors.get("right_color", "#ff7f0e")
-
         # Create color map with transparency
-        group_colors = {
-            'LEFT': left_color + '66',  # 40% opacity
-            'RIGHT': right_color + '66'
-        }
+        group_colors = {name: color + '66' for name, color in zip(class_names, class_colors)}
 
         return ui.tags.div(
             ui.tags.h4(f'{factor_name} Statistics by Group', style='margin-bottom: 10px;'),
@@ -355,9 +349,9 @@ def render_factor_comparison_table(data: pl.DataFrame, factor_name: str, metric:
                                      style='padding: 8px; text-align: right;'),
                             ui.tags.td(format_sig_figs(stats_dict[group]['std'], sig_figs=3),
                                      style='padding: 8px; text-align: right;'),
-                            style=f"background-color: {group_colors[group]};"
+                            style=f"background-color: {group_colors.get(group, '#f0f0f066')};"
                         )
-                        for group in ['LEFT', 'RIGHT'] if group in stats_dict
+                        for group in class_names if group in stats_dict
                     ]
                 ),
                 style='width: 100%; border-collapse: collapse; font-size: 0.9em;'

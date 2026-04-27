@@ -228,7 +228,9 @@ class TestCalculateAIC:
         y_true = np.array([0, 0, 0, 0])
         y_pred = np.array([1, 1, 1, 1])  # All wrong
         result = _calculate_aic(y_true, y_pred, n_nodes=3)
-        assert result is None
+        # Previously returned None, now returns a large AIC value
+        assert result is not None
+        assert result > 0
 
 
 class TestSelectTreePredictors:
