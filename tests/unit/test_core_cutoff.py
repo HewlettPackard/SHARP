@@ -10,9 +10,9 @@ import pytest
 import numpy as np
 import polars as pl
 
-from src.gui.utils.profile.cutoff import (
+from src.core.profile.cutoff import (
     suggest_cutoff,
-    compute_cutoff_from_data,
+    suggest_cutoff_from_data as compute_cutoff_from_data,
     validate_cutoff_range,
 )
 
