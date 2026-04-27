@@ -42,78 +42,79 @@ def test_parse_minimal_args():
 
 def test_parse_multiple_backends():
     """Parse multiple backend options correctly."""
-    args = parse_args(["-e", "test", "sleep", "-b", "perf", "-b", "local"])
+    args = parse_args(["-e", "test", "-b", "perf", "-b", "local", "sleep"])
     assert args.backend == ["perf", "local"]
 
 
 def test_parse_task_option():
     """Parse --task option correctly."""
-    args = parse_args(["-e", "test", "sleep", "-t", "mytask"])
+    args = parse_args(["-e", "test", "-t", "mytask", "sleep"])
     assert args.task == "mytask"
 
 
 def test_parse_timeout_option():
     """Parse --timeout option correctly."""
-    args = parse_args(["-e", "test", "sleep", "--timeout", "600"])
+    args = parse_args(["-e", "test", "--timeout", "600", "sleep"])
     assert args.timeout == 600
 
 
 def test_parse_copies_option():
     """Parse --copies option correctly."""
-    args = parse_args(["-e", "test", "sleep", "--copies", "4"])
+    args = parse_args(["-e", "test", "--copies", "4", "sleep"])
     assert args.copies == 4
 
 
 def test_parse_mpl_alias():
     """Parse --mpl as alias for --copies."""
-    args = parse_args(["-e", "test", "sleep", "--mpl", "8"])
+    args = parse_args(["-e", "test", "--mpl", "8", "sleep"])
     assert args.copies == 8, "--mpl should be alias for --copies"
 
 
 def test_parse_cold_start():
     """Parse --cold flag correctly."""
-    args = parse_args(["-e", "test", "sleep", "--cold"])
+    args = parse_args(["-e", "test", "--cold", "sleep"])
     assert args.cold is True
     assert args.warm is False
 
 
 def test_parse_warm_start():
     """Parse --warm flag correctly."""
-    args = parse_args(["-e", "test", "sleep", "--warm"])
+    args = parse_args(["-e", "test", "--warm", "sleep"])
     assert args.warm is True
     assert args.cold is False
 
 
 def test_parse_directory_option():
     """Parse --directory option correctly."""
-    args = parse_args(["-e", "test", "sleep", "-d", "/tmp/output"])
+    args = parse_args(["-e", "test", "-d", "/tmp/output", "sleep"])
     assert args.directory == "/tmp/output"
 
 
 def test_parse_append_flag():
     """Parse --append flag correctly."""
-    args = parse_args(["-e", "test", "sleep", "--append"])
+    args = parse_args(["-e", "test", "--append", "sleep"])
     assert args.append is True
 
 
 def test_parse_skip_sys_specs_flag():
     """Parse --skip-sys-specs flag correctly."""
-    args = parse_args(["-e", "test", "sleep", "--skip-sys-specs"])
+    args = parse_args(["-e", "test", "--skip-sys-specs", "sleep"])
     assert args.skip_sys_specs is True
 
 
 def test_parse_verbose_flag():
     """Parse --verbose flag correctly."""
-    args = parse_args(["-e", "test", "sleep", "-v"])
+    args = parse_args(["-e", "test", "-v", "sleep"])
     assert args.verbose is True
 
 
 def test_parse_config_files():
     """Parse --config option (can specify multiple)."""
     args = parse_args([
-        "-e", "test", "sleep",
+        "-e", "test",
         "-f", "config1.yaml",
-        "-f", "config2.json"
+        "-f", "config2.json",
+        "sleep"
     ])
     assert args.config == ["config1.yaml", "config2.json"]
 
@@ -121,13 +122,13 @@ def test_parse_config_files():
 def test_parse_json_option():
     """Parse --json option correctly."""
     json_str = '{"timeout": 300}'
-    args = parse_args(["-e", "test", "sleep", "-j", json_str])
+    args = parse_args(["-e", "test", "-j", json_str, "sleep"])
     assert args.json == json_str
 
 
 def test_parse_repro_option():
     """Parse --repro option correctly."""
-    args = parse_args(["-e", "test", "sleep", "--repro", "old_run.md"])
+    args = parse_args(["-e", "test", "--repro", "old_run.md", "sleep"])
     assert args.repro == "old_run.md"
 
 

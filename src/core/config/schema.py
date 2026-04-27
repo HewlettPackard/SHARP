@@ -69,6 +69,7 @@ class ExperimentConfig(BaseModel):
     """Merged experiment configuration (from includes + top-level overrides)."""
     # Experiment metadata (optional)
     version: str | None = None
+    description: str | None = None  # Experiment/task description for documentation
     environment: dict[str, str] = {}
     # Include directive - all actual config comes from here
     include: list[str] = []
@@ -179,6 +180,7 @@ class BenchmarkConfig(BaseModel):
     Supports suite-level sources, build, and tags that are inherited by
     all benchmarks in the file unless overridden at benchmark level.
     """
+    description: str | None = None  # Suite description for documentation
     benchmarks: dict[str, BenchmarkEntry]  # {benchmark_name: entry}
     metrics: dict[str, MetricDefinition] = {}  # Shared metric definitions across benchmarks
     include: list[str] = []
