@@ -916,6 +916,7 @@ def test_repeater_returns_boolean():
 def test_normal_distribution_has_correct_mean_and_variance():
     """Generated normal distribution should match specified mean and variance."""
     import scipy.stats
+    numpy.random.seed(42)  # Fix seed for deterministic test
     mean, std_dev = 10.0, 1.5
     normal_data = helpers.generate_normal_data(mean=mean, std_dev=std_dev, count=1000)
 
@@ -938,6 +939,7 @@ def test_normal_distribution_has_correct_mean_and_variance():
 def test_uniform_distribution_is_uniformly_distributed():
     """Generated uniform distribution should pass uniformity test."""
     import scipy.stats
+    numpy.random.seed(42)  # Fix seed for deterministic test
     loc, scale = 5.0, 10.0
     uniform_data = helpers.generate_uniform_data(loc=loc, scale=scale, count=1000)
 
@@ -957,6 +959,7 @@ def test_uniform_distribution_is_uniformly_distributed():
 def test_lognormal_distribution_is_right_skewed():
     """Generated lognormal distribution should be right-skewed."""
     import scipy.stats
+    numpy.random.seed(42)  # Fix seed for deterministic test
     lognormal_data = helpers.generate_lognormal_data(
         shape=0.95, mean=10.0, std_dev=1.8, count=1000
     )
@@ -988,6 +991,7 @@ def test_constant_distribution_has_low_variance():
 def test_bimodal_distribution_has_two_modes():
     """Generated bimodal distribution should have approximately two peaks."""
     import scipy.stats
+    numpy.random.seed(42)  # Fix seed for deterministic test
     bimodal_data = helpers.generate_bimodal_data(count=1000)
 
     # Kurtosis should indicate multimodality (not normal-like)
@@ -998,6 +1002,7 @@ def test_bimodal_distribution_has_two_modes():
 
 def test_sine_distribution_has_periodic_pattern():
     """Generated sine distribution should show autocorrelation."""
+    numpy.random.seed(42)  # Fix seed for deterministic test
     sine_data = helpers.generate_sine_data(count=500)
 
     # Compute autocorrelation at lag=10 (should be high for periodic data)

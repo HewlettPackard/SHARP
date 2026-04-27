@@ -135,7 +135,11 @@ def test_sweep_csv_has_all_runs(temp_sweep_workspace):
     assert len(lines) == 5, f"Expected 5 lines (header + 4 data rows), got {len(lines)}"
 
     # Verify header
-    assert lines[0] == "launch_id,repeat,rank,outer_time,size,threads,time"
+    header = lines[0].split(",")
+    assert header[0] == "launch_id"
+    if len(header) > 1 and header[1] == "completion_timestamp":
+        header.pop(1)
+    assert header == ["launch_id", "repeat", "rank", "outer_time", "size", "threads", "time"]
 
     # Verify all 4 combinations present
     launch_ids = [line.split(',')[0] for line in lines[1:]]

@@ -10,7 +10,7 @@ import pytest
 import numpy as np
 import polars as pl
 
-from src.gui.utils.profile.metrics import (
+from src.gui.utils.profile.exclusions import (
     _filter_predictors_for_display,
 )
 from src.gui.utils.ui_helpers import (
@@ -172,7 +172,7 @@ class TestFilterPredictorsForDisplay:
 
     def test_filters_by_max_correlation(self, predictor_stats):
         """Test filtering by maximum correlation (removes >= max_corr)."""
-        result = _filter_predictors_for_display(predictor_stats, max_corr=0.99, max_preds=100, search="")
+        result = _filter_predictors_for_display(predictor_stats, max_correlation=0.99, max_predictors=100, search="")
         names = [r["name"] for r in result]
         # near_perfect has 0.99 which is >= max_corr, should be filtered out
         assert "near_perfect" not in names
@@ -180,32 +180,32 @@ class TestFilterPredictorsForDisplay:
 
     def test_limits_by_max_preds(self, predictor_stats):
         """Test that result is limited by max_preds."""
-        result = _filter_predictors_for_display(predictor_stats, max_corr=1.0, max_preds=2, search="")
+        result = _filter_predictors_for_display(predictor_stats, max_correlation=1.0, max_predictors=2, search="")
         assert len(result) == 2
 
     def test_filters_by_search_term(self, predictor_stats):
         """Test filtering by search term."""
-        result = _filter_predictors_for_display(predictor_stats, max_corr=1.0, max_preds=100, search="high")
+        result = _filter_predictors_for_display(predictor_stats, max_correlation=1.0, max_predictors=100, search="high")
         names = [r["name"] for r in result]
         assert "high_corr" in names
         assert "low_corr" not in names
 
     def test_search_case_insensitive(self, predictor_stats):
         """Test that search is case insensitive."""
-        result = _filter_predictors_for_display(predictor_stats, max_corr=1.0, max_preds=100, search="HIGH")
+        result = _filter_predictors_for_display(predictor_stats, max_correlation=1.0, max_predictors=100, search="HIGH")
         names = [r["name"] for r in result]
         assert "high_corr" in names
 
     def test_sorted_by_absolute_correlation(self, predictor_stats):
         """Test that results are sorted by absolute correlation descending."""
-        result = _filter_predictors_for_display(predictor_stats, max_corr=1.0, max_preds=100, search="")
+        result = _filter_predictors_for_display(predictor_stats, max_correlation=1.0, max_predictors=100, search="")
         # Should be sorted by abs(correlation) descending
         correlations = [abs(r["correlation"]) for r in result]
         assert correlations == sorted(correlations, reverse=True)
 
     def test_empty_stats(self):
         """Test handling of empty predictor stats."""
-        result = _filter_predictors_for_display([], max_corr=0.99, max_preds=100, search="")
+        result = _filter_predictors_for_display([], max_correlation=0.99, max_predictors=100, search="")
         assert result == []
 
     def test_handles_nan_correlation(self):
@@ -214,7 +214,7 @@ class TestFilterPredictorsForDisplay:
             {"name": "valid", "correlation": 0.5, "non_na_count": 100},
             {"name": "nan_corr", "correlation": np.nan, "non_na_count": 100},
         ]
-        result = _filter_predictors_for_display(stats, max_corr=0.99, max_preds=100, search="")
+        result = _filter_predictors_for_display(stats, max_correlation=0.99, max_predictors=100, search="")
         # NaN correlations should be sorted last, not filtered out
         assert len(result) == 2
 
@@ -224,6 +224,6 @@ class TestFilterPredictorsForDisplay:
             {"name": "valid", "correlation": 0.5, "non_na_count": 100},
             {"name": "none_corr", "correlation": None, "non_na_count": 100},
         ]
-        result = _filter_predictors_for_display(stats, max_corr=0.99, max_preds=100, search="")
+        result = _filter_predictors_for_display(stats, max_correlation=0.99, max_predictors=100, search="")
         # None correlations should be handled gracefully
         assert len(result) == 2

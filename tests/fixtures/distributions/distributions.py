@@ -305,7 +305,7 @@ def _sine(options: Dict[str, Any]) -> Union[float, List[float]]:
     samples += sample_offset
     samples += numpy.random.normal(norm_mean, norm_std, size=repetitions)
 
-    return List[float](samples.tolist())
+    return list(samples.tolist())
 
 
 def _constant(options: Dict[str, Any]) -> Union[float, List[float]]:
