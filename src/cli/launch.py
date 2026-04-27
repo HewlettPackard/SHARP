@@ -441,6 +441,12 @@ def build_orchestrator_options(args: argparse.Namespace, config: dict[str, Any])
     # Environment variables (from config)
     options["environment"] = config.get("environment", {})
 
+    # Description (from CLI or config)
+    if hasattr(args, 'description') and args.description:
+        options["description"] = args.description
+    elif "description" in config:
+        options["description"] = config["description"]
+
     return options, benchmark_data
 
 
@@ -1119,6 +1125,11 @@ Examples:
         action="store_true",
         help="Skip system specification collection (faster for testing)"
     )
+    options.add_argument(
+        "--description", "--desc",
+        metavar="TEXT",
+        help="Description of the experiment/task for documentation"
+    )
 
     # Positional arguments (must be at the end)
     parser.add_argument(
@@ -1129,7 +1140,7 @@ Examples:
     )
     parser.add_argument(
         "benchmark_args",
-        nargs="*",
+        nargs=argparse.REMAINDER,
         help="Arguments to pass to the benchmark"
     )
 

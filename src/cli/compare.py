@@ -7,7 +7,7 @@ and metadata differences. Outputs statistical comparison tables and
 environment difference summaries.
 
 Usage:
-  compare [OPTIONS] CURRENT PREVIOUS
+  compare [OPTIONS] BASELINE TREATMENT
 
 Examples:
   # Compare two runs in same experiment
@@ -23,7 +23,7 @@ Examples:
   compare --format csv run1.csv run2.csv
 
   # Compare specific launch IDs within same experiment
-  compare -e myexp --current-launch-id abc123 --previous-launch-id def456 sweep.csv sweep.csv
+  compare -e myexp --baseline-launch-id abc123 --treatment-launch-id def456 sweep.csv sweep.csv
 
 © Copyright 2025--2025 Hewlett Packard Enterprise Development LP
 """
@@ -38,6 +38,7 @@ import polars as pl
 from src.core.config.include_resolver import get_project_root
 from src.core.runlogs.metadata_compare import compare_metadata, load_metadata
 from src.core.stats.comparisons import comparison_table
+from src.core.stats.narrative import generate_comparison_narrative
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -64,21 +65,21 @@ Examples:
   compare --show-all run1.csv run2.csv
 
   # Compare specific launch IDs within same experiment
-  compare -e myexp --current-launch-id abc123 --previous-launch-id def456 sweep.csv sweep.csv
+  compare -e myexp --baseline-launch-id abc123 --treatment-launch-id def456 sweep.csv sweep.csv
 
   # Compare different launch IDs from different files
-  compare --current-launch-id abc123 --previous-launch-id def456 run1.csv run2.csv
+  compare --baseline-launch-id abc123 --treatment-launch-id def456 run1.csv run2.csv
 """,
     )
 
     parser.add_argument(
-        'current',
-        help='Current run CSV file (or filename if -e specified)',
+        'baseline',
+        help='Baseline run CSV file (or filename if -e specified)',
     )
 
     parser.add_argument(
-        'previous',
-        help='Previous run CSV file (or filename if -e specified)',
+        'treatment',
+        help='Treatment run CSV file (or filename if -e specified)',
     )
 
     parser.add_argument(
@@ -88,13 +89,13 @@ Examples:
     )
 
     parser.add_argument(
-        '--current-launch-id',
-        help='Launch ID for current run (required if CSV has multiple launch IDs)',
+        '--baseline-launch-id',
+        help='Launch ID for baseline run (required if CSV has multiple launch IDs)',
     )
 
     parser.add_argument(
-        '--previous-launch-id',
-        help='Launch ID for previous run (required if CSV has multiple launch IDs)',
+        '--treatment-launch-id',
+        help='Launch ID for treatment run (required if CSV has multiple launch IDs)',
     )
 
     parser.add_argument(
@@ -132,7 +133,7 @@ def resolve_file_path(filename: str, experiment: str | None) -> Path:
     Resolve a filename to a full path.
 
     Args:
-        filename: Filename or path
+        filename: Filename or path (with or without .csv extension)
         experiment: Experiment directory name (optional)
 
     Returns:
@@ -141,8 +142,13 @@ def resolve_file_path(filename: str, experiment: str | None) -> Path:
     Raises:
         FileNotFoundError: If file doesn't exist
     """
-    # If filename is already a path, use it directly
+    # Auto-complete .csv extension if not present
     path = Path(filename)
+    if not path.suffix:
+        filename = filename + '.csv'
+        path = Path(filename)
+
+    # If filename is already a path, use it directly
     if path.is_absolute():
         if not path.exists():
             raise FileNotFoundError(f"File not found: {path}")
@@ -264,7 +270,7 @@ def validate_and_filter_launch_ids(
         df: DataFrame to validate and filter
         file_path: Path to the CSV file (for error messages)
         specified_launch_id: User-specified launch ID (optional)
-        file_label: Label for error messages ('Current' or 'Previous')
+        file_label: Label for error messages ('Baseline' or 'Treatment')
 
     Returns:
         Tuple of (filtered DataFrame, exit_code)
@@ -298,26 +304,26 @@ def validate_and_filter_launch_ids(
 
 def determine_metrics_to_compare(
     args: argparse.Namespace,
-    current_cols: set[str],
-    previous_cols: set[str],
-    current_path: Path,
-    previous_path: Path,
+    baseline_cols: set[str],
+    treatment_cols: set[str],
+    baseline_path: Path,
+    treatment_path: Path,
 ) -> tuple[list[str], int]:
     """
     Determine which metrics to compare based on args and available columns.
 
     Args:
         args: Parsed command line arguments
-        current_cols: Set of column names in current CSV
-        previous_cols: Set of column names in previous CSV
-        current_path: Path to current CSV (for error messages)
-        previous_path: Path to previous CSV (for error messages)
+        baseline_cols: Set of column names in baseline CSV
+        treatment_cols: Set of column names in treatment CSV
+        baseline_path: Path to baseline CSV (for error messages)
+        treatment_path: Path to treatment CSV (for error messages)
 
     Returns:
         Tuple of (list of metrics, exit_code)
         exit_code is 0 on success, 1 on error
     """
-    common_cols = current_cols & previous_cols
+    common_cols = baseline_cols & treatment_cols
 
     # Handle default metric fallback
     if args.metrics == 'inner_time':
@@ -349,12 +355,12 @@ def determine_metrics_to_compare(
             f"Error: Metrics must exist in both CSV files: {', '.join(missing_from_intersection)}",
             file=sys.stderr,
         )
-        missing_current = [m for m in missing_from_intersection if m not in current_cols]
-        missing_previous = [m for m in missing_from_intersection if m not in previous_cols]
-        if missing_current:
-            print(f"  Not in {current_path.name}: {', '.join(missing_current)}", file=sys.stderr)
-        if missing_previous:
-            print(f"  Not in {previous_path.name}: {', '.join(missing_previous)}", file=sys.stderr)
+        missing_baseline = [m for m in missing_from_intersection if m not in baseline_cols]
+        missing_treatment = [m for m in missing_from_intersection if m not in treatment_cols]
+        if missing_baseline:
+            print(f"  Not in {baseline_path.name}: {', '.join(missing_baseline)}", file=sys.stderr)
+        if missing_treatment:
+            print(f"  Not in {treatment_path.name}: {', '.join(missing_treatment)}", file=sys.stderr)
         print(f"\nMetrics in both files: {', '.join(sorted(common_cols)) if common_cols else '(none)'}", file=sys.stderr)
         return [], 1
 
@@ -392,28 +398,29 @@ def load_metric_definitions(md_path: Path) -> dict[str, bool]:
 
 def compare_metrics(
     metrics: list[str],
-    current_df: pl.DataFrame,
-    previous_df: pl.DataFrame,
+    baseline_df: pl.DataFrame,
+    treatment_df: pl.DataFrame,
     metric_definitions: dict[str, bool],
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], dict[str, str]]:
     """
-    Compare metrics between current and previous DataFrames.
+    Compare metrics between baseline and treatment DataFrames.
 
     Args:
         metrics: List of metric names to compare
-        current_df: Current run DataFrame
-        previous_df: Previous run DataFrame
+        baseline_df: Baseline run DataFrame
+        treatment_df: Treatment run DataFrame
         metric_definitions: Dictionary of metric_name -> lower_is_better
 
     Returns:
-        List of comparison result dictionaries
+        Tuple of (list of comparison result dictionaries, dict of narratives)
     """
     comparisons = []
+    narratives = {}
     for metric in metrics:
-        current_data = current_df[metric].drop_nulls().to_numpy()
-        previous_data = previous_df[metric].drop_nulls().to_numpy()
+        treatment_data = treatment_df[metric].drop_nulls().to_numpy()
+        baseline_data = baseline_df[metric].drop_nulls().to_numpy()
 
-        if len(current_data) == 0 or len(previous_data) == 0:
+        if len(treatment_data) == 0 or len(baseline_data) == 0:
             print(f"Warning: Metric '{metric}' has no valid data", file=sys.stderr)
             continue
 
@@ -422,15 +429,23 @@ def compare_metrics(
         better_direction = 'lower' if lower_is_better else 'higher'
 
         result = comparison_table(
-            baseline=previous_data,
-            treatment=current_data,
+            baseline=baseline_data,
+            treatment=treatment_data,
             metric=metric,
             better=better_direction,
             digits=5,
         )
         comparisons.append(result)
 
-    return comparisons
+        # Generate narrative for this metric
+        narrative = generate_comparison_narrative(
+            baseline=baseline_data,
+            treatment=treatment_data,
+            lower_is_better=lower_is_better,
+        )
+        narratives[metric] = narrative
+
+    return comparisons, narratives
 
 
 def output_metadata_comparison(
@@ -458,8 +473,8 @@ def output_metadata_comparison(
             baseline_md,
             show_all=args.show_all,
             format=args.format,
-            treatment_launch_id=args.current_launch_id,
-            baseline_launch_id=args.previous_launch_id,
+            treatment_launch_id=args.treatment_launch_id,
+            baseline_launch_id=args.baseline_launch_id,
         )
 
         if metadata_diff:
@@ -485,46 +500,46 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
 
     try:
-        current_path = resolve_file_path(args.current, args.experiment)
-        previous_path = resolve_file_path(args.previous, args.experiment)
+        baseline_path = resolve_file_path(args.baseline, args.experiment)
+        treatment_path = resolve_file_path(args.treatment, args.experiment)
 
         if args.verbose:
-            print(f"Comparing: {current_path}", file=sys.stderr)
-            print(f"     with: {previous_path}", file=sys.stderr)
+            print(f"Baseline:  {baseline_path}", file=sys.stderr)
+            print(f"Treatment: {treatment_path}", file=sys.stderr)
             print("", file=sys.stderr)
 
         # Load CSV data
-        current_df = pl.read_csv(current_path)
-        previous_df = pl.read_csv(previous_path)
+        baseline_df = pl.read_csv(baseline_path)
+        treatment_df = pl.read_csv(treatment_path)
 
         # Validate and filter by launch_id if present
-        current_df, exit_code = validate_and_filter_launch_ids(
-            current_df, current_path, args.current_launch_id, 'Current'
+        baseline_df, exit_code = validate_and_filter_launch_ids(
+            baseline_df, baseline_path, args.baseline_launch_id, 'Baseline'
         )
         if exit_code != 0:
             return exit_code
 
-        previous_df, exit_code = validate_and_filter_launch_ids(
-            previous_df, previous_path, args.previous_launch_id, 'Previous'
+        treatment_df, exit_code = validate_and_filter_launch_ids(
+            treatment_df, treatment_path, args.treatment_launch_id, 'Treatment'
         )
         if exit_code != 0:
             return exit_code
 
         # Determine which metrics to compare
-        current_cols = set(current_df.columns)
-        previous_cols = set(previous_df.columns)
+        baseline_cols = set(baseline_df.columns)
+        treatment_cols = set(treatment_df.columns)
         metrics, exit_code = determine_metrics_to_compare(
-            args, current_cols, previous_cols, current_path, previous_path
+            args, baseline_cols, treatment_cols, baseline_path, treatment_path
         )
         if exit_code != 0:
             return exit_code
 
         # Load metric definitions from metadata
-        treatment_md = current_path.with_suffix('.md')
+        treatment_md = treatment_path.with_suffix('.md')
         metric_definitions = load_metric_definitions(treatment_md)
 
         # Compare metrics
-        comparisons = compare_metrics(metrics, current_df, previous_df, metric_definitions)
+        comparisons, narratives = compare_metrics(metrics, baseline_df, treatment_df, metric_definitions)
 
         # Format and output results
         match args.format:
@@ -537,8 +552,18 @@ def main(argv: list[str] | None = None) -> int:
 
         print(output)
 
+        # Output narrative comparison
+        if narratives and args.format in ['md', 'plaintext']:
+            print("\n" + "=" * 60)
+            print("# Narrative Comparison" if args.format == 'md' else "Narrative Comparison")
+            print("=" * 60 + "\n")
+            for metric, narrative in narratives.items():
+                print(f"**{metric}:**" if args.format == 'md' else f"{metric}:")
+                print(narrative)
+                print()
+
         # Compare metadata if .md files exist
-        baseline_md = previous_path.with_suffix('.md')
+        baseline_md = baseline_path.with_suffix('.md')
         output_metadata_comparison(args, treatment_md, baseline_md)
 
         return 0
