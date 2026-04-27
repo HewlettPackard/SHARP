@@ -102,7 +102,7 @@ class TestComputeComparisonSummary:
 
         expected_stats = ['n', 'min', 'median', 'mode', 'mean',
                          'CI95_low', 'CI95_high', 'p95', 'p99', 'max',
-                         'stddev', 'stderr', 'cv']
+                         'stddev', 'stderr', 'cv', 'KS']
         assert result["statistic_names"] == expected_stats
 
     def test_same_length_arrays(self, baseline_data, comparison_data):
