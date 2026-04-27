@@ -18,7 +18,9 @@ from pathlib import Path
 from src.core.runlogs import load_csv, get_experiments, get_tasks_for_experiment
 from src.core.stats.distribution import compute_summary, characterize_distribution, create_distribution_plot
 from src.core.config.settings import Settings
+from src.gui.utils import apply_filter, get_filterable_columns, create_filter_ui
 from src.gui.utils.ui_helpers import *
+from src.gui.utils.filters import *
 
 
 from typing import Any
@@ -39,11 +41,15 @@ def explore_ui() -> Any:
             ),
             ui.column(
                 2,
-                ui.input_select(
-                    "explore_task",
-                    "Task",
-                    choices={"": "(select task)"},
-                    selected=""
+                ui.div(
+                    ui.input_select(
+                        "explore_task",
+                        "Task",
+                        choices={"": "(select task)"},
+                        selected=""
+                    ),
+                    ui.output_text("explore_load_status"),
+                    style="display: flex; flex-direction: column; gap: 4px; line-height: 1.15;"
                 )
             ),
             ui.column(
@@ -92,14 +98,24 @@ def explore_ui() -> Any:
                     }
                 )
             ),
-            ui.column(2, ui.output_ui("explore_filter_ui")),
-            ui.column(2, ui.output_text("explore_load_status")),
+            ui.column(
+                2,
+                ui.div(
+                    ui.output_ui("explore_filter_ui"),
+                    ui.output_text("explore_filter_value_time_display"),
+                    style="display: flex; flex-direction: column; gap: 4px; line-height: 1.15;"
+                )
+            ),
         ),
-        ui.hr(),
+        ui.tags.hr(style="margin: 0.5rem 0;"),
         ui.row(
             ui.column(
                 7,
-                ui.output_plot("explore_plot", click=True),
+                ui.div(
+                    ui.output_plot("explore_plot", hover=True),
+                    ui.output_ui("explore_point_inspector"),
+                    style="position: relative;"
+                ),
                 ui.output_text("explore_characteristics")
             ),
             ui.column(
@@ -108,7 +124,7 @@ def explore_ui() -> Any:
                 ui.output_data_frame("explore_table")
             ),
         ),
-        ui.hr(),
+        ui.tags.hr(style="margin: 0.5rem 0;"),
         ui.row(
             ui.h4("Pairwise comparisons"),
             ui.output_plot("explore_cor_plot"),
@@ -214,7 +230,6 @@ def explore_server(input: Inputs, output: Outputs, session: Session) -> None:
             default_metric = select_preferred_metric(metric_cols_dict)
 
             # Get filterable columns using reusable utility
-            from ..utils import get_filterable_columns
             filterable_cols = get_filterable_columns(df)
             filterable_choices = {col: col for col in filterable_cols}
 
@@ -279,11 +294,35 @@ def explore_server(input: Inputs, output: Outputs, session: Session) -> None:
         if df is None:
             return None
 
-        from ..utils import create_filter_ui
         try:
             return create_filter_ui(df, filter_metric, "explore_filter_value")
         except Exception:
             return None
+
+    @output
+    @render.ui
+    def explore_point_inspector() -> ui.TagChild:
+        """Show nearest point (value + original row index) for the current hover location."""
+        df = filtered_data.get()
+        metric = input.explore_metric()
+        settings = Settings()
+        max_scatter = settings.get("gui.explore.max_scatter_points", 2000)
+        return render_point_inspector(
+            input.explore_plot_hover(),
+            df,
+            metric,
+            max_scatter_points=max_scatter
+        )
+
+    @output
+    @render.text
+    def explore_filter_value_time_display() -> str:
+        """Display the selected time range in HH:MM:SS format (only for time columns)."""
+        return get_time_filter_display(
+            data=raw_data.get(),
+            filter_metric=input.explore_filter_metric(),
+            filter_value=get_filter_value(input, "explore_filter_value")
+        )
 
     @reactive.effect
     def update_filtered_data() -> None:
@@ -300,36 +339,17 @@ def explore_server(input: Inputs, output: Outputs, session: Session) -> None:
             return
 
         try:
-            filter_value = input.explore_filter_value()
+            filter_value = get_filter_value(input, "explore_filter_value")
         except Exception:
             filtered_data.set(df)
             return
 
-        # Check if filter_value is actually set (not None, not empty for categorical)
-        if filter_value is None:
+        # Check if filter should actually be applied
+        if not should_apply_filter(filter_value, df, filter_metric):
             filtered_data.set(df)
             return
 
-        # For categorical filters (list), check if empty
-        if isinstance(filter_value, (list, tuple)):
-            if not filter_value or (len(filter_value) == 1 and filter_value[0] == ""):
-                filtered_data.set(df)
-                return
-
-            # For numeric range filters, check if it's the full range (no actual filtering)
-            if len(filter_value) == 2 and filter_metric in df.columns:
-                col = df[filter_metric]
-                if col.dtype in (pl.Float64, pl.Float32, pl.Int64, pl.Int32):
-                    try:
-                        col_min = float(col.drop_nulls().min())
-                        col_max = float(col.drop_nulls().max())
-                        if abs(filter_value[0] - col_min) < 1e-9 and abs(filter_value[1] - col_max) < 1e-9:
-                            filtered_data.set(df)
-                            return
-                    except:
-                        pass  # If check fails, proceed with filter
-
-        from ..utils import apply_filter
+        # Apply filter
         try:
             filtered_df = apply_filter(df, filter_metric, filter_value)
             filtered_data.set(filtered_df)
@@ -340,13 +360,15 @@ def explore_server(input: Inputs, output: Outputs, session: Session) -> None:
     @render.text
     def explore_load_status() -> str:
         """Show loading status indicator."""
-        df = raw_data.get()
         if data_loading.get():
             return "⏳ Loading..."
-        elif df is not None:
-            return f"✓ Loaded ({df.shape[0]} rows)"
-        else:
+        try:
+            df = raw_data.get()
+            if df is not None:
+                return f"✓ Loaded ({df.shape[0]} rows)"
             return ""
+        except Exception as e:
+            return f"✗ Error: {str(e)}"
 
     @output
     @render.data_frame
@@ -406,7 +428,7 @@ def explore_server(input: Inputs, output: Outputs, session: Session) -> None:
             return None
 
         try:
-            values = df[metric].drop_nulls().to_numpy()
+            values = df[metric].to_numpy().astype(float)
 
             if len(values) == 0:
                 return None
@@ -439,8 +461,11 @@ def explore_server(input: Inputs, output: Outputs, session: Session) -> None:
             if n == 0:
                 return None
 
+            # Drop nulls from entire subset to keep columns aligned
+            subset = subset.drop_nulls()
+
             # Extract numpy arrays once
-            arrays = {c: subset[c].drop_nulls().to_numpy() for c in cols}
+            arrays = {c: subset[c].to_numpy() for c in cols}
 
             # Increase figure size to avoid cutoff and improve readability
             fig, axes = plt.subplots(n, n, figsize=(4 * n, 4 * n))
@@ -477,9 +502,8 @@ def explore_server(input: Inputs, output: Outputs, session: Session) -> None:
                         else:
                             ax.set_yticklabels([], fontsize=9)
                         ax.tick_params(labelsize=9)
-            # Use subplots_adjust to ensure bottom margins don't get cut off
-            plt.tight_layout(pad=1.0)
-            plt.subplots_adjust(bottom=0.08, left=0.08, top=0.95, right=0.95)
+            # Explicit margins to ensure x-axis labels are fully visible
+            plt.subplots_adjust(bottom=0.15, left=0.1, top=0.95, right=0.95, hspace=0.3, wspace=0.3)
             return fig
         except Exception as e:
             print(f"Error creating correlation plot (manual): {e}")

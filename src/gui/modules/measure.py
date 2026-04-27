@@ -109,8 +109,12 @@ def measure_ui() -> Any:
             ui.card(
                 ui.card_header("Run Results"),
                 ui.output_data_frame("run_data"),
+                style="height: 40vh; overflow-y: auto; margin-bottom: 20px;",
+            ),
+            ui.card(
                 ui.card_header("Metadata"),
                 ui.output_text_verbatim("md_data"),
+                style="height: 50vh; overflow-y: auto;",
             ),
         ),
     )

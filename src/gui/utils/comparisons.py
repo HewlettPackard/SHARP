@@ -10,10 +10,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from typing import Dict, Any, Tuple
+from scipy import stats
 
 from src.core.stats.distribution import compute_summary
 from src.core.stats.comparisons import density_comparison, ecdf_comparison
-from src.core.stats.narrative import format_sig_figs
+from src.core.stats.narrative import format_sig_figs, format_p_value_table
 
 
 def _compute_pct_change(baseline_val: float, treatment_val: float) -> Tuple[str, float | None]:
@@ -36,6 +37,30 @@ def _compute_pct_change(baseline_val: float, treatment_val: float) -> Tuple[str,
         return (f"{pct_change:+.1f}%", pct_change)
 
 
+def _add_significance_stars(value_str: str, p_value: float) -> str:
+    """
+    Add significance stars to a value string based on p-value.
+
+    Args:
+        value_str: Formatted value string
+        p_value: P-value for significance testing
+
+    Returns:
+        Value string with significance stars appended
+    """
+    if np.isnan(p_value):
+        return value_str
+
+    if p_value < 0.001:
+        return f"{value_str} ***"
+    elif p_value < 0.01:
+        return f"{value_str} **"
+    elif p_value < 0.05:
+        return f"{value_str} *"
+    else:
+        return value_str
+
+
 def compute_comparison_summary(baseline: np.ndarray, treatment: np.ndarray,
                                digits: int = 10, sig_figs: int = 3) -> Dict[str, Any]:
     """
@@ -48,7 +73,7 @@ def compute_comparison_summary(baseline: np.ndarray, treatment: np.ndarray,
         sig_figs: Number of significant figures for display (default: 3)
 
     Returns:
-        Dictionary with 'statistic_names', 'baseline', 'treatment', and 'pct_change' arrays
+        Dictionary with 'statistic_names', 'baseline', 'treatment', 'pct_change', and 'p_value' arrays
     """
     b_summary = compute_summary(baseline, digits=digits)
     t_summary = compute_summary(treatment, digits=digits)
@@ -57,27 +82,41 @@ def compute_comparison_summary(baseline: np.ndarray, treatment: np.ndarray,
     statistic_names = [
         'n', 'min', 'median', 'mode', 'mean',
         'CI95_low', 'CI95_high', 'p95', 'p99', 'max',
-        'stddev', 'stderr', 'cv'
+        'stddev', 'stderr', 'cv', 'KS'
     ]
 
     # Compute coefficient of variance (CV = stddev / mean)
     b_cv = b_summary['stddev'] / b_summary['mean'] if b_summary['mean'] != 0 else np.nan
     t_cv = t_summary['stddev'] / t_summary['mean'] if t_summary['mean'] != 0 else np.nan
 
+    # Filter out NaN values for statistical tests
+    treatment_clean = treatment[~np.isnan(treatment)]
+    baseline_clean = baseline[~np.isnan(baseline)]
+
+    # Perform statistical tests (using cleaned data without NaNs)
+    t_test = stats.ttest_ind(treatment_clean, baseline_clean)
+    mw_test = stats.mannwhitneyu(treatment_clean, baseline_clean, alternative='two-sided')
+    ks_test = stats.ks_2samp(treatment_clean, baseline_clean)
+
     # Calculate percentage change for each statistic
     baseline_vals = []
     treatment_vals = []
     pct_changes = []
+    p_values = []
 
     for name in statistic_names:
         if name == 'cv':
             b_val = b_cv
             t_val = t_cv
+        elif name == 'KS':
+            # KS statistic (not a baseline/treatment comparison)
+            b_val = np.nan
+            t_val = ks_test.statistic
         else:
             b_val = b_summary[name]
             t_val = t_summary[name]
 
-        # 'n' should be displayed as integer
+        # 'n' and 'KS' should be displayed as integer
         is_int = (name == 'n')
         baseline_vals.append(format_sig_figs(b_val, sig_figs, is_integer=is_int))
         treatment_vals.append(format_sig_figs(t_val, sig_figs, is_integer=is_int))
@@ -86,18 +125,45 @@ def compute_comparison_summary(baseline: np.ndarray, treatment: np.ndarray,
         if name == 'n':
             # For sample size, show dash instead of percentage
             pct_changes.append('-')
+            p_values.append('-')
+        elif name == 'KS':
+            # For KS statistic, no percentage change
+            pct_changes.append('-')
+            p_values.append(format_p_value_table(ks_test.pvalue, sig_figs=4, stars=False))
         elif name == 'cv' and (np.isnan(b_cv) or np.isnan(t_cv)):
             # CV may be NaN if mean is zero
             pct_changes.append('NA')
+            p_values.append('-')
         else:
             pct_str, _ = _compute_pct_change(b_val, t_val)
-            pct_changes.append(pct_str)
+
+            # Determine p-value and add to list
+            match name:
+                case 'mean':
+                    p_val = t_test.pvalue
+                    p_values.append(format_p_value_table(p_val, sig_figs=4, stars=False))
+                case 'median':
+                    p_val = mw_test.pvalue
+                    p_values.append(format_p_value_table(p_val, sig_figs=4, stars=False))
+                case 'stddev' | 'stderr' | 'cv':
+                    # Use Levene's test for variance equality
+                    levene_test = stats.levene(baseline_clean, treatment_clean)
+                    p_val = levene_test.pvalue
+                    p_values.append(format_p_value_table(p_val, sig_figs=4, stars=False))
+                case _:
+                    # For percentiles and other statistics, no standard test
+                    p_val = np.nan
+                    p_values.append('-')
+
+            # Add significance stars to percentage change based on p-value
+            pct_changes.append(_add_significance_stars(pct_str, p_val))
 
     return {
         'statistic_names': statistic_names,
         'baseline': baseline_vals,
         'treatment': treatment_vals,
-        'pct_change': pct_changes
+        'pct_change': pct_changes,
+        'p_value': p_values
     }
 
 
@@ -169,10 +235,6 @@ def render_ecdf_comparison_plot(baseline: np.ndarray, treatment: np.ndarray,
         ax.set_xlabel('Value')
         ax.set_ylabel('Cumulative Probability')
         ax.set_title(f'ECDF Comparison: {metric}')
-        if result.get('ks_p_value') is not None:
-            ax.text(0.05, 0.95, f"KS p-value: {result['ks_p_value']:.4f}",
-                   transform=ax.transAxes, verticalalignment='top',
-                   bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
         ax.legend()
         ax.grid(True, alpha=0.3)
         plt.tight_layout(pad=1.0)

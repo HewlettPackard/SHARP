@@ -9,7 +9,6 @@ Python Shiny application for launching, analyzing, and comparing benchmarks.
 from pathlib import Path
 from shiny import App, ui, reactive, Inputs, Outputs, Session
 import shinyswatch
-from ruamel.yaml import YAML
 
 from ..core.config.settings import Settings
 
@@ -19,6 +18,7 @@ from .modules.measure import measure_ui, measure_server
 from .modules.profile import profile_ui, profile_server
 from .modules.explore import explore_ui, explore_server
 from .modules.compare import compare_ui, compare_server
+from .utils.settings import register_settings_handlers
 
 # Get the directory containing this file
 app_dir = Path(__file__).parent
@@ -163,107 +163,8 @@ def server(input: Inputs, output: Outputs, session: Session) -> None:
     """
     from shiny import ui as shiny_ui
 
-    # Show settings modal when gear icon is clicked
-    @reactive.effect
-    def _show_settings_modal() -> None:
-        trigger = input.show_settings_modal()
-        if trigger is not None and trigger > 0:
-            # Create and show modal
-            m = shiny_ui.modal(
-                ui.tags.h3("Settings", style="margin-top: 0;"),
-                ui.input_select(
-                    "settings_theme",
-                    "Theme",
-                    choices={
-                        "bootstrap": "Bootstrap",
-                        "cerulean": "Cerulean",
-                        "cosmo": "Cosmo",
-                        "cyborg": "Cyborg",
-                        "darkly": "Darkly",
-                        "flatly": "Flatly",
-                        "journal": "Journal",
-                        "litera": "Litera",
-                        "lumen": "Lumen",
-                        "lux": "Lux",
-                        "materia": "Materia",
-                        "minty": "Minty",
-                        "morph": "Morph",
-                        "pulse": "Pulse",
-                        "quartz": "Quartz",
-                        "sandstone": "Sandstone",
-                        "simplex": "Simplex",
-                        "sketchy": "Sketchy",
-                        "slate": "Slate",
-                        "solar": "Solar",
-                        "spacelab": "Spacelab",
-                        "superhero": "Superhero",
-                        "united": "United",
-                        "vapor": "Vapor",
-                        "yeti": "Yeti",
-                        "zephyr": "Zephyr",
-                    },
-                    selected=Settings().get("gui.theme", "spacelab"),
-                ),
-                ui.input_numeric(
-                    "settings_recent_count",
-                    "Number of Recent Experiments to Display",
-                    value=Settings().get("gui.overview.recent_runs_count", 10),
-                    min=1,
-                    max=100,
-                ),
-                ui.tags.div(
-                    ui.input_action_button("settings_cancel", "Cancel", class_="btn btn-secondary"),
-                    ui.input_action_button("settings_accept", "Accept", class_="btn btn-primary"),
-                    style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;",
-                ),
-                easy_close=True,
-                footer=None,
-            )
-            shiny_ui.modal_show(m)
-
-    # Handle settings cancel button
-    @reactive.effect
-    def _on_settings_cancel() -> None:
-        if input.settings_cancel():
-            shiny_ui.modal_remove()
-
-    # Handle settings accept button
-    @reactive.effect
-    def _on_settings_accept() -> None:
-        if input.settings_accept():
-            new_theme = input.settings_theme()
-            new_recent_count = input.settings_recent_count()
-
-            # Read current settings
-            settings = Settings()
-            settings_path = settings.config_path
-
-            # Load YAML with ruamel.yaml to preserve comments
-            yaml_handler = YAML()
-            yaml_handler.preserve_quotes = True
-            yaml_handler.default_flow_style = False
-            with open(settings_path, 'r') as f:
-                config = yaml_handler.load(f) or {}
-
-            # Update values
-            if 'gui' not in config:
-                config['gui'] = {}
-            if 'overview' not in config['gui']:
-                config['gui']['overview'] = {}
-
-            config['gui']['theme'] = new_theme
-            config['gui']['overview']['recent_runs_count'] = new_recent_count
-
-            # Write back to YAML (preserves comments and formatting)
-            with open(settings_path, 'w') as f:
-                yaml_handler.dump(config, f)
-
-            # Reload page immediately via JavaScript
-            shiny_ui.insert_ui(
-                ui.tags.script("window.location.reload();"),
-                selector="body",
-                where="beforeEnd",
-            )
+    # Register settings modal handlers
+    register_settings_handlers(input, output, session, shiny_ui)
 
     # Server logic for tabs
     # Create shared reactive value for triggering overview refresh

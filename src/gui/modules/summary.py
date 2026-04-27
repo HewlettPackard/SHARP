@@ -16,6 +16,9 @@ from typing import Any, List, Dict
 
 from src.core.config.settings import Settings
 from src.gui.utils import scan_runlogs, load_csv, parse_markdown_runtime_options
+from src.core.runlogs import get_experiments
+from pathlib import Path
+import shutil
 
 
 def summary_ui() -> Any:
@@ -79,14 +82,20 @@ def summary_ui() -> Any:
             col_widths=[12],
         ),
         ui.hr(),
-        ui.layout_columns(
+        ui.div(
             ui.input_action_button(
                 "quick_launch",
                 "Launch New Experiment",
                 icon=ui.tags.span(ui.tags.i(class_="bi bi-rocket-takeoff"), "\u00A0"),
-                class_="btn-primary btn-lg",
+                class_="btn-primary",
             ),
-            col_widths=[12],
+            ui.input_action_button(
+                "upload_experiment_btn",
+                "Upload Experiment",
+                icon=ui.tags.span(ui.tags.i(class_="bi bi-cloud-upload"), "\u00A0"),
+                class_="btn-secondary",
+            ),
+            style="display: flex; justify-content: space-between; align-items: center;",
         ),
     )
 
@@ -246,6 +255,9 @@ def summary_server(input: Inputs, output: Outputs, session: Session, refresh_tri
             benchmark_str = run.get("benchmark") or "Unknown"
             rows_str = str(run["rows"]) if run.get("rows") is not None else "N/A"
 
+            # Get description for tooltip
+            description = run.get("description") or "No description available"
+
             rows.append(
                 ui.tags.tr(
                     ui.tags.td(run["experiment"]),
@@ -275,6 +287,7 @@ def summary_server(input: Inputs, output: Outputs, session: Session, refresh_tri
                         ),
                         style="text-align: center; padding: 0.5rem;",
                     ),
+                    title=description,
                 )
             )
 
@@ -361,4 +374,210 @@ def summary_server(input: Inputs, output: Outputs, session: Session, refresh_tri
             print(f"Error handling explore click: {e}")
             import traceback
             traceback.print_exc()
+
+    # Upload experiment functionality
+    def _create_upload_modal() -> None:
+        """Helper function to create and show the upload modal."""
+        experiments = get_experiments()
+        experiment_choices = list(experiments.keys())
+
+        m = ui.modal(
+            ui.h4("Upload Experiment Files"),
+            ui.p("Select or enter an experiment name and upload CSV/MD files."),
+            ui.input_selectize(
+                "upload_experiment_name",
+                "Experiment Name",
+                choices=experiment_choices,
+                selected=None,
+                multiple=False,
+                options={
+                    'create': True,
+                    'placeholder': 'Type experiment name or select existing...',
+                }
+            ),
+            ui.input_file(
+                "upload_files",
+                "Upload Files",
+                multiple=True,
+                accept=[".csv", ".md"],
+                button_label="Choose Files...",
+            ),
+            title="Upload Experiment",
+            easy_close=True,
+            footer=ui.TagList(
+                ui.input_action_button("new_experiment_btn", "New experiment", class_="btn-success"),
+                ui.input_action_button("upload_cancel", "Cancel", class_="btn-secondary"),
+                ui.input_action_button("upload_confirm", "Upload", class_="btn-primary"),
+            ),
+        )
+        ui.modal_show(m)
+
+    @reactive.effect
+    @reactive.event(input.upload_experiment_btn)
+    def show_upload_modal() -> None:
+        """Show upload modal and populate experiment choices."""
+        _create_upload_modal()
+
+    @reactive.effect
+    @reactive.event(input.upload_cancel)
+    def hide_upload_modal() -> None:
+        """Hide upload modal."""
+        ui.modal_remove()
+
+    @reactive.effect
+    @reactive.event(input.new_experiment_btn)
+    def show_new_experiment_modal() -> None:
+        """Show modal to create a new experiment."""
+        m = ui.modal(
+            ui.h4("Create New Experiment"),
+            ui.p("Enter a name for the new experiment directory."),
+            ui.input_text(
+                "new_experiment_name",
+                "Experiment Name",
+                value="",
+                placeholder="Enter experiment name..."
+            ),
+            title="New Experiment",
+            easy_close=True,
+            footer=ui.TagList(
+                ui.input_action_button("new_experiment_cancel", "Cancel", class_="btn-secondary"),
+                ui.input_action_button("new_experiment_apply", "Apply", class_="btn-primary"),
+            ),
+        )
+        ui.modal_show(m)
+
+    @reactive.effect
+    @reactive.event(input.new_experiment_cancel)
+    def hide_new_experiment_modal() -> None:
+        """Hide new experiment modal and reshow upload modal."""
+        ui.modal_remove()
+        # Reshow the upload modal
+        _create_upload_modal()
+
+    @reactive.effect
+    @reactive.event(input.new_experiment_apply)
+    def create_new_experiment() -> None:
+        """Create new experiment directory and update dropdown."""
+        experiment_name = input.new_experiment_name()
+
+        # Validate experiment name
+        if not experiment_name or not experiment_name.strip():
+            ui.notification_show("Please enter an experiment name.", type="error", duration=3)
+            return
+
+        experiment_name = experiment_name.strip()
+
+        # Get runlogs directory
+        settings = Settings()
+        runlogs_dir = Path(settings.get("sharp.runlogs_dir", "runlogs"))
+        experiment_dir = runlogs_dir / experiment_name
+
+        # Check if experiment already exists
+        if experiment_dir.exists():
+            # Experiment exists - just select it without notification
+            ui.modal_remove()
+            ui.update_selectize(
+                "upload_experiment_name",
+                selected=experiment_name
+            )
+            # Reshow the upload modal
+            _create_upload_modal()
+            return
+
+        try:
+            # Create the experiment directory
+            experiment_dir.mkdir(parents=True, exist_ok=False)
+
+            # Show success message
+            ui.notification_show(
+                f"Successfully created experiment '{experiment_name}'.",
+                type="success",
+                duration=3
+            )
+
+            # Close the new experiment modal (don't close upload modal)
+            ui.modal_remove()
+
+            # Update the experiment dropdown in the upload modal
+            experiments = get_experiments()
+            experiment_choices = list(experiments.keys())
+            # Add the newly created experiment if not already in the list
+            if experiment_name not in experiment_choices:
+                experiment_choices.append(experiment_name)
+                experiment_choices.sort()
+
+            ui.update_selectize(
+                "upload_experiment_name",
+                choices={exp: exp for exp in experiment_choices},
+                selected=experiment_name
+            )
+
+            # Reshow the upload modal
+            _create_upload_modal()
+
+        except Exception as e:
+            ui.notification_show(f"Error creating experiment: {str(e)}", type="error", duration=5)
+            import traceback
+            traceback.print_exc()
+
+    @reactive.effect
+    @reactive.event(input.upload_confirm)
+    def handle_upload() -> None:
+        """Handle file upload to experiment directory."""
+        experiment_name = input.upload_experiment_name()
+        uploaded_files = input.upload_files()
+
+        if not experiment_name:
+            ui.notification_show("Please enter an experiment name.", type="error", duration=3)
+            return
+
+        if not uploaded_files:
+            ui.notification_show("Please select files to upload.", type="error", duration=3)
+            return
+
+        try:
+            # Get runlogs directory
+            runlogs_dir = Path(settings.get("sharp.runlogs_dir", "runlogs"))
+            experiment_dir = runlogs_dir / experiment_name
+
+            # Create experiment directory if it doesn't exist
+            experiment_dir.mkdir(parents=True, exist_ok=True)
+
+            # Copy uploaded files to experiment directory
+            uploaded_count = 0
+            for file_info in uploaded_files:
+                file_path = file_info["datapath"]
+                file_name = file_info["name"]
+
+                # Validate file extension
+                if not (file_name.endswith('.csv') or file_name.endswith('.md')):
+                    ui.notification_show(
+                        f"Skipping {file_name}: Only CSV and MD files are allowed.",
+                        type="warning",
+                        duration=3
+                    )
+                    continue
+
+                # Copy file to experiment directory
+                destination = experiment_dir / file_name
+                shutil.copy2(file_path, destination)
+                uploaded_count += 1
+
+            # Show success message
+            ui.notification_show(
+                f"Successfully uploaded {uploaded_count} file(s) to experiment '{experiment_name}'.",
+                type="success",
+                duration=5
+            )
+
+            # Close modal
+            ui.modal_remove()
+
+            # Trigger refresh of runs data
+            if refresh_trigger is not None:
+                refresh_trigger.set(refresh_trigger.get() + 1)
+
+        except Exception as e:
+            ui.notification_show(f"Error uploading files: {str(e)}", type="error", duration=5)
+            import traceback
             traceback.print_exc()

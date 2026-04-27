@@ -15,20 +15,12 @@ from typing import Any, Dict, List
 
 from src.core.config.settings import Settings
 from src.core.stats.narrative import generate_comparison_narrative
-from src.core.runlogs import load_csv, get_experiments, get_tasks_for_experiment
+from src.core.runlogs import load_csv
 from src.core.runlogs.metadata_compare import compare_metadata
-from src.gui.utils.comparisons import (
-    compute_comparison_summary,
-    render_density_comparison_plot,
-    render_ecdf_comparison_plot
-)
-from src.gui.utils.ui_helpers import (
-    init_experiment_selector,
-    update_task_selector,
-    get_numeric_columns,
-    select_preferred_metric,
-    update_metric_selector
-)
+from src.gui.utils.comparisons import *
+from src.gui.utils.ui_helpers import *
+from src.gui.utils.filters import *
+from src.gui.utils import apply_filter, get_filterable_columns, create_filter_ui
 
 
 from typing import Any
@@ -86,17 +78,31 @@ def compare_ui() -> Any:
                         'maxOptions': 100,
                     }
                 ),
-                ui.output_ui('compare_filter_ui'),
+                ui.div(
+                    ui.output_ui('compare_filter_ui'),
+                    ui.output_text('compare_filter_value_time_display'),
+                    style="display: flex; flex-direction: column; gap: 4px; line-height: 1.15;"
+                ),
             ),
         ),
-        ui.hr(),
+        ui.tags.hr(style="margin: 0.5rem 0;"),
         ui.row(
-            ui.column(3, ui.output_plot('compare_density')),
-            ui.column(3, ui.output_plot('compare_ecdf')),
-            ui.column(3, ui.output_data_frame('compare_table')),
-            ui.column(3, ui.output_ui('compare_narrative')),
+            ui.column(
+                8,
+                ui.row(
+                    ui.column(6, ui.output_plot('compare_density')),
+                    ui.column(6, ui.output_plot('compare_ecdf')),
+                ),
+                ui.row(
+                    ui.column(12, ui.output_ui('compare_narrative')),
+                ),
+            ),
+            ui.column(
+                4,
+                ui.output_data_frame('compare_table')
+            ),
         ),
-        ui.hr(),
+        ui.tags.hr(style="margin: 0.5rem 0;"),
         ui.row(
             ui.column(12, ui.output_ui('metadata_comparison')),
         ),
@@ -135,13 +141,12 @@ def compare_server(input: Inputs, output: Outputs, session: Session) -> None:
     def _update_baseline_tasks() -> None:
         """Update baseline task choices when experiment changes."""
         experiment = input.baseline_experiment()
-
         update_task_selector(
             session,
             experiment,
             'baseline_task',
-            include_empty=False,
-            select_first=True
+            include_empty=True,
+            select_first=False
         )
 
         # Also sync treatment experiment to match baseline if baseline changed
@@ -159,9 +164,11 @@ def compare_server(input: Inputs, output: Outputs, session: Session) -> None:
             session,
             experiment,
             'treatment_task',
-            include_empty=False,
-            select_first=True
+            include_empty=True,
+            select_first=False
         )
+
+
 
     @reactive.effect
     @reactive.event(input.baseline_task)
@@ -183,8 +190,6 @@ def compare_server(input: Inputs, output: Outputs, session: Session) -> None:
             baseline_df.set(df)
             baseline_filtered.set(df)  # Initialize filtered data
             baseline_loading.set(False)
-            # Reset metric when baseline changes
-            ui.update_selectize('compare_metric', choices=[], selected=None, server=True)
         except Exception as e:
             print(f'ERROR loading baseline: {e}')
             import traceback
@@ -192,7 +197,6 @@ def compare_server(input: Inputs, output: Outputs, session: Session) -> None:
             baseline_df.set(None)
             baseline_filtered.set(None)
             baseline_loading.set(False)
-            ui.update_selectize('compare_metric', choices=[], selected=None, server=True)
 
     @reactive.effect
     @reactive.event(input.treatment_task)
@@ -214,8 +218,6 @@ def compare_server(input: Inputs, output: Outputs, session: Session) -> None:
             treatment_df.set(df)
             treatment_filtered.set(df)  # Initialize filtered data
             treatment_loading.set(False)
-            # Reset metric when treatment changes
-            ui.update_selectize('compare_metric', choices=[], selected=None, server=True)
         except Exception as e:
             print(f'ERROR loading treatment: {e}')
             import traceback
@@ -223,7 +225,6 @@ def compare_server(input: Inputs, output: Outputs, session: Session) -> None:
             treatment_df.set(None)
             treatment_filtered.set(None)
             treatment_loading.set(False)
-            ui.update_selectize('compare_metric', choices=[], selected=None, server=True)
 
     @output
     @render.text
@@ -231,10 +232,13 @@ def compare_server(input: Inputs, output: Outputs, session: Session) -> None:
         """Show baseline load status."""
         if baseline_loading.get():
             return '⏳ Loading data...'
-        df = baseline_df.get()
-        if df is None:
-            return 'No data loaded'
-        return f'✓ Loaded {len(df)} rows'
+        try:
+            df = baseline_df.get()
+            if df is None:
+                return 'No data loaded'
+            return f'✓ Loaded {len(df)} rows'
+        except Exception as e:
+            return f'✗ Error: {str(e)}'
 
     @output
     @render.text
@@ -242,10 +246,13 @@ def compare_server(input: Inputs, output: Outputs, session: Session) -> None:
         """Show treatment load status."""
         if treatment_loading.get():
             return '⏳ Loading data...'
-        df = treatment_df.get()
-        if df is None:
-            return 'No data loaded'
-        return f'✓ Loaded {len(df)} rows'
+        try:
+            df = treatment_df.get()
+            if df is None:
+                return 'No data loaded'
+            return f'✓ Loaded {len(df)} rows'
+        except Exception as e:
+            return f'✗ Error: {str(e)}'
 
     @reactive.effect
     @reactive.event(baseline_df, treatment_df)
@@ -296,7 +303,6 @@ def compare_server(input: Inputs, output: Outputs, session: Session) -> None:
             return
 
         # Get filterable columns from both datasets (use intersection to ensure compatibility)
-        from ..utils import get_filterable_columns
         b_filterable = set(get_filterable_columns(b_df))
         t_filterable = set(get_filterable_columns(t_df))
         common_filterable = sorted(list(b_filterable & t_filterable))
@@ -330,11 +336,20 @@ def compare_server(input: Inputs, output: Outputs, session: Session) -> None:
         if b_df is None:
             return None
 
-        from ..utils import create_filter_ui
         try:
             return create_filter_ui(b_df, filter_metric, "compare_filter_value")
         except Exception:
             return None
+
+    @output
+    @render.text
+    def compare_filter_value_time_display() -> str:
+        """Display the selected time range in HH:MM:SS format (only for time columns)."""
+        return get_time_filter_display(
+            data=baseline_df.get(),
+            filter_metric=input.compare_filter_metric(),
+            filter_value=get_filter_value(input, "compare_filter_value")
+        )
 
     @reactive.effect
     def _apply_filters() -> None:
@@ -355,47 +370,24 @@ def compare_server(input: Inputs, output: Outputs, session: Session) -> None:
 
         # Treat empty string as "no filter selected" (our sentinel value)
         if not filter_metric or filter_metric.strip() == "":
-            # No filter selected
             baseline_filtered.set(b_df)
             treatment_filtered.set(t_df)
             return
 
         try:
-            filter_value = input.compare_filter_value()
+            filter_value = get_filter_value(input, "compare_filter_value")
         except Exception:
-            # Filter value not set yet
             baseline_filtered.set(b_df)
             treatment_filtered.set(t_df)
             return
 
-        # Check if filter_value is actually set (not None, not empty for categorical)
-        if filter_value is None:
+        # Check if filter should actually be applied
+        if not should_apply_filter(filter_value, b_df, filter_metric):
             baseline_filtered.set(b_df)
             treatment_filtered.set(t_df)
             return
 
-        # For categorical filters (list), check if empty
-        if isinstance(filter_value, (list, tuple)):
-            if not filter_value or (len(filter_value) == 1 and filter_value[0] == ""):
-                baseline_filtered.set(b_df)
-                treatment_filtered.set(t_df)
-                return
-
-            # For numeric range filters, check if it's the full range (no actual filtering)
-            if len(filter_value) == 2 and filter_metric in b_df.columns:
-                col = b_df[filter_metric]
-                if col.dtype in (pl.Float64, pl.Float32, pl.Int64, pl.Int32):
-                    try:
-                        col_min = float(col.drop_nulls().min())
-                        col_max = float(col.drop_nulls().max())
-                        if abs(filter_value[0] - col_min) < 1e-9 and abs(filter_value[1] - col_max) < 1e-9:
-                            baseline_filtered.set(b_df)
-                            treatment_filtered.set(t_df)
-                            return
-                    except:
-                        pass  # If check fails, proceed with filter
-
-        from ..utils import apply_filter
+        # Apply filter to both datasets
         try:
             b_filtered = apply_filter(b_df, filter_metric, filter_value)
             t_filtered = apply_filter(t_df, filter_metric, filter_value)
@@ -455,12 +447,13 @@ def compare_server(input: Inputs, output: Outputs, session: Session) -> None:
             # Use refactored comparison summary function
             summary = compute_comparison_summary(b_vals, t_vals, digits=10, sig_figs=3)
 
-            # Create DataFrame for display with percentage change column
+            # Create DataFrame for display with percentage change and p-value columns
             table_data = {
                 'Statistic': summary['statistic_names'],
                 'Baseline': summary['baseline'],
                 'Treatment': summary['treatment'],
-                '% Change': summary['pct_change']
+                '% Change': summary['pct_change'],
+                'P-value': summary['p_value']
             }
             return pl.DataFrame(table_data)
         except Exception as e:
@@ -472,7 +465,7 @@ def compare_server(input: Inputs, output: Outputs, session: Session) -> None:
     @output
     @render.ui
     def compare_narrative() -> ui.TagChild:
-        """Render comparison narrative with MathJax."""
+        """Render comparison narrative."""
         b_df = baseline_filtered.get()
         t_df = treatment_filtered.get()
         metric = input.compare_metric()
@@ -483,30 +476,10 @@ def compare_server(input: Inputs, output: Outputs, session: Session) -> None:
         try:
             b_vals = b_df[metric].to_numpy()
             t_vals = t_df[metric].to_numpy()
-            narrative = generate_comparison_narrative(b_vals, t_vals)
-            # Include MathJax script for LaTeX rendering with proper styling for line breaks
-            html_content = f"""
-            <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
-            <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
-            <style>
-            .narrative-container p {{
-                margin: 2px 0;
-                padding: 0;
-                font-size: 0.8em;
-            }}
-            </style>
-            <div class="narrative-container">
-            {narrative}
-            </div>
-            <script>
-            if (window.MathJax && window.MathJax.typesetPromise) {{
-                MathJax.typesetPromise().catch(err => console.log(err));
-            }}
-            </script>
-            """
-            return ui.HTML(html_content)
+            narrative = generate_comparison_narrative(b_vals, t_vals, lower_is_better=None)
+            return ui.HTML(f'<p style="margin-top: 10px; font-size: 0.9em;">{narrative}</p>')
         except Exception as e:
-            print(f'Error generating narrative: {e}')
+            print(f'Error generating qualitative narrative: {e}')
             import traceback
             traceback.print_exc()
             return ui.HTML(f'<p>Error: {str(e)}</p>')
