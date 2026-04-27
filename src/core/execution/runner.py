@@ -65,7 +65,7 @@ class Runner:
         """
         t0 = time.perf_counter()
         popens, output_files = self._launch_commands(commands, env)
-        success = self._wait_for_commands(popens, commands, t0)
+        success = self._wait_for_commands(popens, commands, t0, output_files)
         elapsed_time = time.perf_counter() - t0
         return success, output_files, elapsed_time
 
@@ -103,7 +103,8 @@ class Runner:
 
         return popens, output_files
 
-    def _wait_for_commands(self, popens: List[subprocess.Popen[str]], commands: List[str], start_time: float) -> bool:
+    def _wait_for_commands(self, popens: List[subprocess.Popen[str]], commands: List[str], start_time: float,
+                          output_files: List[tempfile._TemporaryFileWrapper[bytes]]) -> bool:
         """
         Wait for all commands to complete, checking for catastrophic failures.
 
@@ -111,6 +112,7 @@ class Runner:
             popens: List of Popen objects for running commands
             commands: Original command strings (for error messages)
             start_time: Time when commands were launched (for timeout calculation)
+            output_files: Temporary files containing command output (for error diagnosis)
 
         Returns:
             True if all commands completed within timeout, False if timeout occurred
@@ -149,10 +151,26 @@ class Runner:
                                 f"Command killed by signal {signal_num}: {commands[cmd_index]}"
                             )
                         case _:
-                            # Non-zero but not catastrophic - just warn
-                            warnings.warn(
-                                f"Command {cmd_index} exited with code {returncode}: {commands[cmd_index]}"
-                            )
+                            # Non-zero but not catastrophic - check for common issues
+                            warning_msg = f"Command {cmd_index} exited with code {returncode}: {commands[cmd_index]}"
+
+                            # Check for MPI slot availability error
+                            if cmd_index < len(output_files) and "mpirun" in commands[cmd_index]:
+                                try:
+                                    output_files[cmd_index].seek(0)
+                                    output = output_files[cmd_index].read().decode('utf-8', errors='ignore')
+                                    if "not enough slots available" in output:
+                                        warning_msg += (
+                                            "\n\nMPI Error: Not enough slots available. "
+                                            "To allow oversubscription, add to your backend YAML:\n"
+                                            "  backend_options:\n"
+                                            "    mpi:\n"
+                                            "      mpiflags: \"--oversubscribe\""
+                                        )
+                                except Exception:
+                                    pass  # If we can't read output, just use basic warning
+
+                            warnings.warn(warning_msg)
 
                     popens.pop(i)
                     break

@@ -13,6 +13,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from src.core.config.settings import Settings
+
 
 def load_csv(csv_path: str | Path) -> pl.DataFrame:
     """
@@ -33,12 +35,15 @@ def load_csv(csv_path: str | Path) -> pl.DataFrame:
     if not csv_path.exists():
         raise FileNotFoundError(f"CSV file not found: {csv_path}")
 
+    row_count = Settings().get("data.row_count_for_type", 1000)
+
     df = pl.read_csv(
         csv_path,
         null_values=["NA", "N/A", ""],
         rechunk=True,  # Rechunk for better performance in subsequent operations
         low_memory=False,  # Use more memory for faster loading
-        n_threads=1  # Single-threaded avoids contention on wide files
+        n_threads=1,  # Single-threaded avoids contention on wide files
+        infer_schema_length=row_count  # Scan more rows for type inference to handle sparse columns
     )
 
     return df

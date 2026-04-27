@@ -13,6 +13,7 @@ from .bb import BBRepeater
 from .ci import CIRepeater
 from .count import CountRepeater
 from .decision import DecisionRepeater
+from .duration import DurationRepeater
 from .gmm import GaussianMixtureRepeater
 from .hdi import HDIRepeater
 from .ks import KSRepeater
@@ -21,6 +22,7 @@ from .rse import RSERepeater
 __all__ = [
     "Repeater",
     "CountRepeater",
+    "DurationRepeater",
     "RSERepeater",
     "CIRepeater",
     "HDIRepeater",
@@ -95,6 +97,11 @@ REPEATER_REGISTRY: Dict[str, Dict[str, Any]] = {
         "description": _extract_summary(DecisionRepeater.__doc__),
         "defaults": DecisionRepeater._DEFAULT_VALUES,
     },
+    "DURATION": {
+        "class": DurationRepeater,
+        "description": _extract_summary(DurationRepeater.__doc__),
+        "defaults": DurationRepeater._DEFAULT_VALUES,
+    },
 }
 
 
@@ -145,5 +152,7 @@ def repeater_factory(options: Dict[str, Any]) -> Repeater:
             return DecisionRepeater(options)
         case "KS":
             return KSRepeater(options)
+        case "DURATION":
+            return DurationRepeater(options)
         case _:
             raise Exception(f"Unrecognized repeater {opt}")
