@@ -125,13 +125,14 @@ class TestAppImageExecution:
         """Test AppImage runs via SHARP local backend."""
         result = subprocess.run(
             [
-                "uv", "run", "launch", "sympy-expand",
+                "uv", "run", "launch",
                 "-e", "test_appimage_local",
                 "--skip-sys-specs",
                 "-r", "COUNT",
                 "-j", '{"count": 1}',
                 "-b", "local",
-                "-d", str(tmp_path)
+                "-d", str(tmp_path),
+                "sympy-expand"
             ],
             text=True,
             timeout=120,
@@ -157,13 +158,14 @@ class TestAppImageExecution:
 
         result = subprocess.run(
             [
-                "uv", "run", "launch", "sympy-expand",
+                "uv", "run", "launch",
                 "-e", "test_appimage_mpi",
                 "--skip-sys-specs",
                 "-r", "COUNT",
                 "-j", '{"count": 1}',
                 "-b", "mpi",
-                "-d", str(tmp_path)
+                "-d", str(tmp_path),
+                "sympy-expand"
             ],
             text=True,
             timeout=120,
@@ -201,13 +203,14 @@ class TestDockerExecution:
         """Test Docker image runs via SHARP Docker backend."""
         result = subprocess.run(
             [
-                "uv", "run", "launch", "sympy-expand",
+                "uv", "run", "launch",
                 "-e", "test_docker_backend",
                 "--skip-sys-specs",
                 "-r", "COUNT",
                 "-j", '{"count": 1}',
                 "-b", "docker",
-                "-d", str(tmp_path)
+                "-d", str(tmp_path),
+                "sympy-expand"
             ],
             text=True,
             timeout=120,
@@ -324,13 +327,14 @@ class TestSSHBackendWithEntryPointOverride:
         import json
         result = subprocess.run(
             [
-                "uv", "run", "launch", "sympy-expand",
+                "uv", "run", "launch",
                 "-e", "test_ssh_entry_point",
                 "--skip-sys-specs",
                 "-r", "COUNT",
                 "-j", json.dumps(json_config),
                 "-b", "ssh",
-                "-d", str(tmp_path)
+                "-d", str(tmp_path),
+                "sympy-expand"
             ],
             capture_output=True,
             text=True,
@@ -370,13 +374,14 @@ class TestSSHBackendWithEntryPointOverride:
         local_dir.mkdir()
         local_result = subprocess.run(
             [
-                "uv", "run", "launch", "sympy-expand",
+                "uv", "run", "launch",
                 "-e", "test_local_compare",
                 "--skip-sys-specs",
                 "-r", "COUNT",
                 "-j", '{"count": 1}',
                 "-b", "local",
-                "-d", str(local_dir)
+                "-d", str(local_dir),
+                "sympy-expand"
             ],
             capture_output=True,
             text=True,
@@ -400,13 +405,14 @@ class TestSSHBackendWithEntryPointOverride:
         }
         ssh_result = subprocess.run(
             [
-                "uv", "run", "launch", "sympy-expand",
+                "uv", "run", "launch",
                 "-e", "test_ssh_compare",
                 "--skip-sys-specs",
                 "-r", "COUNT",
                 "-j", json.dumps(json_config),
                 "-b", "ssh",
-                "-d", str(ssh_dir)
+                "-d", str(ssh_dir),
+                "sympy-expand"
             ],
             capture_output=True,
             text=True,

@@ -24,6 +24,27 @@ from src.core.packaging.errors import BuildError
 from src.core.packaging.base import BaseBuilder
 
 
+def _hook_to_dockerfile_run(hook_script: str) -> str:
+    """Convert a multiline hook script into a single Dockerfile RUN command.
+
+    Filters out blank lines and comments, then joins the remaining
+    commands with ' && ' so they execute as one RUN layer.
+
+    Args:
+        hook_script: Shell script text (may be multiline)
+
+    Returns:
+        Single-line shell command string suitable for a Dockerfile RUN
+    """
+    lines = [
+        line.strip() for line in hook_script.strip().splitlines()
+        if line.strip() and not line.strip().startswith('#')
+    ]
+    if len(lines) <= 1:
+        return hook_script.strip()
+    return ' && \\\n    '.join(lines)
+
+
 class DockerBuilder(BaseBuilder):
     """
     Build Docker images from benchmark configurations.
@@ -87,7 +108,7 @@ class DockerBuilder(BaseBuilder):
 
         try:
             # Copy sources to build context
-            self._copy_sources_to_dir(sources_dir, benchmark_dir, build_dir, entry)
+            self._copy_sources_to_dir(sources_dir, benchmark_dir, build_dir)
 
             # Generate Dockerfile
             self._generate_dockerfile(
@@ -166,11 +187,9 @@ class DockerBuilder(BaseBuilder):
 
         # Run pre_build hook (after copy, before build commands)
         if build_config.pre_build:
-            lines.extend([
-                '# Pre-build hook',
-                f'RUN {build_config.pre_build}',
-                ''
-            ])
+            lines.append('# Pre-build hook')
+            lines.append(f'RUN {_hook_to_dockerfile_run(build_config.pre_build)}')
+            lines.append('')
 
         # Run build commands if specified
         if build_config.build_commands:
@@ -189,11 +208,9 @@ class DockerBuilder(BaseBuilder):
 
         # Run post_build hook (after build)
         if build_config.post_build:
-            lines.extend([
-                '# Post-build hook',
-                f'RUN {build_config.post_build}',
-                ''
-            ])
+            lines.append('# Post-build hook')
+            lines.append(f'RUN {_hook_to_dockerfile_run(build_config.post_build)}')
+            lines.append('')
 
         # Check for docker-specific entrypoint
         docker_entrypoint = docker_config.get('entrypoint')
