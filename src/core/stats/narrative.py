@@ -11,6 +11,33 @@ import numpy as np
 from typing import Any, Callable
 from scipy import stats
 
+# Below this ACF magnitude, temporal dependence is mild enough that it does not
+# usually dominate the changepoint narrative.
+MODERATE_AUTOCORRELATION_THRESHOLD = 0.2
+
+# Above this ACF magnitude, neighboring samples are strongly coupled and the
+# narrative should explicitly warn that runs may not be independent.
+STRONG_AUTOCORRELATION_THRESHOLD = 0.5
+
+# Changepoint narratives only make sense once the series is long enough to have
+# at least a few points in multiple candidate segments.
+MIN_CHANGEPOINT_NARRATIVE_SAMPLES = 10
+
+# Three samples per side is the smallest partition that still gives a sensible
+# median comparison and a stable Mann-Whitney test.
+MIN_PERIOD_COMPARISON_SAMPLES = 3
+
+# Match the detector's minimum segment size default so narrative logic and PELT
+# use the same lower bound for what counts as a meaningful phase.
+DEFAULT_MIN_CHANGEPOINT_SEGMENT_SIZE = 3
+
+# By default, treat the first 30% of the series as the warmup search window.
+DEFAULT_WARMUP_FRACTION = 0.3
+
+# By default, treat the final 30% of the series as the cooldown search window,
+# which corresponds to changepoints after the 70% mark.
+DEFAULT_COOLDOWN_FRACTION = 0.7
+
 
 def format_sig_figs(value: float, sig_figs: int = 3, is_integer: bool = False) -> str:
     """
@@ -84,13 +111,13 @@ def describe_acf(acf_info: dict[str, Any]) -> list[str]:
         max_acf = acf_info['max_acf']
         lag = acf_info.get('lag', 0)
 
-        if max_acf > 0.5:
+        if max_acf > STRONG_AUTOCORRELATION_THRESHOLD:
             narrative.append(
                 f"Strong autocorrelation detected (max ACF={max_acf:.2f} at lag ~{lag}), "
                 "suggesting performance samples are not truly independent or the system "
                 "preserves state between runs."
             )
-        elif max_acf > 0.2:
+        elif max_acf > MODERATE_AUTOCORRELATION_THRESHOLD:
             narrative.append(
                 f"Moderate autocorrelation present (max ACF={max_acf:.2f}), "
                 "indicating some temporal dependency in measurements."
@@ -146,7 +173,7 @@ def _characterize_period(x_clean: np.ndarray, cps: list[int], n: int,
     before_data = x_clean[:period_idx]
     after_data = x_clean[period_idx:]
 
-    if len(before_data) >= 3 and len(after_data) >= 3:
+    if len(before_data) >= MIN_PERIOD_COMPARISON_SAMPLES and len(after_data) >= MIN_PERIOD_COMPARISON_SAMPLES:
         before_median = np.median(before_data)
         after_median = np.median(after_data)
         _, p_value = stats.mannwhitneyu(before_data, after_data, alternative='two-sided')
@@ -163,9 +190,9 @@ def _characterize_period(x_clean: np.ndarray, cps: list[int], n: int,
 
 
 def describe_changepoints(x: np.ndarray, cps: list[int], acf_info: dict[str, Any],
-                          min_seg_size: int = 3,
-                          warmup_pct: float = 0.3,
-                          cooldown_pct: float = 0.7) -> str:
+                          min_seg_size: int = DEFAULT_MIN_CHANGEPOINT_SEGMENT_SIZE,
+                          warmup_pct: float = DEFAULT_WARMUP_FRACTION,
+                          cooldown_pct: float = DEFAULT_COOLDOWN_FRACTION) -> str:
     """
     Characterize warmup, cooldown, and change points in a time series.
 
@@ -183,7 +210,7 @@ def describe_changepoints(x: np.ndarray, cps: list[int], acf_info: dict[str, Any
     x_clean = x[~np.isnan(x)]
     n = len(x_clean)
 
-    if n < 10:
+    if n < MIN_CHANGEPOINT_NARRATIVE_SAMPLES:
         return ""
 
     narrative = []
@@ -244,6 +271,38 @@ def format_p_value(p: float, rounding: int = 2, p_option: str = "rounded") -> st
                     return f"{p:.{rounding}f}"
 
 
+def format_p_value_table(p: float, sig_figs: int = 4, stars: bool = True) -> str:
+    """
+    Format p-value for table display with up to N significant figures.
+
+    Uses scientific notation for very small values (< 1e-4).
+    Optionally adds significance stars.
+
+    Args:
+        p: P-value to format
+        sig_figs: Number of significant figures (default: 4)
+        stars: Whether to append significance stars (default: True)
+
+    Returns:
+        Formatted p-value string with optional stars
+    """
+    if np.isnan(p) or p is None:
+        return "NA"
+
+    # Use format_sig_figs for consistent formatting
+    formatted = format_sig_figs(p, sig_figs=sig_figs)
+
+    if stars:
+        if p < 0.001:
+            formatted += " ***"
+        elif p < 0.01:
+            formatted += " **"
+        elif p < 0.05:
+            formatted += " *"
+
+    return formatted
+
+
 def report_test(test_result: dict[str, Any], rounding: int = 2,
                p_option: str = "rounded") -> str:
     """
@@ -277,68 +336,169 @@ def report_test(test_result: dict[str, Any], rounding: int = 2,
     return report
 
 
-def generate_comparison_narrative(baseline: np.ndarray, treatment: np.ndarray,
-                                  p_thresh: float = 0.01) -> str:
-    """
-    Generate narrative comparison between baseline and treatment distributions.
+def _format_test_latex(test_name: str, statistic: float, p_value: float) -> str:
+    """Format statistical test result as LaTeX."""
+    p_str = format_p_value(p_value, rounding=4, p_option="rounded")
+    return f"\\text{{{test_name}: stat={statistic:.4f}, p={p_str}}}"
 
-    Performs multiple statistical tests and generates human-readable LaTeX-formatted
-    narrative describing the relationship between two performance distributions.
+
+def generate_comparison_narrative(baseline: np.ndarray, treatment: np.ndarray,
+                                 lower_is_better: bool | None = None,
+                                 p_thresh: float = 0.01) -> str:
+    """
+    Generate HTML-formatted narrative comparison with color coding.
+
+    Provides plain text description styled with HTML colors:
+    - Improvements (better performance, lower dispersion): bold/green
+    - Degradations (worse performance, higher dispersion): underline/red
+    - If lower_is_better is None, no color coding is applied (neutral styling)
 
     Args:
         baseline: Baseline performance measurements
         treatment: Treatment performance measurements
+        lower_is_better: If True, lower values are better; if False, higher is better;
+                        if None, no color coding applied (neutral)
         p_thresh: P-value threshold for significance (default: 0.01)
 
     Returns:
-        HTML with separate LaTeX blocks for each line
+        HTML-formatted narrative with color-coded adjectives/adverbs (or neutral if lower_is_better=None)
     """
+    def style_good(text: str) -> str:
+        """Style text as improvement (bold/green)."""
+        return f'<b style="color: green;">{text}</b>'
+
+    def style_bad(text: str) -> str:
+        """Style text as degradation (underline/red)."""
+        return f'<u style="color: red;">{text}</u>'
+
     lines = []
 
     # Compare means (t-test)
     t_result = stats.ttest_ind(treatment, baseline)
-    sig = "significantly" if t_result.pvalue < p_thresh else ""
+    sig = "significantly " if t_result.pvalue < p_thresh else ""
 
     if t_result.pvalue >= 0.3:
-        higher = "about the same as"
+        change_word = "remained about the same"
     else:
-        higher = "higher than" if np.mean(treatment) > np.mean(baseline) else "lower than"
+        mean_increased = np.mean(treatment) > np.mean(baseline)
 
-    lines.append(f"$$\\text{{Treatment mean is {sig} {higher} baseline}}$$")
-    lines.append(f"$${_format_test_latex('t-test', t_result.statistic, t_result.pvalue)}$$")
-
-    # Compare medians (Wilcoxon/Mann-Whitney)
-    w_result = stats.mannwhitneyu(treatment, baseline, alternative='two-sided')
-    sig = "significantly" if w_result.pvalue < p_thresh else ""
-
-    if w_result.pvalue >= 0.3:
-        higher = "about the same as"
-    else:
-        higher = "higher than" if np.median(treatment) > np.median(baseline) else "lower than"
-
-    lines.append(f"$$\\text{{Treatment median is {sig} {higher} baseline}}$$")
-    lines.append(f"$${_format_test_latex('Wilcoxon', w_result.statistic, w_result.pvalue)}$$")
-
-    # Kolmogorov-Smirnov test
-    ks_result = stats.ks_2samp(treatment, baseline)
-    dist_description = "very similar" if ks_result.statistic <= 0.1 else (
-        "similar" if ks_result.statistic <= 0.3 else "dissimilar"
-    )
-    lines.append(f"$$\\text{{Distributions appear to be {dist_description}}}$$")
-    lines.append(f"$${_format_test_latex('KS', ks_result.statistic, ks_result.pvalue)}$$")
-
-    # Correlation (only if same length)
-    if len(baseline) == len(treatment):
-        c_result = stats.pearsonr(treatment, baseline)
-        if abs(c_result[0]) <= 0.3:
-            corr_description = "uncorrelated"
+        if lower_is_better is None:
+            # Neutral styling - no color coding
+            change_word = "increased" if mean_increased else "decreased"
         else:
-            strength = "strongly" if abs(c_result[0]) > 0.7 else "somewhat"
-            direction = "correlated" if c_result[0] > 0 else "anti-correlated"
-            corr_description = f"{strength} {direction}"
+            # If lower is better: increase is bad, decrease is good
+            # If higher is better: increase is good, decrease is bad
+            if mean_increased:
+                change_word = style_good("increased") if not lower_is_better else style_bad("increased")
+            else:
+                change_word = style_good("decreased") if lower_is_better else style_bad("decreased")
 
-        lines.append(f"$$\\text{{Samples appear to be {corr_description}}}$$")
-        lines.append(f"$${_format_test_latex('correlation', c_result[0], c_result[1])}$$")
+    lines.append(f"Treatment mean {sig}{change_word} compared to baseline.")
+
+    # Compare medians
+    if t_result.pvalue >= 0.3:
+        change_word = "remained about the same"
+    else:
+        median_increased = np.median(treatment) > np.median(baseline)
+        if lower_is_better is None:
+            change_word = "increased" if median_increased else "decreased"
+        else:
+            if median_increased:
+                change_word = style_good("increased") if not lower_is_better else style_bad("increased")
+            else:
+                change_word = style_good("decreased") if lower_is_better else style_bad("decreased")
+
+    lines.append(f"Treatment median {sig}{change_word}.")
+
+    # Analyze dispersion changes
+    baseline_std = np.std(baseline, ddof=1)
+    treatment_std = np.std(treatment, ddof=1)
+    baseline_cv = baseline_std / np.mean(baseline) if np.mean(baseline) != 0 else np.nan
+    treatment_cv = treatment_std / np.mean(treatment) if np.mean(treatment) != 0 else np.nan
+
+    # Standard deviation (lower dispersion is always better)
+    std_ratio = treatment_std / baseline_std if baseline_std > 0 else np.nan
+    if not np.isnan(std_ratio):
+        if std_ratio > 1.2:
+            text = "increased notably"
+            lines.append(f"Dispersion (standard deviation) {style_bad(text) if lower_is_better is not None else text}.")
+        elif std_ratio < 0.8:
+            text = "decreased notably"
+            lines.append(f"Dispersion (standard deviation) {style_good(text) if lower_is_better is not None else text}.")
+        else:
+            lines.append("Dispersion (standard deviation) remained similar.")
+
+    # Coefficient of variation (lower is better)
+    if not np.isnan(baseline_cv) and not np.isnan(treatment_cv):
+        cv_ratio = treatment_cv / baseline_cv if baseline_cv > 0 else np.nan
+        if not np.isnan(cv_ratio):
+            if cv_ratio > 1.2:
+                text = "increased"
+                lines.append(f"Relative variability (CV) {style_bad(text) if lower_is_better is not None else text}.")
+            elif cv_ratio < 0.8:
+                text = "decreased"
+                lines.append(f"Relative variability (CV) {style_good(text) if lower_is_better is not None else text}.")
+
+    # IQR analysis (lower is better)
+    baseline_q25, baseline_q75 = np.percentile(baseline, [25, 75])
+    treatment_q25, treatment_q75 = np.percentile(treatment, [25, 75])
+    baseline_iqr = baseline_q75 - baseline_q25
+    treatment_iqr = treatment_q75 - treatment_q25
+
+    iqr_ratio = treatment_iqr / baseline_iqr if baseline_iqr > 0 else np.nan
+    if not np.isnan(iqr_ratio):
+        if iqr_ratio > 1.2:
+            text = "widened"
+            lines.append(f"Interquartile range (IQR) {style_bad(text) if lower_is_better is not None else text}.")
+        elif iqr_ratio < 0.8:
+            text = "narrowed"
+            lines.append(f"Interquartile range (IQR) {style_good(text) if lower_is_better is not None else text}.")
+
+    # Range analysis (lower is better)
+    baseline_range = np.max(baseline) - np.min(baseline)
+    treatment_range = np.max(treatment) - np.min(treatment)
+    range_ratio = treatment_range / baseline_range if baseline_range > 0 else np.nan
+    if not np.isnan(range_ratio):
+        if range_ratio > 1.2:
+            text = "expanded"
+            lines.append(f"Overall range {style_bad(text) if lower_is_better is not None else text}.")
+        elif range_ratio < 0.8:
+            text = "contracted"
+            lines.append(f"Overall range {style_good(text) if lower_is_better is not None else text}.")
+
+    # Tail behavior (p95, p99) - depends on lower_is_better
+    baseline_p95 = np.percentile(baseline, 95)
+    treatment_p95 = np.percentile(treatment, 95)
+    baseline_p99 = np.percentile(baseline, 99)
+    treatment_p99 = np.percentile(treatment, 99)
+
+    p99_ratio = treatment_p99 / baseline_p99 if baseline_p99 > 0 else np.nan
+    if not np.isnan(p99_ratio):
+        # For tail latency, check if it got worse or better based on lower_is_better
+        tail_increased = p99_ratio > 1.1
+        tail_decreased = p99_ratio < 0.9
+
+        if tail_increased:
+            if lower_is_better is None:
+                lines.append("Tail latency (p99) increased.")
+            elif lower_is_better:
+                lines.append(f"Tail latency (p99) {style_bad('worsened')}.")
+            else:
+                lines.append(f"Tail latency (p99) {style_good('improved')}.")
+        elif tail_decreased:
+            if lower_is_better is None:
+                lines.append("Tail latency (p99) decreased.")
+            elif lower_is_better:
+                lines.append(f"Tail latency (p99) {style_good('improved')}.")
+            else:
+                lines.append(f"Tail latency (p99) {style_bad('worsened')}.")
+
+    # Distribution similarity (KS test)
+    ks_result = stats.ks_2samp(treatment, baseline)
+    if ks_result.pvalue < p_thresh:
+        lines.append("Distributions are statistically different.")
+    else:
+        lines.append("Distributions are statistically similar.")
 
     # Kalman filter fusion
     var_baseline = np.var(baseline, ddof=1)
@@ -347,15 +507,7 @@ def generate_comparison_narrative(baseline: np.ndarray, treatment: np.ndarray,
 
     if sumv > 0:
         fused = (var_treatment * np.mean(baseline) + var_baseline * np.mean(treatment)) / sumv
-        lines.append("$$\\text{{Mean performance fused with Kalman Filter}}$$")
-        lines.append(f"$$\\mu={fused:.4f}$$")
+        fused_str = format_sig_figs(fused, sig_figs=4)
+        lines.append(f"Kalman-filtered mean performance: {fused_str}.")
 
-    # Join lines with paragraph breaks
-    narrative = "<p>" + "</p><p>".join(lines) + "</p>"
-    return narrative
-
-
-def _format_test_latex(test_name: str, statistic: float, p_value: float) -> str:
-    """Format statistical test result as LaTeX."""
-    p_str = format_p_value(p_value, rounding=4, p_option="rounded")
-    return f"\\text{{{test_name}: stat={statistic:.4f}, p={p_str}}}"
+    return " ".join(lines)

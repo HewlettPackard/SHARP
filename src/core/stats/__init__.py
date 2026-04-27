@@ -8,6 +8,7 @@ Statistical utilities: distribution analysis, comparisons, narrative generation
 from .distribution import (
     compute_summary,
     detect_change_points,
+    detect_temporal_phases,
     estimate_acf_lag,
     characterize_distribution
 )
@@ -22,11 +23,17 @@ from .narrative import (
     format_p_value,
     report_test
 )
+from .jenks_breaks import (
+    jenks_breaks,
+    goodness_of_variance_fit,
+    optimal_jenks_classes
+)
 
 __all__ = [
     # Distribution analysis
     'compute_summary',
     'detect_change_points',
+    'detect_temporal_phases',
     'estimate_acf_lag',
     'characterize_distribution',
     # Comparisons
@@ -38,4 +45,8 @@ __all__ = [
     'describe_changepoints',
     'format_p_value',
     'report_test',
+    # Clustering
+    'jenks_breaks',
+    'goodness_of_variance_fit',
+    'optimal_jenks_classes',
 ]
