@@ -39,6 +39,7 @@ def scan_runlogs(runlogs_dir: str | None = None, limit: int | None = None) -> li
             'backends': list[str] | None,
             'duration': float | None,
             'rows': int | None,  # Number of data rows (V4 only)
+            'description': str | None,  # Experiment description
         }
     """
     if runlogs_dir is None:
@@ -76,6 +77,7 @@ def scan_runlogs(runlogs_dir: str | None = None, limit: int | None = None) -> li
         backends = metadata.get("backends")
         duration = metadata.get("duration")
         rows = metadata.get("rows")  # Will be None for pre-V4 files
+        description = metadata.get("description")
 
         # If no timestamp from metadata, use file modification time
         if timestamp is None:
@@ -95,6 +97,7 @@ def scan_runlogs(runlogs_dir: str | None = None, limit: int | None = None) -> li
             "backends": backends,
             "duration": duration,
             "rows": rows,
+            "description": description,
         })
 
     # Sort by timestamp (newest first)

@@ -192,7 +192,12 @@ class RunLogger:
         preamble = f"This file describes the conditions for the runs captured in {task}.csv. "
         preamble += f"The measurements were run on {platform.node()}, starting at {now} (UTC).\n"
 
-        preamble += f"SHARP version: {version}\n"
+        # Add description if provided
+        description = options.get("description")
+        if description:
+            preamble += f"\nDescription: {description}\n"
+
+        preamble += f"\nSHARP version: {version}\n"
         if git_hash:
             preamble += f"SHARP's source code version used was from git hash: {git_hash}\n"
 

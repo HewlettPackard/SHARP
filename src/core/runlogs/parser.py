@@ -112,6 +112,59 @@ def extract_runtime_options_from_markdown(md_path: str | Path) -> Dict[str, Any]
         return None
 
 
+def extract_metrics_from_markdown(md_path: str | Path) -> Dict[str, Dict[str, Any]]:
+    """
+    Extract metrics definitions from markdown file.
+
+    Supports V4 format (YAML frontmatter with metrics section).
+    Returns metrics with their properties including lower_is_better.
+
+    Args:
+        md_path: Path to markdown file
+
+    Returns:
+        Dictionary mapping metric names to their properties (description,
+        lower_is_better, type, units, etc.). Empty dict if no metrics found.
+
+    Example:
+        {
+            "outer_time": {
+                "description": "Wall-clock time",
+                "lower_is_better": True,
+                "type": "numeric",
+                "units": "s"
+            },
+            "cache_misses": {
+                "description": "Total cache misses",
+                "lower_is_better": True,
+                "type": "numeric",
+                "units": "count"
+            }
+        }
+    """
+    try:
+        md_path_obj = Path(md_path)
+        if not md_path_obj.exists():
+            return {}
+
+        with open(md_path_obj, 'r') as f:
+            content = f.read()
+
+        # Only V4 format has metrics section in YAML frontmatter
+        if content.startswith("---"):
+            frontmatter_dict = _parse_yaml_frontmatter(content)
+            if frontmatter_dict and "metrics" in frontmatter_dict:
+                metrics = frontmatter_dict["metrics"]
+                if isinstance(metrics, dict):
+                    return metrics
+
+        return {}
+
+    except Exception as e:
+        print(f"Error extracting metrics from {md_path}: {e}")
+        return {}
+
+
 def parse_markdown_runtime_options(md_file_path: Path) -> Dict[str, Any]:
     """
     Parse markdown file to extract rerun configuration.
@@ -286,6 +339,10 @@ def _extract_from_json_block(content: str) -> dict[str, Any]:
             entry_point = runtime_opts["entry_point"]
             if isinstance(entry_point, str):
                 metadata["benchmark"] = Path(entry_point).stem
+
+        # Extract description from JSON options (source of truth for --repro)
+        if "description" in runtime_opts:
+            metadata["description"] = runtime_opts["description"]
 
     except (json.JSONDecodeError, KeyError, AttributeError) as e:
         print(f"[DEBUG] Error extracting from JSON block: {e}")

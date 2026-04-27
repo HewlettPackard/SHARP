@@ -19,6 +19,7 @@ from typing import Any, Callable, Dict, List
 import os
 import subprocess
 import tempfile
+import time
 import warnings
 
 import yaml
@@ -347,6 +348,9 @@ class ExecutionOrchestrator:
         metric_items = [(name, values) for name, values in perf.items() if name != "outer_time"]
 
         for row_index in range(row_count):
+            # Capture completion timestamp for this row (will be truncated to 4 decimal places)
+            completion_ts = time.time()
+            self.logger.add_row_data("completion_timestamp", str(completion_ts), "float", "UNIX timestamp at completion of run")
             self.logger.add_row_data("repeat", str(self.iteration_count), "int", "Iteration/repeat number")
             rank_value = str(row_index)
             self.logger.add_row_data("rank", rank_value, "int", "MPI rank (0 for non-MPI)")
@@ -356,7 +360,11 @@ class ExecutionOrchestrator:
 
             for field_name, values in metric_items:
                 value = self._value_for_row(values, row_index)
-                self.logger.add_row_data(field_name, value, "float", field_name)
+                # Get type from metric specs, default to float for backwards compatibility
+                metric_type = self.metric_extractor.metric_specs.get(field_name, {}).get("type", "float")
+                if metric_type == "numeric":
+                    metric_type = "float"
+                self.logger.add_row_data(field_name, value, metric_type, field_name)
 
     def _row_count_from_perf(self, perf: Dict[str, List[Any]]) -> int:
         counts = [len(values) for values in perf.values()]
