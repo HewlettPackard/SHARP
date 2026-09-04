@@ -113,3 +113,42 @@ class Settings:
         Returns a deep copy to prevent external modification of settings.
         """
         return copy.deepcopy(self._data)
+
+
+class SettingsView:
+    """
+    Experiment-scoped overlay over the global Settings singleton.
+
+    Checks a flat dot-key override dict before falling through to the
+    process-wide Settings singleton.  The singleton is never mutated,
+    so concurrent GUI sessions are unaffected.
+
+    Example::
+
+        view = SettingsView({"gui.distribution.fast_color": "#00cc00"})
+        view.get("gui.distribution.fast_color")  # → "#00cc00"
+        view.get("data.runlogs_dir")             # → from Settings()
+    """
+
+    def __init__(self, overrides: Dict[str, Any]) -> None:
+        """
+        Args:
+            overrides: Flat dot-key dict of overrides (e.g. {"a.b.c": value}).
+                       Empty dict means pure passthrough to Settings().
+        """
+        self._overrides = overrides
+
+    def get(self, key_path: str, default: Any = None) -> Any:
+        """
+        Get setting value, checking overrides before the global singleton.
+
+        Args:
+            key_path: Dot-separated key path (e.g. 'gui.distribution.fast_color')
+            default: Default value if key not found anywhere
+
+        Returns:
+            Override value if present, otherwise Settings().get(key_path, default)
+        """
+        if key_path in self._overrides:
+            return self._overrides[key_path]
+        return Settings().get(key_path, default)

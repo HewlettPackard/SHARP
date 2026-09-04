@@ -545,7 +545,19 @@ class EnrichedInfluenceAnalyzer(InfluenceAnalyzer):
         semantic_groups = self._extract_semantic_groups(kwargs.get("settings"), kwargs)
 
         enriched_data = data
-        exclude_cols = kwargs.get("exclude_cols")
+        exclude_cols = list(kwargs.get("exclude_cols") or [])
+
+        # Never generate synthetic predictors from the outcome column.
+        # This guards against leakage when callers forget to include the
+        # effective/original outcome in exclude_cols.
+        outcome_col = kwargs.get("outcome_col")
+        if isinstance(outcome_col, str) and outcome_col:
+            exclude_cols.append(outcome_col)
+        original_outcome_col = kwargs.get("original_outcome_col")
+        if isinstance(original_outcome_col, str) and original_outcome_col:
+            exclude_cols.append(original_outcome_col)
+        exclude_cols.append(LABEL_OUTCOME_COL)
+        exclude_cols = list(dict.fromkeys(exclude_cols))
 
         for enricher in enrichers:
             enriched_data = enricher.enrich(

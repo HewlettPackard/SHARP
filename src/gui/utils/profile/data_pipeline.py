@@ -18,16 +18,25 @@ from src.core.profile.data_reduction import (
     reduce_columns_independent,
 )
 from src.core.profile import predictor_selection
-from src.core.config.settings import Settings
 from src.gui.utils.profile.predictor_stats import get_auto_excluded_predictors
 
 
-def compute_cleaned_columns(data: pl.DataFrame) -> list[str]:
+def compute_cleaned_columns(data: pl.DataFrame, settings: Any | None = None) -> list[str]:
     """Metric-independent column cleaning (C1 + C2).
 
     Wrapper around ``reduce_columns_independent`` for the reactive pipeline.
+    Preserves timestamp column if configured in settings.
     """
-    return reduce_columns_independent(data)
+    cleaned = reduce_columns_independent(data)
+
+    # Ensure timestamp column from settings is preserved if present in data
+    if settings is not None:
+        timestamp_col = settings.get("profiling.lag_detection.timestamp_column", None)
+        if isinstance(timestamp_col, str) and timestamp_col in data.columns:
+            if timestamp_col not in cleaned:
+                cleaned = list(cleaned) + [timestamp_col]
+
+    return cleaned
 
 
 def compute_reduced_columns(
@@ -116,6 +125,7 @@ def apply_auto_exclusions(
     stats_rows: list[dict[str, Any]],
     current_exclusions: set[str],
     modal_filters: dict[str, Any] | None,
+    settings: Any | None = None,
 ) -> set[str] | None:
     """Compute auto-exclusions from predictor stats.
 
@@ -128,7 +138,10 @@ def apply_auto_exclusions(
 
     max_correlation = (modal_filters or {}).get("max_corr")
     if max_correlation is None:
-        max_correlation = Settings().get("profiling.max_correlation", 0.99)
+        if settings is None:
+            from src.core.config.settings import Settings
+            settings = Settings()
+        max_correlation = settings.get("profiling.max_correlation", 0.99)
 
     auto_excluded = get_auto_excluded_predictors(stats_rows, max_correlation)
     new_exclusions = current_exclusions | auto_excluded

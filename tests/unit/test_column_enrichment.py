@@ -449,6 +449,34 @@ class TestEnrichedInfluenceAnalyzer:
         assert resolved[0].name == "plain_col"
         assert resolved[0].metadata is None or "enriched_from" not in resolved[0].metadata
 
+    def test_temporal_enrichment_excludes_outcome_column(self):
+        """Temporal enrichment must not create synthetic predictors from outcome."""
+        data = pl.DataFrame(
+            {
+                "timestamp": [1, 2, 3, 4, 5],
+                "metric": [10.0, 12.0, 11.0, 13.0, 12.5],
+                "cpu": [30.0, 32.0, 35.0, 36.0, 39.0],
+            }
+        )
+        labels = np.array([0, 1, 0, 1, 1])
+
+        enriched_analyzer = EnrichedInfluenceAnalyzer(
+            inner=_StubAnalyzer(),
+            enrichers=[TemporalEnricher(include_diff=True, rolling_std_window=0)],
+        )
+
+        enriched_analyzer.analyze(
+            data,
+            labels,
+            outcome_col="metric",
+            exclude_cols=["timestamp"],
+        )
+
+        enriched_data = enriched_analyzer.last_enriched_data
+        assert enriched_data is not None
+        assert f"metric{TMP_DIFF_SUFFIX}" not in enriched_data.columns
+        assert f"cpu{TMP_DIFF_SUFFIX}" in enriched_data.columns
+
 
 # ============================================================================
 # create_enrichers_from_settings

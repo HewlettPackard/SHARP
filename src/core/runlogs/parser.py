@@ -548,8 +548,6 @@ def _extract_row_count_from_summary(content: str) -> int | None:
     except (ValueError, AttributeError, TypeError):
         return None
 
-
-
 def _parse_timestamp(ts_value: Any) -> datetime | None:
     """
     Parse timestamp from various formats.

@@ -13,6 +13,8 @@ from src.gui.utils.filters import (
     apply_filter,
     get_filterable_columns,
     is_full_range_filter,
+    KEEP_CURRENT,
+    _KeepCurrent,
 )
 
 
@@ -225,3 +227,19 @@ class TestIsFullRangeFilter:
         df = pl.DataFrame({"values": [0.0, 100.0]})
         result = is_full_range_filter(df, "values", [0.001, 100.0])
         assert result is False
+
+
+class TestKeepCurrentSentinel:
+    """Tests for the KEEP_CURRENT sentinel used to preserve slider values."""
+
+    def test_keep_current_is_singleton(self):
+        assert KEEP_CURRENT is _KeepCurrent.TOKEN
+
+    def test_keep_current_detected_by_isinstance(self):
+        assert isinstance(KEEP_CURRENT, _KeepCurrent)
+
+    def test_none_is_not_keep_current(self):
+        assert not isinstance(None, _KeepCurrent)
+
+    def test_list_is_not_keep_current(self):
+        assert not isinstance([1, 2], _KeepCurrent)

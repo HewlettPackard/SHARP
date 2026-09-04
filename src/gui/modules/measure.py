@@ -7,7 +7,7 @@ Provides interface for launching benchmark experiments with various configuratio
 """
 
 from shiny import ui, reactive, render, Inputs, Outputs, Session
-from typing import Dict, Any, List
+from typing import Dict, Any
 import polars as pl
 import time
 
@@ -255,8 +255,8 @@ def measure_server(input: Inputs, output: Outputs, session: Session, refresh_tri
     def bench_selector() -> ui.TagChild:
         """Render benchmark selector with autocomplete from discovered benchmarks."""
         choices = _get_benchmark_choices()
-        # Get the current value (may be set by rerun)
-        current_value = bench_value.get()
+        # Do NOT read bench_value here — that would re-render the input (and
+        # reset value=) on every rerun selection.  Value is pushed via update_text.
 
         # Create a datalist for HTML5 autocomplete
         # The datalist provides suggestions without restricting input
@@ -266,7 +266,7 @@ def measure_server(input: Inputs, output: Outputs, session: Session, refresh_tri
         ])
 
         return ui.tags.div(
-            ui.input_text("bench", "Benchmark & args", value=current_value, placeholder="e.g., sleep 1 or /bin/ls"),
+            ui.input_text("bench", "Benchmark & args", placeholder="e.g., sleep 1 or /bin/ls"),
             ui.tags.datalist(
                 ui.HTML(options_html),
                 id=datalist_id,
@@ -277,6 +277,11 @@ def measure_server(input: Inputs, output: Outputs, session: Session, refresh_tri
                 """
             ),
         )
+
+    @reactive.effect
+    def _sync_bench_value() -> None:
+        """Push bench_value to the bench input without re-rendering the selector."""
+        ui.update_text("bench", value=bench_value.get())
 
     @reactive.effect
     @reactive.event(input.run_button)

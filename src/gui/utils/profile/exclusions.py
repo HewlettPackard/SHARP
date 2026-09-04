@@ -23,7 +23,6 @@ from src.core.config.settings import Settings
 from .predictor_stats import (
     DEFAULT_EXCLUDED_PREDICTORS,
     compute_predictor_stats,
-    filter_predictors_by_correlation as _filter_predictors_for_display,
     get_auto_excluded_predictors as _collect_auto_excluded_predictors,
 )
 
@@ -128,31 +127,31 @@ def _filter_modal_predictors(stats: list[dict[str, Any]], max_preds: int, search
 
 def _build_predictor_table_rows(
     filtered_rows: list[dict[str, Any]],
-    exclusions: set[str],
+    excluded_names: set[str] | None = None,
 ) -> list[ui.TagChild]:
     """
     Build HTML table rows for the predictor exclusion modal.
 
     Args:
         filtered_rows: Filtered list of predictor statistics
-        exclusions: Set of predictor names that should be checked (excluded)
+        excluded_names: Predictors that should render as initially checked
 
     Returns:
         List of Shiny UI table row elements
     """
     table_rows: list[ui.TagChild] = []
+    excluded = excluded_names or set()
     for row in filtered_rows:
         pred_name = row["name"]
         checkbox_id = f"exclude_{_sanitize_for_html_id(pred_name)}"
         correlation = row.get("correlation")
-        is_checked = pred_name in exclusions
 
         table_rows.append(
             ui.tags.tr(
                 ui.tags.td(pred_name),
                 ui.tags.td(f'{row.get("non_na_count", 0):,}'),
                 ui.tags.td(f'{correlation:.2f}' if correlation is not None and not np.isnan(correlation) else "N/A"),
-                ui.tags.td(ui.input_checkbox(checkbox_id, None, value=is_checked)),
+                ui.tags.td(ui.input_checkbox(checkbox_id, None, value=pred_name in excluded)),
             )
         )
     return table_rows
@@ -203,6 +202,64 @@ def create_predictor_exclusion_ui(
     Key constraint: Never read excluded_predictors() during render.
     """
 
+    def _read_modal_inputs() -> tuple[float, int, str, dict | None]:
+        """Read current modal slider/input values and saved filter state."""
+        max_corr = input.predictor_max_corr() if hasattr(input, 'predictor_max_corr') else 0.99
+        max_preds = input.predictor_max_preds() if hasattr(input, 'predictor_max_preds') else 100
+        search = input.predictor_search() if hasattr(input, 'predictor_search') else ""
+        filters = predictor_modal_filters.get()
+        return max_corr, max_preds, search, filters
+
+    def _resolve_exclusions(
+        stats_rows: list[dict[str, Any]],
+        max_corr: float,
+        filters: dict | None,
+    ) -> set[str]:
+        """Determine which predictors should be excluded given current state."""
+        saved_max_corr = filters.get("max_corr") if filters else None
+        checkbox_state = filters.get("checkbox_state") if filters else None
+        if max_corr != saved_max_corr or checkbox_state is None:
+            return set(_collect_auto_excluded_predictors(stats_rows, max_corr))
+        return set(checkbox_state)
+
+    # Track the last synced exclusions and filters dict to avoid redundant syncs.
+    # _last_known_filters tracks the filters dict by identity so a fresh modal
+    # open (new dict object) always triggers a sync even if the exclusion set
+    # itself hasn't changed.
+    _last_synced_exclusions: dict[str, set[str] | None] = {"value": None}
+    _last_known_filters: dict[str, Any] = {"value": None}
+
+    @reactive.effect
+    def _sync_checkbox_states() -> None:
+        """Push checkbox checked-state via ui.update_checkbox after render.
+
+        Syncs whenever the exclusion set changes OR the modal is freshly
+        opened (detected by the filters dict being a new object).  This
+        ensures reopening the modal always reflects the correct state even
+        when the excluded-predictor set hasn't changed since the last open.
+        """
+        stats_rows = predictor_stats_full.get()
+        if not stats_rows:
+            return
+        max_corr, max_preds, search, filters = _read_modal_inputs()
+        filtered_rows = _filter_modal_predictors(stats_rows, max_preds, search)
+        exclusions = _resolve_exclusions(stats_rows, max_corr, filters)
+
+        # Skip only when both the exclusion set and the filters dict are
+        # unchanged — i.e. this is a spurious re-fire with no new state.
+        last = _last_synced_exclusions["value"]
+        modal_opened = filters is not _last_known_filters["value"]
+        if last is not None and last == exclusions and not modal_opened:
+            return
+
+        _last_synced_exclusions["value"] = exclusions
+        _last_known_filters["value"] = filters
+
+        for row in filtered_rows:
+            pred_name = row["name"]
+            checkbox_id = f"exclude_{_sanitize_for_html_id(pred_name)}"
+            ui.update_checkbox(checkbox_id, value=pred_name in exclusions)
+
     @output
     @render.ui
     def predictor_table_ui() -> ui.TagChild:
@@ -218,28 +275,11 @@ def create_predictor_exclusion_ui(
                 )
             )
 
-        # Get current slider/input values
-        max_corr = input.predictor_max_corr() if hasattr(input, 'predictor_max_corr') else 0.99
-        max_preds = input.predictor_max_preds() if hasattr(input, 'predictor_max_preds') else 100
-        search = input.predictor_search() if hasattr(input, 'predictor_search') else ""
-
-        # Read saved modal state (creates reactive dependency for re-render on modal open)
-        filters = predictor_modal_filters.get()
-        saved_max_corr = filters.get("max_corr") if filters else None
-        checkbox_state = filters.get("checkbox_state") if filters else None
-
-        # Filter predictors for display
+        max_corr, max_preds, search, filters = _read_modal_inputs()
+        exclusions = _resolve_exclusions(stats_rows, max_corr, filters)
         filtered_rows = _filter_modal_predictors(stats_rows, max_preds, search)
         if not filtered_rows:
             return ui.p("No predictors match the current filter criteria.")
-
-        # Determine checkbox values:
-        # - Slider moved (differs from saved) → use auto-exclusions
-        # - Otherwise → use checkbox_state from modal open
-        if max_corr != saved_max_corr or checkbox_state is None:
-            exclusions = set(_collect_auto_excluded_predictors(stats_rows, max_corr))
-        else:
-            exclusions = set(checkbox_state)
 
         # Build table
         table_header = ui.tags.thead(
@@ -251,7 +291,7 @@ def create_predictor_exclusion_ui(
             )
         )
 
-        table_rows = _build_predictor_table_rows(filtered_rows, exclusions)
+        table_rows = _build_predictor_table_rows(filtered_rows, excluded_names=exclusions)
         all_checkbox_ids = [f"exclude_{_sanitize_for_html_id(row['name'])}" for row in filtered_rows]
         js_script = _generate_select_all_script(all_checkbox_ids)
 
@@ -270,7 +310,8 @@ def build_predictor_exclusion_modal(
     metric_col: str,
     predictor_stats_full: reactive.Value[list[dict[str, Any]]],
     predictor_modal_filters: reactive.Value[dict[str, Any]],
-    excluded_predictors: reactive.Value[list[str]]
+    excluded_predictors: reactive.Value[list[str]],
+    settings: Any | None = None,
 ) -> None:
     """
     Build and show the predictor exclusion modal.
@@ -286,9 +327,11 @@ def build_predictor_exclusion_modal(
         return
 
     # Restore previous filter values or use defaults
+    if settings is None:
+        settings = Settings()
     filters = predictor_modal_filters.get()
-    max_corr = filters.get("max_corr", Settings().get("profiling.max_correlation", 0.99)) if filters else Settings().get("profiling.max_correlation", 0.99)
-    max_preds = filters.get("max_predictors", Settings().get("profiling.max_predictors", 100)) if filters else Settings().get("profiling.max_predictors", 100)
+    max_corr = filters.get("max_corr", settings.get("profiling.max_correlation", 0.99)) if filters else settings.get("profiling.max_correlation", 0.99)
+    max_preds = filters.get("max_predictors", settings.get("profiling.max_predictors", 100)) if filters else settings.get("profiling.max_predictors", 100)
     search_term = filters.get("search_term", "") if filters else ""
 
     # Initialize modal state: copy excluded_predictors to checkbox_state
@@ -350,7 +393,8 @@ def _collect_manually_excluded_predictors(input: Inputs, filtered_stats: list[di
 def reset_exclusions(
     excluded_predictors: reactive.Value[list[str]],
     predictor_stats_full: reactive.Value[list[dict[str, Any]]],
-    predictor_modal_filters: reactive.Value[dict[str, Any]]
+    predictor_modal_filters: reactive.Value[dict[str, Any]],
+    settings: Any | None = None,
 ) -> None:
     """
     Reset exclusions and threshold to defaults (same as reload).
@@ -362,8 +406,10 @@ def reset_exclusions(
         predictor_stats_full: Reactive value storing full predictor statistics
         predictor_modal_filters: Reactive value storing filter state
     """
-    default_max_corr = Settings().get("profiling.max_correlation", 0.99)
-    default_max_preds = Settings().get("profiling.max_predictors", 100)
+    if settings is None:
+        settings = Settings()
+    default_max_corr = settings.get("profiling.max_correlation", 0.99)
+    default_max_preds = settings.get("profiling.max_predictors", 100)
 
     # Compute default exclusions: always include the 4 defaults + auto-excluded
     stats = predictor_stats_full.get()

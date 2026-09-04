@@ -683,3 +683,74 @@ class TestAutoLabelerOnSyntheticDistributions:
             assert all(lbl in class_names for lbl in labels), f"Invalid labels for {dist_name}"
             assert sum(counts.values()) == len(values), f"Count mismatch for {dist_name}"
 
+
+class TestAutoLabelerFilteredData:
+    """Regression tests for AutoLabeler.label() when called with filtered (subset) data.
+
+    Regression: applying a row filter reduced the data from N rows to N-1 rows.
+    AutoLabeler.label(N-1 values) returned self._labels (N elements), so the
+    caller (distribution renderer) crashed with:
+        "NumPy boolean array indexing assignment cannot assign N input values
+         to the N-1 output values where mask is true"
+    """
+
+    def test_label_filtered_data_returns_correct_length(self):
+        """label() on a subset must return an array with the same length as input."""
+        np.random.seed(42)
+        full_values = np.random.normal(100, 15, 1000)
+
+        labeler = AutoLabeler(full_values)
+        assert len(labeler._labels) == 1000
+
+        # Simulate filtering: subtract one row (as would happen with a slider filter)
+        filtered_values = full_values[full_values < np.percentile(full_values, 99.9)]
+        assert len(filtered_values) == 999
+
+        labels = labeler.label(filtered_values)
+
+        assert len(labels) == 999, (
+            f"label() returned {len(labels)} labels for 999 filtered values; "
+            "expected 999 — this would crash the distribution renderer with a "
+            "NumPy boolean-indexing assignment error"
+        )
+
+    def test_label_filtered_data_all_labels_valid(self):
+        """Labels returned for filtered data should all be non-empty strings."""
+        np.random.seed(7)
+        full_values = np.random.exponential(scale=50, size=500)
+        labeler = AutoLabeler(full_values)
+
+        filtered = full_values[:480]  # 20 rows removed
+        labels = labeler.label(filtered)
+
+        assert len(labels) == 480
+        assert all(isinstance(lbl, str) and lbl for lbl in labels), (
+            "Some labels returned for filtered data are empty or non-strings"
+        )
+
+    def test_label_same_size_returns_stored_labels(self):
+        """Fast path: label() with the training data returns exactly self._labels."""
+        np.random.seed(0)
+        values = np.random.normal(200, 20, 300)
+        labeler = AutoLabeler(values)
+
+        result = labeler.label(values)
+
+        np.testing.assert_array_equal(result, labeler._labels)
+
+    def test_label_much_smaller_subset_returns_correct_length(self):
+        """label() on a much smaller subset still respects the output-length contract."""
+        np.random.seed(3)
+        full_values = np.concatenate([
+            np.random.normal(50, 5, 400),
+            np.random.normal(200, 10, 100),
+        ])
+        labeler = AutoLabeler(full_values)
+
+        # Drastically smaller subset — e.g. user filtered to a tight range
+        subset = full_values[full_values < 60]
+        labels = labeler.label(subset)
+
+        assert len(labels) == len(subset)
+
+

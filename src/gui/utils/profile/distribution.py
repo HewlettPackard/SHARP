@@ -3,21 +3,20 @@ Distribution visualization utilities for profile tab.
 
 Provides functions to render distribution plots and narratives.
 
-© Copyright 2025--2025 Hewlett Packard Enterprise Development LP
+© Copyright 2025--2026 Hewlett Packard Enterprise Development LP
 """
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 import numpy as np
 import polars as pl
 from shiny import ui
-from typing import List
+from typing import Any, List
 
 from src.core.stats.distribution import create_distribution_plot, characterize_distribution
-from src.core.config.settings import Settings
 from src.core.profile.labeler import PerformanceLabeler, BinaryLabeler, CutoffBasedLabeler
 
 
-def get_class_colors(class_names: List[str]) -> List[str]:
+def get_class_colors(class_names: List[str], settings: Any | None = None) -> List[str]:
     """
     Map class names to colors from settings.
 
@@ -32,7 +31,9 @@ def get_class_colors(class_names: List[str]) -> List[str]:
     """
     import seaborn as sns
 
-    settings = Settings()
+    if settings is None:
+        from src.core.config.settings import Settings
+        settings = Settings()
     dist_colors = settings.get("gui.distribution", {})
     fast_color = dist_colors.get("fast_color", "#2ca02c")
     slow_color = dist_colors.get("slow_color", "#ff7f0e")
@@ -71,8 +72,12 @@ def _create_standby_figure(message: str) -> Figure:
     return fig
 
 
-def render_distribution_plot(data: pl.DataFrame | None, metric_col: str,
-                           labeler: PerformanceLabeler | None = None) -> Figure | None:
+def render_distribution_plot(
+    data: pl.DataFrame | None,
+    metric_col: str,
+    labeler: PerformanceLabeler | None = None,
+    settings: Any | None = None,
+) -> Figure | None:
     """
     Render distribution plot with classification coloring.
 
@@ -94,7 +99,9 @@ def render_distribution_plot(data: pl.DataFrame | None, metric_col: str,
     if len(values) == 0:
         return None
 
-    settings = Settings()
+    if settings is None:
+        from src.core.config.settings import Settings
+        settings = Settings()
     max_scatter = settings.get("gui.explore.max_scatter_points", 2000)
     dist_colors = settings.get("gui.distribution", {})
     divider_color = dist_colors.get("divider_color", "#1f77b4")
@@ -104,13 +111,14 @@ def render_distribution_plot(data: pl.DataFrame | None, metric_col: str,
     if labeler is not None:
         # Get class names and colors
         class_names = labeler.get_class_names()
-        palette = get_class_colors(class_names)
+        palette = get_class_colors(class_names, settings=settings)
 
-        return _render_with_labeler(
+        result = _render_with_labeler(
             values, metric_col, labeler,
             max_scatter, divider_color, alpha,
             palette=palette
         )
+        return result
 
     # Fallback: No labeler -> just plot distribution without colors
     return create_distribution_plot(
@@ -137,6 +145,16 @@ def _render_with_labeler(values: np.ndarray, metric_col: str,
 
     labels = labeler.label(clean_values)
 
+    # Guard against labelers that return the wrong number of labels (e.g. a
+    # stale AutoLabeler trained on unfiltered data).  The contract of label()
+    # is len(result) == len(input); violating it would produce a cryptic
+    # NumPy boolean-indexing assignment error at the line below.
+    if len(labels) != mask.sum():
+        return _create_standby_figure(
+            f"Labeler returned {len(labels)} labels for {int(mask.sum())} values; "
+            "re-select the outcome metric to rebuild the labeler for the current filter."
+        )
+
     # Reconstruct full labels array with None/NaN for missing values to match input length
     # This is needed because create_distribution_plot expects aligned arrays
     full_labels = np.empty(len(values), dtype=object)
@@ -146,7 +164,7 @@ def _render_with_labeler(values: np.ndarray, metric_col: str,
     class_names = labeler.get_class_names()
     cutoffs = labeler.get_cutoffs()
 
-    class_colors = {}
+    class_colors: dict[str, str] = {}
 
     if palette is not None:
         if len(palette) != len(class_names):
@@ -161,13 +179,13 @@ def _render_with_labeler(values: np.ndarray, metric_col: str,
 
         n_classes = len(class_names)
         if n_classes <= 1:
-             colors = [cmap(0.5)]
+            palette_colors = [cmap(0.5)]
         else:
-             # Sample evenly from the colormap
-             colors = [cmap(i / (n_classes - 1)) for i in range(n_classes)]
+            # Sample evenly from the colormap
+            palette_colors = [cmap(i / (n_classes - 1)) for i in range(n_classes)]
 
-        for name, color in zip(class_names, colors):
-            class_colors[name] = color
+        for name, mpl_color in zip(class_names, palette_colors):
+            class_colors[name] = str(mpl_color)
 
     return create_distribution_plot(
         values, metric_col,
@@ -181,7 +199,11 @@ def _render_with_labeler(values: np.ndarray, metric_col: str,
     )
 
 
-def render_distribution_narrative(data: pl.DataFrame | None, metric_col: str) -> ui.TagChild:
+def render_distribution_narrative(
+    data: pl.DataFrame | None,
+    metric_col: str,
+    settings: Any | None = None,
+) -> ui.TagChild:
     """
     Generate narrative description of distribution characteristics.
 
@@ -199,6 +221,7 @@ def render_distribution_narrative(data: pl.DataFrame | None, metric_col: str) ->
         return ui.div()
 
     values = data[metric_col].drop_nulls().to_numpy()
+
     if len(values) < 3:
         return ui.div(
             ui.tags.p("Insufficient data for characterization",
@@ -207,7 +230,9 @@ def render_distribution_narrative(data: pl.DataFrame | None, metric_col: str) ->
 
     try:
         # Sample values if dataset is large for scatter plot consistency
-        settings = Settings()
+        if settings is None:
+            from src.core.config.settings import Settings
+            settings = Settings()
         max_scatter = settings.get("gui.explore.max_scatter_points", 2000)
 
         sample_values = values

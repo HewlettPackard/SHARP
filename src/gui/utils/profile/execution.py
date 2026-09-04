@@ -29,7 +29,7 @@ from src.core.config.include_resolver import get_project_root
 MITIGATIONS_YAML = get_project_root() / "src" / "core" / "metrics" / "mitigations.yaml"
 
 
-def determine_task_name_for_profiling(md_path: str) -> str:
+def determine_task_name_for_profiling(md_path: str, settings: Any | None = None) -> str:
     """
     Determine task name for profiling run.
 
@@ -45,7 +45,9 @@ def determine_task_name_for_profiling(md_path: str) -> str:
     original_task = str(runtime_opts.get('task', Path(md_path).stem))
 
     # Ensure profiling suffix from settings
-    prof_suffix = Settings().get("profiling.prof_suffix", "-prof")
+    if settings is None:
+        settings = Settings()
+    prof_suffix = settings.get("profiling.prof_suffix", "-prof")
     if not original_task.endswith(prof_suffix):
         return f"{original_task}{prof_suffix}"
     return original_task

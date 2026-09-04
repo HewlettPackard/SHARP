@@ -30,7 +30,7 @@ from src.gui.utils.profile.factors import (
     render_factor_comparison_table,
     render_factor_info_card,
 )
-from src.gui.utils.profile.labeler_ui import render_cutoff_controls
+from src.gui.utils.profile.labeler_ui import render_cutoff_actions
 from src.gui.utils.profile.mitigations import (
     render_mitigation_selector,
     render_mitigation_info_card,
@@ -151,13 +151,10 @@ def register_factor_outputs(
     excluded_predictors: reactive.Value,
     profile_md_settings: Callable,
     order_exclusions_fn: Callable,
+    pending_restore: Any = None,
 ) -> None:
     """
     Register all factor-analysis reactive effects and output renderers.
-
-    Wires up the factor selection handler, tabset rendering, analysis cards,
-    scatter plots, comparison tables, bootstrap CI computation, and the
-    mitigation selector/info cards that appear within the factor tabset.
 
     Args:
         input: Shiny inputs
@@ -174,6 +171,7 @@ def register_factor_outputs(
         excluded_predictors: Reactive value with excluded predictor list
         profile_md_settings: Reactive Calc returning ProfileSettings
         order_exclusions_fn: Callable to order exclusion names for display
+        pending_restore: Reactive value holding ProfileSettings snapshot during restore
     """
 
     # ---- Factor selection handler ----
@@ -194,84 +192,30 @@ def register_factor_outputs(
     @output
     @render.ui
     def profile_factor_selector() -> ui.TagChild:
-        """Render analysis controls and factor selector in one card."""
+        """Render analysis controls and factor selector in one card.
+
+        This render has NO reactive dependencies so it fires exactly once.
+        Source inputs (perf_auto_detect, num_perf_groups) are created here
+        and never destroyed.  Task-switch resets happen via ui.update_*
+        calls in _check_prof_file; saved-value restores happen via
+        ui.update_* in _restore_labeler_from_markdown.
+
+        Derived content (action buttons, analyzer dropdown, factor list)
+        lives in nested @render.ui outputs that re-render independently.
+        """
         try:
-            data = active_data()
-            if data is None or data.is_empty():
-                return ui.div(
-                    ui.tags.p(
-                        ui.tags.strong("Analysis Controls"),
-                        style="margin-bottom: 15px;",
-                    ),
-                    ui.tags.p(
-                        "Load data to access controls",
-                        style="color: #999; font-size: 0.9em;",
-                    ),
-                    style="padding: 15px; background-color: #f8f9fa; border-radius: 5px;",
-                )
-
-            labeler = current_labeler.get()
-
-            # Build data context for ranking analyzers by suitability.
-            # profile_md_settings() is read here (without isolate) so that
-            # setting changes in the markdown section also trigger a re-render.
-            settings_view = profile_md_settings().settings_view
-            context = _build_data_context(data, labeler, settings_view)
-            registry = create_analyzer_registry()
-            ranked_choices = registry.get_ranked_analyzer_choices(context)
-
-            cutoff_controls = render_cutoff_controls(
-                labeler=labeler,
-                excluded_names=order_exclusions_fn(excluded_predictors()),
+            auto_tooltip = (
+                "Auto: automatically detects performance groups using temporal phase "
+                "detection, tail isolation (IQR), and body clustering (Jenks breaks). "
+                "The number and positions of groups are determined by the data; "
+                "manual adjustment is not available in this mode."
             )
-
-            with reactive.isolate():
-                try:
-                    selected_analyzer: str | None = input.profile_influence_analyzer()
-                except SilentException:
-                    selected_analyzer = None
-
-            # Reset selection to the best-ranked analyzer when:
-            #   1. No selection exists yet (first render for this input element).
-            #   2. Labeler is None, meaning a fresh CSV was just loaded and the
-            #      previous selection is stale.
-            if selected_analyzer is None or labeler is None:
-                selected_analyzer = (
-                    registry.best_analyzer_for_context(context)
-                    or settings_view.get("profiling.influence_analyzer", "tree")
-                )
-
-            analysis = computed_analysis_result()
-            factors = analysis.get("factors", []) if analysis else []
-            if not factors:
-                factor_section: ui.TagChild = ui.p(
-                    "Run analysis to select factors",
-                    style="color: #999; padding: 10px; text-align: center; font-size: 0.9em;",
-                )
-            else:
-                name_counts: dict[str, int] = {}
-                for factor in factors:
-                    name_counts[factor.name] = name_counts.get(factor.name, 0) + 1
-
-                sorted_factors = sorted(
-                    factors, key=lambda x: (x.rank or 10_000, -x.strength)
-                )
-                choices = {"": "(select a factor)"} | {
-                    factor_key(factor): factor_label(factor, name_counts)
-                    for factor in sorted_factors
-                }
-                factor_section = ui.input_selectize(
-                    "profile_selected_factor",
-                    "Select factor to inspect:",
-                    choices=choices,
-                    selected="",
-                    width="100%",
-                    options={
-                        "placeholder": "Choose a factor from analysis...",
-                        "maxOptions": 100,
-                    },
-                )
-
+            groups_tooltip = (
+                "Number of performance groups:\n"
+                "1 = regression (no splitting)\n"
+                "2 = binary FAST/SLOW\n"
+                "3\u201310 = equal-quantile groups, adjustable by clicking or Search"
+            )
             return ui.card(
                 ui.tags.style("""
                     .profile-controls-col .card,
@@ -291,17 +235,116 @@ def register_factor_outputs(
                     #profile_selected_factor + .selectize-control .selectize-input {
                         font-size: 0.9em !important;
                     }
+                    .num-perf-groups-wrap .form-group {
+                        margin-bottom: 0 !important;
+                    }
+                    .num-perf-groups-wrap input#num_perf_groups {
+                        width: 48px !important;
+                        font-size: 0.85em !important;
+                        height: 26px !important;
+                        text-align: center !important;
+                        padding: 1px 4px !important;
+                        display: inline-block !important;
+                    }
+                    #profile_save_settings_btn {
+                        padding: 2px 6px !important;
+                        margin-left: 8px !important;
+                        text-decoration: none !important;
+                        color: #666 !important;
+                        opacity: 0.75 !important;
+                        line-height: 1 !important;
+                        background: none !important;
+                        border: none !important;
+                        box-shadow: none !important;
+                        font-size: 1.1em !important;
+                    }
+                    #profile_save_settings_btn:hover {
+                        opacity: 1 !important;
+                        color: #333 !important;
+                        background-color: rgba(0, 0, 0, 0.05) !important;
+                        border-radius: 3px !important;
+                    }
                 """),
-                *cutoff_controls,
-                ui.hr(style="margin: 10px 0;"),
-                ui.input_select(
-                    "profile_influence_analyzer",
-                    "Influence analyzer",
-                    choices=ranked_choices,
-                    selected=selected_analyzer,
+                # Header: "Performance groups" + save button
+                ui.tags.div(
+                    ui.tags.label(
+                        "Performance groups",
+                        style="white-space: nowrap; margin-bottom: 0; font-weight: bold;",
+                    ),
+                    ui.input_action_button(
+                        "profile_save_settings_btn",
+                        "\U0001f4be",
+                        class_="btn btn-link btn-sm",
+                        title="Save current profile settings (filter, groups, analyzer) to markdown",
+                    ),
+                    style=(
+                        "display: flex; align-items: center; margin-bottom: 4px; "
+                        "white-space: nowrap; flex-wrap: nowrap; gap: 0;"
+                    ),
                 ),
-                ui.tags.script(_generate_analyzer_tooltips_script()),
-                factor_section,
+                # Stable source inputs — NO reactive value= bindings.
+                # Downstream state changes re-render the nested outputs below
+                # without destroying these inputs.
+                ui.row(
+                    ui.column(
+                        6,
+                        ui.div(
+                            ui.input_checkbox("perf_auto_detect", "Auto groups"),
+                            title=auto_tooltip,
+                        ),
+                    ),
+                    ui.column(
+                        6,
+                        ui.div(
+                            ui.tags.span(
+                                "Fixed #",
+                                style="font-size: 0.85em; margin-right: 4px; white-space: nowrap;",
+                            ),
+                            ui.tags.div(
+                                ui.input_numeric(
+                                    "num_perf_groups",
+                                    "",
+                                    value=2,
+                                    min=1,
+                                    max=10,
+                                    step=1,
+                                    width="48px",
+                                ),
+                                style="display: flex; align-items: center;",
+                                class_="num-perf-groups-wrap",
+                            ),
+                            title=groups_tooltip,
+                            style="display: flex; align-items: center;",
+                        ),
+                        style="border-left: 1px solid #ddd; padding-left: 8px;",
+                    ),
+                    style="margin-bottom: 5px;",
+                ),
+                # Nested renders — re-render independently on labeler/analysis changes
+                ui.output_ui("profile_cutoff_actions"),
+                ui.hr(style="margin: 10px 0;"),
+                # Static analyzer dropdown — choices updated via @reactive.effect
+                ui.div(
+                    ui.input_select(
+                        "profile_influence_analyzer",
+                        "Influence analyzer",
+                        choices=create_analyzer_registry().get_analyzer_choices(),
+                        selected="tree",
+                    ),
+                    ui.tags.script(_generate_analyzer_tooltips_script()),
+                ),
+                # Static factor dropdown — choices updated after analysis runs
+                ui.input_selectize(
+                    "profile_selected_factor",
+                    "Select factor to inspect:",
+                    choices={"": "(run analysis to select factors)"},
+                    selected="",
+                    width="100%",
+                    options={
+                        "placeholder": "Choose a factor from analysis...",
+                        "maxOptions": 100,
+                    },
+                ),
                 style=(
                     "background-color: #f8f9fa; padding: 10px; flex: 1;"
                     " display: flex; flex-direction: column; overflow: visible !important;"
@@ -311,6 +354,92 @@ def register_factor_outputs(
         except Exception as e:
             tb.print_exc()
             return ui.p(f"Error: {str(e)}", style="color: red;")
+
+    # ---- Nested renders for derived content ----
+
+    @output
+    @render.ui
+    def profile_cutoff_actions() -> ui.TagChild:
+        """Render search/predictors buttons — re-renders on labeler change."""
+        labeler = current_labeler.get()
+        return ui.div(
+            *render_cutoff_actions(
+                labeler=labeler,
+                excluded_names=order_exclusions_fn(excluded_predictors()),
+            ),
+        )
+
+    @reactive.effect
+    def _update_analyzer_select() -> None:
+        """Update influence analyzer choices and selection when labeler/data changes."""
+        labeler = current_labeler.get()
+        data = active_data()
+        if data is None or data.is_empty():
+            return
+
+        settings_view = profile_md_settings().settings_view
+        context = _build_data_context(data, labeler, settings_view)
+        registry = create_analyzer_registry()
+        ranked_choices = registry.get_ranked_analyzer_choices(context)
+
+        with reactive.isolate():
+            snapshot = pending_restore.get() if pending_restore is not None else None
+            try:
+                selected_analyzer: str | None = input.profile_influence_analyzer()
+            except SilentException:
+                selected_analyzer = None
+
+        if snapshot or selected_analyzer is None or labeler is None:
+            default_analyzer = snapshot.default_influence_analyzer if snapshot else None
+            if default_analyzer and default_analyzer in ranked_choices:
+                selected_analyzer = default_analyzer
+            else:
+                selected_analyzer = (
+                    registry.best_analyzer_for_context(context)
+                    or settings_view.get("profiling.influence_analyzer", "tree")
+                )
+
+        if selected_analyzer not in ranked_choices:
+            selected_analyzer = (
+                registry.best_analyzer_for_context(context)
+                or settings_view.get("profiling.influence_analyzer", "tree")
+            )
+
+        ui.update_select(
+            "profile_influence_analyzer",
+            choices=ranked_choices,
+            selected=selected_analyzer,
+        )
+
+    @reactive.effect
+    def _update_factor_dropdown() -> None:
+        """Update factor dropdown choices when analysis results change."""
+        analysis = computed_analysis_result()
+        factors = analysis.get("factors", []) if analysis else []
+        if not factors:
+            ui.update_selectize(
+                "profile_selected_factor",
+                choices={"": "(run analysis to select factors)"},
+                selected="",
+            )
+            return
+
+        name_counts: dict[str, int] = {}
+        for factor in factors:
+            name_counts[factor.name] = name_counts.get(factor.name, 0) + 1
+
+        sorted_factors = sorted(
+            factors, key=lambda x: (x.rank or 10_000, -x.strength)
+        )
+        choices = {"": "(select a factor)"} | {
+            factor_key(factor): factor_label(factor, name_counts)
+            for factor in sorted_factors
+        }
+        ui.update_selectize(
+            "profile_selected_factor",
+            choices=choices,
+            selected="",
+        )
 
     # ---- Factor tabset (description, analysis, mitigations) ----
 
@@ -503,6 +632,7 @@ def register_factor_outputs(
                     exclude_cols=exclude_cols,
                     max_predictors=max_predictors,
                     max_correlation=max_correlation,
+                    settings=profile_md_settings().settings_view,
                     progress_callback=on_progress,
                 )
 

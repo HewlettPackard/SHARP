@@ -63,17 +63,21 @@ def factor_label(factor: InfluenceFactor, name_counts: dict[str, int]) -> str:
         Display label string
     """
     label = factor.name
-    if name_counts.get(factor.name, 0) > 1:
-        metadata = factor.metadata or {}
-        enriched_from = metadata.get("enriched_from")
-        encoded_name = metadata.get("encoded_name")
-        suffix = None
-        if isinstance(enriched_from, str) and enriched_from:
-            suffix = enriched_from
-        elif isinstance(encoded_name, str) and encoded_name and encoded_name != factor.name:
-            suffix = encoded_name
-        if suffix:
-            label = f"{label} (from {suffix})"
+    metadata = factor.metadata or {}
+    enriched_from = metadata.get("enriched_from")
+    encoded_name = metadata.get("encoded_name")
+
+    if isinstance(enriched_from, str) and enriched_from:
+        return f"{label} (from {enriched_from})"
+
+    if (
+        name_counts.get(factor.name, 0) > 1
+        and isinstance(encoded_name, str)
+        and encoded_name
+        and encoded_name != factor.name
+    ):
+        return f"{label} (from {encoded_name})"
+
     return label
 
 

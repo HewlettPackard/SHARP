@@ -12,6 +12,10 @@ import pytest
 from pathlib import Path
 import polars as pl
 
+from src.gui.utils.profile.restore import (
+    ProfileSettings,
+    extract_profile_settings_from_md,
+)
 from src.gui.utils.profile.files import (
     detect_file_state,
     get_markdown_path,
@@ -172,3 +176,150 @@ class TestDetermineTaskNameForProfiling:
         task_name = determine_task_name_for_profiling(str(md_path))
 
         assert task_name == "task-prof"
+
+
+class TestExtractProfileSettings:
+    """Tests for extract_profile_settings_from_md function."""
+
+    def test_extract_extended_profile_settings(self, tmp_path):
+        """Parse all supported profile restore settings from markdown."""
+        md_path = tmp_path / "task-prof.md"
+        md_path.write_text(
+            """
+## Profile settings
+
+```json
+{
+    "profiling.default_outcome_metric": "perf_time",
+    "profiling.default_predictor_exclusions": ["timestamp", "launch_id"],
+    "profiling.default_filter_metric": "timestamp",
+    "profiling.default_filter_value": [0, 120],
+    "profiling.default_num_perf_groups": 3,
+    "profiling.default_cutoff_values": [0.11, 0.43],
+    "profiling.default_influence_analyzer": "granger",
+    "profiling.max_predictors": 250
+}
+```
+"""
+        )
+
+        settings = extract_profile_settings_from_md(str(md_path))
+
+        assert settings.default_outcome_metric == "perf_time"
+        assert settings.default_predictor_exclusions == ["timestamp", "launch_id"]
+        assert settings.default_filter_metric == "timestamp"
+        assert settings.default_filter_value == [0, 120]
+        assert settings.default_num_perf_groups == 3
+        assert settings.default_cutoff_values == [0.11, 0.43]
+        assert settings.default_influence_analyzer == "granger"
+        assert settings.settings_view.get("profiling.max_predictors", None) == 250
+
+    def test_extract_legacy_alias_keys(self, tmp_path):
+        """Legacy key aliases should map to current profile settings fields."""
+        md_path = tmp_path / "task-prof.md"
+        md_path.write_text(
+            """
+## Profile settings
+
+```json
+{
+    "default_outcome_metric": "latency",
+    "default_predictor_exclusions": ["session_id"],
+    "default_filter_metric": "backend",
+    "default_filter_value": ["local", "mpi"],
+    "default_num_perf_groups": 4,
+    "default_cutoffs": [4.0, 8.0, 15.0],
+    "default_influence_analyzer": "pcmci"
+}
+```
+"""
+        )
+
+        settings = extract_profile_settings_from_md(str(md_path))
+
+        assert settings.default_outcome_metric == "latency"
+        assert settings.default_predictor_exclusions == ["session_id"]
+        assert settings.default_filter_metric == "backend"
+        assert settings.default_filter_value == ["local", "mpi"]
+        assert settings.default_num_perf_groups == 4
+        assert settings.default_cutoff_values == [4.0, 8.0, 15.0]
+        assert settings.default_influence_analyzer == "pcmci"
+
+    def test_extract_filter_value_without_filter_metric(self, tmp_path):
+        """default_filter_value should still parse even if default_filter_metric is absent."""
+        md_path = tmp_path / "task-prof.md"
+        md_path.write_text(
+            """
+## Profile settings
+
+```json
+{
+    "profiling.default_filter_value": [10, 20]
+}
+```
+"""
+        )
+
+        settings = extract_profile_settings_from_md(str(md_path))
+
+        assert settings.default_filter_metric is None
+        assert settings.default_filter_value == [10, 20]
+
+    def test_extract_cutoffs_and_num_groups_coexist(self, tmp_path):
+        """Both presets parse together; runtime restore decides precedence."""
+        md_path = tmp_path / "task-prof.md"
+        md_path.write_text(
+            """
+## Profile settings
+
+```json
+{
+    "profiling.default_num_perf_groups": 2,
+    "profiling.default_cutoff_values": [1.2, 2.4]
+}
+```
+"""
+        )
+
+        settings = extract_profile_settings_from_md(str(md_path))
+
+        assert settings.default_num_perf_groups == 2
+        assert settings.default_cutoff_values == [1.2, 2.4]
+
+    def test_extract_auto_detect_sentinel(self, tmp_path):
+        """num_perf_groups=0 is parsed as the auto-detect sentinel (not clamped to 1)."""
+        md_path = tmp_path / "task-prof.md"
+        md_path.write_text(
+            """
+## Profile settings
+
+```json
+{
+    "profiling.default_num_perf_groups": 0
+}
+```
+"""
+        )
+
+        settings = extract_profile_settings_from_md(str(md_path))
+
+        assert settings.default_num_perf_groups == 0
+
+    def test_extract_excluded_predictors(self, tmp_path):
+        """default_predictor_exclusions lists are parsed correctly."""
+        md_path = tmp_path / "task-prof.md"
+        md_path.write_text(
+            """
+## Profile settings
+
+```json
+{
+    "profiling.default_predictor_exclusions": ["cpu_clock", "cache_misses"]
+}
+```
+"""
+        )
+
+        settings = extract_profile_settings_from_md(str(md_path))
+
+        assert settings.default_predictor_exclusions == ["cpu_clock", "cache_misses"]

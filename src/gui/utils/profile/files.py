@@ -8,14 +8,18 @@ and file state detection for profiling workflow.
 """
 
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Any, Dict, Tuple
 import polars as pl
 
-from src.core.runlogs import parse_markdown_runtime_options, parse_markdown_metadata, load_table
+from src.core.runlogs import (
+    parse_markdown_runtime_options,
+    parse_markdown_metadata,
+    load_table,
+)
 from src.core.config.settings import Settings
 
 
-def check_prof_file_exists(csv_path: str) -> str | None:
+def check_prof_file_exists(csv_path: str, settings: Any | None = None) -> str | None:
     """
     Check if a profiling variant of the CSV file exists.
 
@@ -26,7 +30,9 @@ def check_prof_file_exists(csv_path: str) -> str | None:
         Path to profiling CSV file if it exists, None otherwise
     """
     csv_path_obj = Path(csv_path)
-    prof_suffix = Settings().get("profile.prof_suffix", "-prof")
+    if settings is None:
+        settings = Settings()
+    prof_suffix = settings.get("profile.prof_suffix", "-prof")
     prof_path = csv_path_obj.parent / f"{csv_path_obj.stem}{prof_suffix}.csv"
     return str(prof_path) if prof_path.exists() else None
 
@@ -154,7 +160,7 @@ def extract_repeater_max_from_md(md_path: str) -> int | None:
         return None
 
 
-def get_file_paths(csv_path: str) -> Dict[str, Path]:
+def get_file_paths(csv_path: str, settings: Any | None = None) -> Dict[str, Path]:
     """
     Derive all related file paths from a CSV path.
 
@@ -165,7 +171,9 @@ def get_file_paths(csv_path: str) -> Dict[str, Path]:
         Dict with keys: csv, md, prof_csv, prof_md
     """
     csv_obj = Path(csv_path)
-    prof_suffix = Settings().get("profile.prof_suffix", "-prof")
+    if settings is None:
+        settings = Settings()
+    prof_suffix = settings.get("profile.prof_suffix", "-prof")
     return {
         "csv": csv_obj,
         "md": csv_obj.with_suffix(".md"),
@@ -174,7 +182,7 @@ def get_file_paths(csv_path: str) -> Dict[str, Path]:
     }
 
 
-def detect_file_state(csv_path: str) -> tuple[str, Dict[str, Path]]:
+def detect_file_state(csv_path: str, settings: Any | None = None) -> tuple[str, Dict[str, Path]]:
     """
     Detect the state of files for the profiling workflow.
 
@@ -192,7 +200,9 @@ def detect_file_state(csv_path: str) -> tuple[str, Dict[str, Path]]:
     """
     csv_path_obj = Path(csv_path)
     paths = {"csv": csv_path_obj}
-    prof_suffix = Settings().get("profile.prof_suffix", "-prof")
+    if settings is None:
+        settings = Settings()
+    prof_suffix = settings.get("profile.prof_suffix", "-prof")
 
     # If the provided CSV is already a profiling file, treat it specially
     if csv_path_obj.stem.endswith(prof_suffix):
@@ -216,7 +226,7 @@ def detect_file_state(csv_path: str) -> tuple[str, Dict[str, Path]]:
     paths["md"] = Path(md_path)
 
     # Check for profiling CSV variant (original -> original-prof.csv)
-    prof_csv = check_prof_file_exists(csv_path)
+    prof_csv = check_prof_file_exists(csv_path, settings=settings)
     if prof_csv:
         paths["prof_csv"] = Path(prof_csv)
         # Derive profiling markdown path

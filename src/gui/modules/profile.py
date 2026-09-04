@@ -23,8 +23,8 @@ from pathlib import Path
 from typing import Any
 import traceback as tb
 
-from src.core.runlogs import load_table, get_experiments, get_tasks_for_experiment
-from src.gui.utils import apply_filter, get_filterable_columns, create_filter_ui
+from src.core.runlogs import *
+from src.gui.utils import apply_filter, get_filterable_columns
 from src.gui.utils.filters import *
 from src.gui.utils.ui_helpers import *
 from src.gui.utils.comparisons import *
@@ -33,18 +33,11 @@ from src.gui.utils.profile.analysis import *
 from src.core.profile import *
 from src.core.config import discover_backends
 from src.core.config.backend_loader import validate_backend_chain
-from src.core.config.settings import Settings
+from src.core.config.settings import SettingsView
 from src.core.profile.analyzers.registry import create_analyzer_registry
 from src.core.metrics.factors import load_factors
 from src.core.runlogs.parser import extract_metrics_from_markdown
 from src.core.stats.narrative import generate_comparison_narrative
-
-
-class _StubProfileSettings:
-    """Placeholder standing in for the future per-experiment ProfileSettings."""
-
-    def __init__(self) -> None:
-        self.settings_view = Settings()
 
 
 def get_metric_lower_is_better(metric_col: str, md_path: Path | None = None) -> bool:
@@ -165,7 +158,8 @@ def profile_ui() -> Any:
             ui.column(
                 2,
                 ui.div(
-                    ui.output_ui("profile_filter_ui"),
+                    static_filter_ui("profile_filter_value"),
+                    ui.output_ui("profile_filter_visibility"),
                     ui.output_text("profile_filter_value_time_display"),
                     style="display: flex; flex-direction: column; gap: 4px; line-height: 1.15;"
                 )
@@ -301,7 +295,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
             return {"original_csv": None, "original_md": None, "prof_csv": None, "prof_md": None}
 
         # detect_file_state handles both original and -prof files correctly
-        _state, paths = detect_file_state(task_csv)
+        _state, paths = detect_file_state(task_csv, settings=SettingsView({}))
 
         return {
             "original_csv": str(paths["csv"]),
@@ -325,6 +319,13 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
     mitigation_data: reactive.Value[pl.DataFrame | None] = reactive.Value(None)
     factor_ci_overrides: reactive.Value[dict[str, tuple[float, float] | None]] = reactive.Value({})
     factor_ci_computing: reactive.Value[bool] = reactive.Value(False)
+    # Snapshot of profile settings at task-switch time.  Each consumer reads
+    # this once to apply presets; the labeler restore (last consumer) clears it.
+    pending_restore: reactive.Value[ProfileSettings | None] = reactive.Value(None)
+    # Guards filter-value preset so it is applied only once per snapshot.
+    _filter_preset_applied: reactive.Value[bool] = reactive.Value(False)
+    # Dedicated filter-value preset, independent of pending_restore lifetime.
+    _pending_filter_preset: reactive.Value[ProfileSettings | None] = reactive.Value(None)
 
 
     # Note: We do NOT store all metrics to avoid huge websocket payloads
@@ -422,11 +423,23 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
         if not (task_csv := input.profile_task()):
             return
 
-        # Reset labeler when task changes
+        # Reset labeler and auto-detect.
         current_labeler.set(None)
-        excluded_predictors.set(DEFAULT_EXCLUDED_PREDICTORS.copy())
+        ui.update_checkbox("perf_auto_detect", value=False)
+
+        # Apply experiment-specific default exclusions from markdown '## Profile settings'
+        extra = profile_md_settings().default_predictor_exclusions
+        if extra:
+            initial = sorted(set(DEFAULT_EXCLUDED_PREDICTORS) | set(extra))
+            excluded_predictors.set(initial)
+        else:
+            excluded_predictors.set(DEFAULT_EXCLUDED_PREDICTORS.copy())
         applied_predictor_filters.set(None)
         predictor_modal_filters.set({})
+        # Snapshot settings for downstream restores.
+        pending_restore.set(profile_md_settings())
+        _filter_preset_applied.set(False)
+        _pending_filter_preset.set(profile_md_settings())
 
         # If modal display was suppressed due to programmatic selection, consume flag
         if suppress_modal.get():
@@ -435,7 +448,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
 
         # If user directly selected a -prof.csv file, don't show modal - they already
         # have the profiling data they want. Just use it directly.
-        prof_suffix = Settings().get("profile.prof_suffix", "-prof")
+        prof_suffix = profile_md_settings().settings_view.get("profile.prof_suffix", "-prof")
         if Path(task_csv).stem.endswith(prof_suffix):
             return
 
@@ -571,7 +584,10 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
 
             # Determine task name from user input or use helper
             user_task_name = input.profile_task_name() if hasattr(input, 'profile_task_name') else None
-            new_task_name = user_task_name if user_task_name else determine_task_name_for_profiling(md_path)
+            new_task_name = user_task_name if user_task_name else determine_task_name_for_profiling(
+                md_path,
+                settings=profile_md_settings().settings_view,
+            )
 
             # Store parameters and execute immediately
             profiling_params.set({
@@ -737,13 +753,12 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
         return {"valid": is_valid, "error": error_msg}
 
     @reactive.Calc
-    def profile_md_settings() -> _StubProfileSettings:
-        """Placeholder until per-experiment settings persistence lands.
-
-        Provides the ``.settings_view`` attribute that factor_ui.py and the
-        analysis pipeline expect, backed by the global Settings() for now.
-        """
-        return _StubProfileSettings()
+    def profile_md_settings() -> ProfileSettings:
+        """Parse '## Profile settings' from the active markdown (if present)."""
+        md_path = markdown_path()
+        if md_path and Path(md_path).exists():
+            return extract_profile_settings_from_md(md_path)
+        return ProfileSettings.empty()
 
     # --- Metric and Filter Inputs ---
     @reactive.effect
@@ -773,9 +788,13 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
                 ui.update_selectize("profile_metric", choices=[], selected=None, server=True)
                 return
 
-            # Select default metric from preferred list (perf_time, inner_time, outer_time)
-            # Returns empty string if none found
-            default_metric = select_preferred_metric(numeric_cols_dict)
+            # Prefer experiment-specific default metric from '## Profile settings',
+            # fall back to heuristic preference list (perf_time, inner_time, outer_time)
+            override_metric = profile_md_settings().default_outcome_metric
+            if override_metric and override_metric in numeric_cols_dict:
+                default_metric = override_metric
+            else:
+                default_metric = select_preferred_metric(numeric_cols_dict)
 
             # Update selectize with server-side rendering
             # Empty string will be auto-selected if no preferred metric found
@@ -799,40 +818,56 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
             except Exception:
                 pass  # Ignore cleanup errors
 
+    # Tracks the task that was active the last time _update_filter_choices ran
+    # SUCCESSFULLY, so we can distinguish a task switch from a same-task
+    # outcome-metric change.  Crucially, this is only updated after the full
+    # filter-selection logic runs — transient early-exits (metric empty while
+    # the selectize refreshes) must NOT consume the "task changed" flag.
+    _last_filter_task: dict[str, str | None] = {"value": None}
+
     @reactive.effect
-    @reactive.event(input.profile_metric)  # Only trigger when outcome metric INPUT changes
+    @reactive.event(input.profile_metric, input.profile_task)  # trigger on metric OR task change
     def _update_filter_choices() -> None:
-        """Update filter choices when metric changes (server-side with placeholder to prevent auto-filtering)."""
+        """Update filter choices when outcome metric or task changes."""
         try:
-            # Only populate filter choices when a valid outcome metric is selected
             metric_col = validated_metric()
-
             if not metric_col or metric_col.strip() == "":
-                ui.update_selectize("profile_filter_metric", choices=[], selected=None, server=True)
+                # Don't clear filter on a transient metric-empty state during
+                # task switch — the outcome selectize refreshes first and
+                # briefly reports "".  Clearing here would destroy a correctly
+                # restored filter selection.
                 return
 
-            if (data := base_data()) is None:
-                ui.update_selectize("profile_filter_metric", choices=[], selected=None, server=True)
+            if (data := base_data()) is None or data.is_empty():
                 return
 
-            try:
-                is_empty = data.is_empty()
-            except:
-                is_empty = True
-
-            if is_empty:
-                ui.update_selectize("profile_filter_metric", choices=[], selected=None, server=True)
-                return
-
-            # Get filterable columns using utility function
             filterable = get_filterable_columns(data)
+            choices_with_placeholder = [""] + filterable
 
-            # Prepend a placeholder option that will be auto-selected but won't trigger filtering
-            PLACEHOLDER = ""  # Empty string as placeholder - will be auto-selected but means "no filter"
-            choices_with_placeholder = [PLACEHOLDER] + filterable
+            current_task = input.profile_task()
+            task_changed = current_task != _last_filter_task["value"]
+            # Only update tracking AFTER we've successfully computed the
+            # selection — early exits above must not consume this flag.
+            _last_filter_task["value"] = current_task
 
-            # Use server-side selectize with placeholder as first item
-            ui.update_selectize("profile_filter_metric", choices=choices_with_placeholder, selected=PLACEHOLDER, server=True)
+            snapshot = pending_restore.get()
+            md = profile_md_settings()
+            with reactive.isolate():
+                try:
+                    current_filter = input.profile_filter_metric() if not task_changed else None
+                except SilentException:
+                    current_filter = None
+
+            selected_filter = resolve_filter_metric_selection(
+                filterable, task_changed, snapshot, md, current_filter
+            )
+
+            ui.update_selectize(
+                "profile_filter_metric",
+                choices=choices_with_placeholder,
+                selected=selected_filter,
+                server=True,
+            )
 
         except Exception:
             import traceback
@@ -845,25 +880,33 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
 
     @output
     @render.ui
-    def profile_filter_ui() -> ui.TagChild:
-        """Render dynamic filter UI based on selected metric."""
+    def profile_filter_visibility() -> ui.TagChild:
+        """Show/hide the correct static filter widget when filter metric changes."""
         filter_metric = input.profile_filter_metric()
-
-        # Treat empty string as "no filter selected" (it's our placeholder to prevent auto-filtering)
         if not filter_metric or filter_metric.strip() == "":
-            return None
-
+            return update_filter_widget(None, None, "profile_filter_value")
         data = base_data()
-        if data is None:
-            return None
-
-        try:
-            result = create_filter_ui(data, filter_metric, "profile_filter_value")
-            return result
-        except Exception:
-            import traceback
-            traceback.print_exc()
-            return None
+        # Resolve preset value from dedicated filter snapshot (once per snapshot).
+        preset_value = None
+        with reactive.isolate():
+            snapshot = _pending_filter_preset.get()
+            already_applied = _filter_preset_applied.get()
+        if snapshot and not already_applied:
+            resolved = resolve_filter_restore_value(
+                data=data,
+                filter_metric=filter_metric,
+                preset_filter_metric=snapshot.default_filter_metric,
+                preset_filter_value=snapshot.default_filter_value,
+            )
+            if resolved is not None:
+                _kind, preset_value = resolved
+                # Mark filter as applied so subsequent filter metric changes
+                # don't re-apply the old snapshot values.
+                _filter_preset_applied.set(True)
+        elif already_applied:
+            # Preset was already applied — preserve user's current value.
+            preset_value = KEEP_CURRENT
+        return update_filter_widget(data, filter_metric, "profile_filter_value", preset_value=preset_value)
 
     @output
     @render.text
@@ -872,8 +915,9 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
         return get_time_filter_display(
             data=base_data(),
             filter_metric=input.profile_filter_metric(),
-            filter_value=get_filter_value(input, "profile_filter_value")
+            filter_value=get_active_filter_value(input, "profile_filter_value")
         )
+
 
     # --- Model Training ---
     @output
@@ -1136,7 +1180,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
         # detect_data_model() internally calls detect_source_columns() and detect_format().
         _model_info = profiling_data_model()
 
-        cols = compute_cleaned_columns(data)
+        cols = compute_cleaned_columns(data, settings=profile_md_settings().settings_view)
 
         return cols
 
@@ -1169,7 +1213,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
         filter_metric = input.profile_filter_metric()
         if not filter_metric or filter_metric.strip() == "":
             return data
-        filter_value = get_filter_value(input, "profile_filter_value")
+        filter_value = get_active_filter_value(input, "profile_filter_value")
         if not should_apply_filter(filter_value, data, filter_metric):
             return data
         return apply_filter(data, filter_metric, filter_value)
@@ -1222,9 +1266,14 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
         if not cols:
             return None
 
+        settings = profile_md_settings().settings_view
+        timestamp_col = settings.get("profiling.lag_detection.timestamp_column", None)
+
         # Correlations not computed yet — return data with cleaned columns only
         if not corrs:
             keep = set(cols) | {metric}
+            if isinstance(timestamp_col, str) and timestamp_col in data.columns:
+                keep.add(timestamp_col)
             return data.select([c for c in data.columns if c in keep])
 
         # Apply C3 on cleaned columns using precomputed correlations
@@ -1232,6 +1281,8 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
             data, metric, cols, corrs,
         )
         keep = {metric} | set(survivors)
+        if isinstance(timestamp_col, str) and timestamp_col in data.columns:
+            keep.add(timestamp_col)
         result = data.select([c for c in data.columns if c in keep])
         return result
 
@@ -1264,16 +1315,114 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
             stats_rows,
             set(excluded_predictors()),
             applied_predictor_filters.get(),
+            settings=profile_md_settings().settings_view,
         )
         if updated is not None:
             excluded_predictors.set(sorted(list(updated)))
 
     # --- Labeler Initialization ---
-    # Initialize labeler management effects (after reactive Calc functions are defined)
-    initialize_labeler_effect(input, active_data, validated_metric, lower_is_better_setting, current_labeler)
+    initialize_labeler_effect(
+        input, active_data, validated_metric, lower_is_better_setting, current_labeler,
+        pending_labeler_restore=pending_restore,
+    )
     handle_plot_click_effect(input, current_labeler, lower_is_better_setting)
-    handle_cutoff_search_effect(input, active_data, validated_metric, excluded_predictors, current_labeler, lower_is_better_setting)
-    handle_num_cutoffs_change_effect(input, active_data, validated_metric, current_labeler)
+    handle_cutoff_search_effect(
+        input,
+        active_data,
+        validated_metric,
+        excluded_predictors,
+        current_labeler,
+        lower_is_better_setting,
+        settings=lambda: profile_md_settings().settings_view,
+    )
+    handle_num_cutoffs_change_effect(
+        input, active_data, validated_metric, current_labeler,
+        pending_labeler_restore=pending_restore,
+    )
+
+    @reactive.effect
+    def _restore_labeler_from_markdown() -> None:
+        """Apply one-shot labeler preset (groups/cutoffs) from markdown settings."""
+        settings = pending_restore.get()
+        if settings is None:
+            return
+
+        data = base_data()
+        try:
+            metric_col = str(input.profile_metric())
+        except Exception:
+            metric_col = ""
+
+        if data is None or data.is_empty() or not metric_col or metric_col not in data.columns:
+            return
+
+        try:
+            dtype = data[metric_col].dtype
+        except Exception:
+            return
+        if dtype not in (pl.Float64, pl.Int64):
+            return
+
+        values = data[metric_col].drop_nulls().to_numpy()
+        if len(values) < 2:
+            pending_restore.set(None)
+            return
+
+        preset_num_groups = settings.default_num_perf_groups
+        preset_cutoffs = settings.default_cutoff_values
+
+        if preset_num_groups == 0:
+            ui.update_checkbox("perf_auto_detect", value=True)
+            pending_restore.set(None)
+            return
+
+        if preset_num_groups is None and not preset_cutoffs:
+            current_labeler.set(BinaryLabeler(values, lower_is_better_setting.get()))
+            ui.update_numeric("num_perf_groups", value=2)
+            pending_restore.set(None)
+            return
+
+        try:
+            restored_labeler, restored_groups = build_restored_labeler(
+                values=values,
+                lower_is_better=lower_is_better_setting.get(),
+                preset_num_groups=preset_num_groups,
+                preset_cutoffs=preset_cutoffs,
+            )
+            if restored_labeler is not None and restored_groups is not None:
+                current_labeler.set(restored_labeler)
+                with reactive.isolate():
+                    try:
+                        current_auto_detect = bool(input.perf_auto_detect())
+                    except SilentException:
+                        current_auto_detect = False
+                if current_auto_detect:
+                    ui.update_checkbox("perf_auto_detect", value=False)
+                ui.update_numeric("num_perf_groups", value=restored_groups)
+        finally:
+            pending_restore.set(None)
+
+    @reactive.effect
+    @reactive.event(input.profile_save_settings_btn)
+    def _save_profile_settings_to_markdown() -> None:
+        """Save current profile UI state to markdown file."""
+        md_path = markdown_path()
+        if not md_path:
+            ui.notification_show("No markdown file loaded", type="error", duration=3)
+            return
+
+        try:
+            success, message = save_settings_to_markdown(
+                md_path, input, current_labeler, excluded_predictors,
+            )
+            if success:
+                ui.notification_show(message, type="message", duration=3)
+            else:
+                ui.notification_show(message, type="warning", duration=3)
+
+        except Exception as e:
+            tb.print_exc()
+            ui.notification_show(f"Error saving settings: {str(e)}", type="error", duration=5)
 
     @reactive.effect
     @reactive.event(input.exclude_predictors_btn)
@@ -1287,7 +1436,14 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
 
         # Stats should already be in predictor_stats_full thanks to the effect above
         # Just show the modal - the table will render from predictor_stats_full
-        build_predictor_exclusion_modal(data, metric, predictor_stats_full, predictor_modal_filters, excluded_predictors)
+        build_predictor_exclusion_modal(
+            data,
+            metric,
+            predictor_stats_full,
+            predictor_modal_filters,
+            excluded_predictors,
+            settings=profile_md_settings().settings_view,
+        )
 
     @reactive.effect
     @reactive.event(input.apply_predictor_exclusions)
@@ -1301,13 +1457,19 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
     def _reset_predictor_exclusions() -> None:
         """Reset exclusions and threshold to defaults (same as reload)."""
         # Call the core reset logic
-        reset_exclusions(excluded_predictors, predictor_stats_full, predictor_modal_filters)
+        reset_exclusions(
+            excluded_predictors,
+            predictor_stats_full,
+            predictor_modal_filters,
+            settings=profile_md_settings().settings_view,
+        )
         applied_predictor_filters.set(None)
 
         # If the modal is open, update the visible controls immediately
         try:
-            default_max_correlation = Settings().get("profiling.max_correlation", 0.99)
-            default_max_predictors = Settings().get("profiling.max_predictors", 100)
+            settings = profile_md_settings().settings_view
+            default_max_correlation = settings.get("profiling.max_correlation", 0.99)
+            default_max_predictors = settings.get("profiling.max_predictors", 100)
             ui.update_slider("predictor_max_corr", value=default_max_correlation, session=session)
             ui.update_numeric("predictor_max_preds", value=default_max_predictors, session=session)
             ui.update_text("predictor_search", value="", session=session)
@@ -1326,7 +1488,12 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
         # Get current labeler
         labeler = current_labeler.get()
 
-        return render_distribution_plot(data, metric_col, labeler=labeler)
+        return render_distribution_plot(
+            data,
+            metric_col,
+            labeler=labeler,
+            settings=profile_md_settings().settings_view,
+        )
 
     @output
     @render.ui
@@ -1334,7 +1501,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
         """Show nearest point (value + original row index) plus a labeler-mode hint."""
         data = active_data()
         metric_col = validated_metric()
-        settings = Settings()
+        settings = profile_md_settings().settings_view
         max_scatter = settings.get("gui.explore.max_scatter_points", 2000)
         point_ui = render_point_inspector(
             input.profile_distribution_plot_hover(),
@@ -1368,7 +1535,11 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
         if not metric_col:
             return ui.div()
 
-        return render_distribution_narrative(data, metric_col)
+        return render_distribution_narrative(
+            data,
+            metric_col,
+            settings=profile_md_settings().settings_view,
+        )
 
     @output
     @render.ui
@@ -1453,6 +1624,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
         excluded_predictors=excluded_predictors,
         profile_md_settings=profile_md_settings,
         order_exclusions_fn=order_exclusions_with_defaults,
+        pending_restore=pending_restore,
     )
 
     # Handler for "Try it!" button
@@ -1672,7 +1844,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
             return None
 
         filter_metric = input.profile_filter_metric()
-        fval = get_filter_value(input, "profile_filter_value")
+        fval = get_active_filter_value(input, "profile_filter_value")
 
         try:
             baseline_vals = apply_filter(base, filter_metric, fval)[metric].to_numpy()
@@ -1695,7 +1867,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
             return ui.HTML('<p></p>')
 
         filter_metric = input.profile_filter_metric()
-        fval = get_filter_value(input, "profile_filter_value")
+        fval = get_active_filter_value(input, "profile_filter_value")
 
         try:
             baseline_vals = apply_filter(base, filter_metric, fval)[metric].to_numpy()
@@ -1726,7 +1898,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
             return None
 
         filter_metric = input.profile_filter_metric()
-        fval = get_filter_value(input, "profile_filter_value")
+        fval = get_active_filter_value(input, "profile_filter_value")
 
         try:
             baseline_vals = apply_filter(base, filter_metric, fval)[metric].to_numpy()

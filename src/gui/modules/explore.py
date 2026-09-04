@@ -15,10 +15,10 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from pathlib import Path
 
-from src.core.runlogs import load_table, get_experiments, get_tasks_for_experiment
+from src.core.runlogs import load_table
 from src.core.stats.distribution import compute_summary, characterize_distribution, create_distribution_plot
 from src.core.config.settings import Settings
-from src.gui.utils import apply_filter, get_filterable_columns, create_filter_ui
+from src.gui.utils import apply_filter, get_filterable_columns, static_filter_ui, update_filter_widget, get_active_filter_value
 from src.gui.utils.ui_helpers import *
 from src.gui.utils.filters import *
 
@@ -101,7 +101,8 @@ def explore_ui() -> Any:
             ui.column(
                 2,
                 ui.div(
-                    ui.output_ui("explore_filter_ui"),
+                    static_filter_ui("explore_filter_value"),
+                    ui.output_ui("explore_filter_visibility"),
                     ui.output_text("explore_filter_value_time_display"),
                     style="display: flex; flex-direction: column; gap: 4px; line-height: 1.15;"
                 )
@@ -282,22 +283,13 @@ def explore_server(input: Inputs, output: Outputs, session: Session) -> None:
 
     @output
     @render.ui
-    def explore_filter_ui() -> ui.TagChild | None:
-        """Render dynamic filter UI based on selected metric."""
+    def explore_filter_visibility() -> ui.TagChild:
+        """Show/hide the correct static filter widget when filter metric changes."""
         filter_metric = input.explore_filter_metric()
-
-        # Treat empty string as "no filter selected" (our sentinel value)
         if not filter_metric or filter_metric.strip() == "":
-            return None
-
+            return update_filter_widget(None, None, "explore_filter_value")
         df = raw_data.get()
-        if df is None:
-            return None
-
-        try:
-            return create_filter_ui(df, filter_metric, "explore_filter_value")
-        except Exception:
-            return None
+        return update_filter_widget(df, filter_metric, "explore_filter_value")
 
     @output
     @render.ui
@@ -321,7 +313,7 @@ def explore_server(input: Inputs, output: Outputs, session: Session) -> None:
         return get_time_filter_display(
             data=raw_data.get(),
             filter_metric=input.explore_filter_metric(),
-            filter_value=get_filter_value(input, "explore_filter_value")
+            filter_value=get_active_filter_value(input, "explore_filter_value")
         )
 
     @reactive.effect
@@ -339,7 +331,7 @@ def explore_server(input: Inputs, output: Outputs, session: Session) -> None:
             return
 
         try:
-            filter_value = get_filter_value(input, "explore_filter_value")
+            filter_value = get_active_filter_value(input, "explore_filter_value")
         except Exception:
             filtered_data.set(df)
             return

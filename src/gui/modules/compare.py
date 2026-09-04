@@ -11,16 +11,15 @@ from pathlib import Path
 from shiny import ui, reactive, render, Inputs, Outputs, Session
 import polars as pl
 from matplotlib.figure import Figure
-from typing import Any, Dict, List
+from typing import Any
 
-from src.core.config.settings import Settings
 from src.core.stats.narrative import generate_comparison_narrative
 from src.core.runlogs import load_table
 from src.core.runlogs.metadata_compare import compare_metadata
 from src.gui.utils.comparisons import *
 from src.gui.utils.ui_helpers import *
 from src.gui.utils.filters import *
-from src.gui.utils import apply_filter, get_filterable_columns, create_filter_ui
+from src.gui.utils import apply_filter, get_filterable_columns, static_filter_ui, update_filter_widget, get_active_filter_value
 
 
 from typing import Any
@@ -79,7 +78,8 @@ def compare_ui() -> Any:
                     }
                 ),
                 ui.div(
-                    ui.output_ui('compare_filter_ui'),
+                    static_filter_ui("compare_filter_value"),
+                    ui.output_ui('compare_filter_visibility'),
                     ui.output_text('compare_filter_value_time_display'),
                     style="display: flex; flex-direction: column; gap: 4px; line-height: 1.15;"
                 ),
@@ -323,23 +323,13 @@ def compare_server(input: Inputs, output: Outputs, session: Session) -> None:
 
     @output
     @render.ui
-    def compare_filter_ui() -> ui.TagChild | None:
-        """Render dynamic filter UI based on selected metric."""
+    def compare_filter_visibility() -> ui.TagChild:
+        """Show/hide the correct static filter widget when filter metric changes."""
         filter_metric = input.compare_filter_metric()
-
-        # Treat empty string as "no filter selected" (our sentinel value)
         if not filter_metric or filter_metric.strip() == "":
-            return None
-
-        # Use baseline data to create filter UI (both datasets should have same structure)
+            return update_filter_widget(None, None, "compare_filter_value")
         b_df = baseline_df.get()
-        if b_df is None:
-            return None
-
-        try:
-            return create_filter_ui(b_df, filter_metric, "compare_filter_value")
-        except Exception:
-            return None
+        return update_filter_widget(b_df, filter_metric, "compare_filter_value")
 
     @output
     @render.text
@@ -348,7 +338,7 @@ def compare_server(input: Inputs, output: Outputs, session: Session) -> None:
         return get_time_filter_display(
             data=baseline_df.get(),
             filter_metric=input.compare_filter_metric(),
-            filter_value=get_filter_value(input, "compare_filter_value")
+            filter_value=get_active_filter_value(input, "compare_filter_value")
         )
 
     @reactive.effect
@@ -375,7 +365,7 @@ def compare_server(input: Inputs, output: Outputs, session: Session) -> None:
             return
 
         try:
-            filter_value = get_filter_value(input, "compare_filter_value")
+            filter_value = get_active_filter_value(input, "compare_filter_value")
         except Exception:
             baseline_filtered.set(b_df)
             treatment_filtered.set(t_df)

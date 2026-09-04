@@ -82,7 +82,8 @@ def select_complete_rows(
     data: pl.DataFrame,
     columns: list[str],
     target_rows: int | None = None,
-    completeness_threshold: float | None = None
+    completeness_threshold: float | None = None,
+    settings: Any | None = None,
 ) -> pl.DataFrame:
     """
     Select rows from data that have high completeness in the specified columns.
@@ -99,10 +100,12 @@ def select_complete_rows(
     Returns:
         DataFrame containing only the selected complete rows
     """
+    if settings is None:
+        settings = Settings()
     if target_rows is None:
-        target_rows = Settings().get("profiling.tree_training.target_rows", 1000)
+        target_rows = settings.get("profiling.tree_training.target_rows", 1000)
     if completeness_threshold is None:
-        completeness_threshold = Settings().get("profiling.tree_training.completeness_threshold", 0.95)
+        completeness_threshold = settings.get("profiling.tree_training.completeness_threshold", 0.95)
 
     try:
         subset = data.select(columns)
@@ -142,6 +145,7 @@ def compute_tree(
     max_predictors: int = 100,
     max_correlation: float = 0.99,
     predictors: list[str] | None = None,
+    settings: Any | None = None,
 ) -> DecisionTreeClassifier | None:
     """
     Train decision tree classifier for performance classification.
@@ -186,7 +190,8 @@ def compute_tree(
             return None
 
         # Sample to target_rows for faster training and visualization
-        settings = Settings()
+        if settings is None:
+            settings = Settings()
         target_rows = settings.get("profiling.tree_training.target_rows", 1000)
         if len(valid_data) > target_rows:
             sample_indices = np.random.choice(len(valid_data), size=target_rows, replace=False)

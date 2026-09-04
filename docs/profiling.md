@@ -52,16 +52,16 @@ Traditional profiling shows "what happened" (e.g., 100K cache misses). SHARP's P
 ### Key Concepts
 
 **Performance Classes (Labels):**
-Discrete categories assigned to runs based on outcome metrics. These become the target variable for decision tree training.
+Discrete categories assigned to runs based on outcome metrics. These become the target variable for decision tree and causal-model training. When the **None (Regression)** labeling strategy is selected, no classes are created and the raw continuous metric is used directly.
 
 **Profiling Metrics:**
 Low-level system measurements (CPU counters, syscall times, resource usage) collected via profiling backends. These provide mechanistic explanations for performance differences.
 
 **Factors:**
-Experimental parameters (input size, thread count, algorithm choice) that can be manipulated. Decision trees identify which factors cause performance class transitions.
+Experimental parameters (input size, thread count, algorithm choice) that can be manipulated. Decision trees identify which factors cause performance class transitions (classification mode) or metric changes (regression mode).
 
 **Decision Trees:**
-Interpretable classifiers that reveal factor → class relationships. Each leaf node represents a rule linking factor values to performance outcomes.
+Interpretable models that reveal factor → outcome relationships. In classification mode, each leaf predicts a performance class; in regression mode, each leaf predicts a continuous metric value. Feature importances are comparable across both modes.
 
 ## Performance Labeling Strategies
 
@@ -83,6 +83,12 @@ SHARP's labelers are **rule-based classifiers**, not ML models:
 - They assign labels based on **thresholds**, **quantiles**, or **natural groupings**
 - They are **deterministic** and **interpretable**
 - They serve as **ground truth** for training ML classifiers (decision trees)
+
+The special **None (Regression)** strategy is the exception: it skips labeling entirely and passes the raw continuous metric to all analyzers in regression mode, training a `DecisionTreeRegressor` instead of a classifier.
+
+**The labeling strategy acts as the single source of truth for the analysis mode.** Selecting a
+classification strategy (binary, tertile, quartile, auto, or manual) triggers classification mode;
+selecting "None (Regression)" triggers regression mode in all analyzers automatically.
 
 ### Available Labeling Strategies
 
@@ -190,7 +196,7 @@ SHARP's labelers are **rule-based classifiers**, not ML models:
 # Quartile labeling: Separates O0, O1, O2, O3 performance ranges
 ```
 
-#### 5. Manual Labeling (`manual`) - User-Controlled Multi-Class
+#### 4. Manual Labeling (`manual`) - User-Controlled Multi-Class
 
 **Description:** Flexible multi-class labeling with user-specified number of cutoffs (1-9), supporting both manual adjustment and automated optimization.
 
@@ -275,6 +281,42 @@ Return cutoffs with minimum AIC
 | **Automated search** | Yes | No | N/A | Yes (all counts) |
 | **Best for** | Simple analysis | Statistical | Discovery | Iterative/domain-driven |
 
+#### 6. None — Regression Mode (`regression`)
+
+**Description:** Skips discrete labeling entirely and feeds the raw continuous metric values directly into all influence analyzers using **regression mode**. No performance classes are created.
+
+**How it works:**
+1. The raw metric values (e.g., execution time in seconds) are passed directly as the outcome variable
+2. All analyzers receive `outcome_mode="regression"`, bypassing the classification pipeline
+3. The decision tree uses `DecisionTreeRegressor` (variance/MSE splitting) instead of `DecisionTreeClassifier` (Gini impurity)
+4. Factor importance is still measured via `feature_importances_` (mean decrease in impurity), which works identically for classifiers and regressors
+
+**Output differences compared to classification mode:**
+- **No class names** or colored labels in visualizations
+- Interactive tree explorer is available when the installed Supertree version supports the current tree API
+- Tree leaf nodes contain predicted continuous values instead of class labels
+- Causal analyzers (Granger, CCF, PCMCI, Hybrid) analyze correlation with the continuous metric directly
+
+**When to use:**
+- Your performance data does not have a clear bimodal structure (no natural FAST/SLOW split)
+- You want to identify factors that correlate with *absolute* performance, not class membership
+- Exploratory analysis before deciding on a classification strategy
+- When the precise magnitude of the effect matters (not just which class a run belongs to)
+
+**Characteristics:**
+- **No cutoffs**: No thresholds to tune or adjust
+- **No class balance issues**: Works equally well on any metric distribution
+- **Continuous outcome**: Analyzers model the metric directly
+- **Regression tree**: Uses MSE-based splitting; leaf node = predicted metric value
+
+**Example use case:**
+```
+# Scenario: Analyzing execution time (1.0s to 10.0s range) without clear groupings
+# Regression mode: Trains a regression tree directly on execution time
+# Tree reveals: thread_count > 16 → predicted time = 8.5s (vs 2.1s otherwise)
+# No need to choose a FAST/SLOW boundary — the tree finds it from the continuous signal
+```
+
 **Why Manual is useful:**
 
 1. **Domain knowledge**: You know performance has 3 modes (cache levels) but Auto finds 2
@@ -282,7 +324,7 @@ Return cutoffs with minimum AIC
 3. **Custom granularity**: Need 5 groups for detailed SLO analysis (P50, P75, P90, P95, P99)
 4. **Debugging**: Narrow down issue by adjusting cutoffs while watching tree structure
 
-#### 4. Auto Labeling (`auto`) - Hybrid Strategy
+#### 5. Auto Labeling (`auto`) - Hybrid Strategy
 
 **Description:** Sophisticated multi-phase approach combining temporal analysis, tail detection, and natural clustering.
 
@@ -365,16 +407,31 @@ Return cutoffs with minimum AIC
 3. **Natural groupings**: System behaviors often cluster (binary state machines: locked/unlocked)
 4. **Avoids arbitrary splits**: Jenks finds valleys, not arbitrary percentiles
 
+### Strategy Comparison
+
+| Aspect | Binary | Tertile/Quartile | Auto | Manual | None (Regression) |
+|--------|--------|------------------|------|--------|-------------------|
+| **Classes** | 2 | 3 or 4 | 2–7 (auto) | 2–10 | — (continuous) |
+| **Cutoff placement** | Auto/manual | Quantile | Jenks + temporal | Jenks + manual | N/A |
+| **Mutability** | Yes | No | No | Yes (all) | N/A |
+| **Interactive tree** | ✓ | ✓ | ✓ | ✓ | ✓* |
+| **Analyzers** | Classification | Classification | Classification | Classification | **Regression** |
+| **Best for** | A/B analysis | Statistical power | Discovery | Domain-driven | Raw metric correlation |
+
+\* Depends on installed Supertree version/API compatibility.
+
 ### Labeling Workflow in GUI
 
 1. **Load experiment**: Select experiment and task in Profile tab
 2. **Choose outcome metric**: Select the performance metric to analyze (e.g., `time`, `cpu_time`)
-3. **Select labeling strategy**: Choose from binary, tertile, quartile, or auto
-4. **Interactive adjustment** (binary only):
+3. **Select labeling strategy**: Choose from binary, tertile, quartile, auto, manual, or **none (regression)**
+4. **Interactive adjustment** (binary and manual only):
    - Click on distribution plot to move cutoff
-   - Use "Search for Cutoff" button to optimize AIC
+   - Use "Search for Cutoff" (binary) or "Find Cutoffs" (manual) to optimize AIC
 5. **Exclude predictors**: Remove correlated or invariant features
-6. **Train decision tree**: Use labeled classes to identify root causes
+6. **Train model**: Classification strategies train a `DecisionTreeClassifier`; regression strategy trains a `DecisionTreeRegressor`
+
+**Note on outcome mode:** SHARP internally derives the analysis mode (`classification` or `regression`) directly from the chosen labeling strategy. There is no separate setting — selecting "None (Regression)" is the only way to switch all analyzers to regression mode.
 
 ### Technical Details
 
@@ -426,11 +483,295 @@ SHARP uses the PELT (Pruned Exact Linear Time) algorithm from the `ruptures` lib
 ### Best Practices
 
 1. **Start with Auto**: Let SHARP discover structure, then refine if needed
-2. **Use Binary for A/B testing**: When you have clear hypothesis about a change
+2. **Use Binary for A/B testing**: When you have a clear hypothesis about a change
 3. **Use Quantiles for balanced classes**: When statistical power matters more than interpretability
-4. **Check for warmup**: Always inspect the first few samples - Auto labeling catches this automatically
+4. **Check for warmup**: Always inspect the first few samples — Auto labeling catches this automatically
 5. **Tail latency matters**: If analyzing SLOs, Auto or manual P95/P99 cutoffs are essential
-6. **Validate with plots**: Visual inspection of colored scatter plots confirms labeling makes sense
+6. **Use None (Regression) for exploration**: When the distribution is unimodal or you are unsure where to place cutoffs; regression mode identifies factors correlated with the raw metric
+7. **Validate with plots**: Visual inspection of colored scatter plots confirms labeling makes sense
+
+## Per-Experiment Configuration
+
+### Overview
+
+SHARP allows you to **override settings on a per-experiment basis** by including an optional `## Profile settings` section in the markdown file that accompanies your experiment data. This enables experiment-specific customization without modifying the global `settings.yaml` file.
+
+### Basic Usage
+
+Add a top-level section to your experiment's markdown file (e.g., `benchmark-prof.md`):
+
+```markdown
+## Profile settings
+
+{
+  "profiling.default_outcome_metric": "execution_time",
+  "profiling.default_predictor_exclusions": ["timestamp", "date"],
+  "profiling.default_filter_metric": "timestamp",
+  "profiling.default_filter_value": [0, 600],
+  "profiling.default_num_perf_groups": 3,
+  "profiling.default_cutoff_values": [0.12, 0.45],
+  "profiling.default_influence_analyzer": "granger",
+  "profiling.lag_detection.timestamp_column": "Time"
+}
+```
+
+**Key features:**
+- **JSON format**: Settings are specified as a JSON dictionary
+- **Dot notation**: Use dotted paths to specify nested settings (e.g., `profiling.predictor_selection.max_predictors`)
+- **Trailing comma tolerance**: The parser automatically strips trailing commas for convenience
+- **Precedence**: Experiment settings override global `settings.yaml` values for that experiment only
+- **Isolation**: Changes apply only to the current experiment; other experiments and global settings are unaffected
+
+### Special Configuration Keys
+
+#### 1. Default Outcome Metric
+
+**Key:** `profiling.default_outcome_metric`
+
+**Type:** `string`
+
+**Purpose:** Specifies which column should be used as the default outcome metric when the experiment is loaded in the Profile tab.
+
+**Example:**
+```json
+{
+  "profiling.default_outcome_metric": "latency_ms"
+}
+```
+
+**Behavior:**
+- If the specified column exists in the data, it will be pre-selected in the outcome metric dropdown
+- If the column doesn't exist or the key is not provided, the GUI requires manual selection
+- Users can still change the selection interactively in the GUI
+
+**When to use:**
+- Experiments with non-standard outcome column names
+- Workflows where you want to analyze a specific metric consistently across runs
+- Automated analysis pipelines
+
+#### 2. Default Predictor Exclusions
+
+**Key:** `profiling.default_predictor_exclusions`
+
+**Type:** `array of strings`
+
+**Purpose:** Specifies which columns should be excluded from predictor selection by default.
+
+**Example:**
+```json
+{
+  "profiling.default_predictor_exclusions": [
+    "timestamp",
+    "date",
+    "experiment_id",
+    "run_uuid"
+  ]
+}
+```
+
+**Behavior:**
+- Listed columns are automatically excluded from decision tree training and causal analysis
+- Exclusions are applied in addition to SHARP's automatic exclusions (zero-variance, all-null, etc.)
+- Users can still manually include/exclude predictors in the GUI
+
+**When to use:**
+- Columns that are identifiers or timestamps (not causal factors)
+- Columns that leak information about the outcome (data leakage prevention)
+- Domain-specific non-predictive features
+
+#### 3. Default Filter Metric and Filter Value
+
+**Keys:** `profiling.default_filter_metric`, `profiling.default_filter_value`
+
+**Types:** `string`, `scalar or array`
+
+**Purpose:** Restores the Profile tab filter controls so loading the same experiment can start from the same filtered subset.
+
+**Examples:**
+```json
+{
+  "profiling.default_filter_metric": "timestamp",
+  "profiling.default_filter_value": [0, 600]
+}
+```
+
+```json
+{
+  "profiling.default_filter_metric": "hostname",
+  "profiling.default_filter_value": ["node-1", "node-2"]
+}
+```
+
+#### 4. Default Performance Groups and Cutoffs
+
+**Keys:** `profiling.default_num_perf_groups`, `profiling.default_cutoff_values`
+
+**Types:** `integer`, `array of numbers`
+
+**Purpose:** Restores labeler settings for repeatability.
+
+**Behavior:**
+- If `profiling.default_cutoff_values` is present and valid, it takes precedence.
+- Otherwise `profiling.default_num_perf_groups` is used.
+- If neither key is present, current SHARP defaults apply.
+
+**Example:**
+```json
+{
+  "profiling.default_num_perf_groups": 4,
+  "profiling.default_cutoff_values": [0.11, 0.24, 0.48]
+}
+```
+
+#### 5. Default Influence Analyzer
+
+**Key:** `profiling.default_influence_analyzer`
+
+**Type:** `string`
+
+**Purpose:** Pre-selects the influence analyzer in the Profile controls.
+
+**Example:**
+```json
+{
+  "profiling.default_influence_analyzer": "granger"
+}
+```
+
+### Overriding Any Setting
+
+You can override **any setting** from `settings.yaml` using the same dotted path notation:
+
+#### Predictor Selection Settings
+
+```json
+{
+  "profiling.predictor_selection.max_predictors": 300,
+  "profiling.predictor_selection.max_per_group": 5,
+  "profiling.predictor_selection.max_correlation": 0.95
+}
+```
+
+**Use case:** Experiment requires more predictors due to high-dimensional data
+
+#### Tree Training Settings
+
+```json
+{
+  "profiling.tree_training.target_rows": 10000,
+  "profiling.tree_training.completeness_threshold": 0.90
+}
+```
+
+**Use case:** Large dataset where default downsampling is too aggressive
+
+#### Lag Detection Settings
+
+```json
+{
+  "profiling.lag_detection.enabled": true,
+  "profiling.lag_detection.timestamp_column": "Time",
+  "profiling.lag_detection.max_lag": 10
+}
+```
+
+**Use case:** Enable temporal analysis with custom timestamp column for rate-based synthetic feature generation
+
+#### Data Model Settings
+
+```json
+{
+  "profiling.source_column_names": ["host", "node_id"]
+}
+```
+
+**Use case:** Multi-host data where automatic source detection needs help
+
+**Per-experiment override:** You can set `profiling.source_column_names` inside
+the `## Profile settings` section of a specific experiment markdown file to
+customize source detection for that experiment only.
+
+### Notes
+
+**Quotes are required:**
+- Keys must be quoted: `"profiling.default_outcome_metric"` ✓, not `profiling.default_outcome_metric` ✗
+- String values must be quoted: `"time"` ✓, not `time` ✗
+- Numeric and boolean values should not be quoted: `200` ✓, not `"200"` ✗
+
+**Arrays use square brackets:**
+```json
+{
+  "profiling.default_predictor_exclusions": ["col1", "col2", "col3"]
+}
+```
+
+### How Settings Are Applied
+
+**Load-time behavior:**
+
+1. SHARP reads the experiment's markdown file
+2. Extracts the `## Profile settings` section (if present)
+3. Parses the JSON content (stripping trailing commas first)
+4. Separates special keys (`profiling.default_outcome_metric`, `profiling.default_predictor_exclusions`)
+  plus optional UI restore keys (`profiling.default_filter_metric`,
+  `profiling.default_filter_value`, `profiling.default_num_perf_groups`,
+  `profiling.default_cutoff_values`, `profiling.default_influence_analyzer`)
+5. Creates a `SettingsView` overlay that checks experiment overrides before falling through to global `settings.yaml`
+6. All profile analysis functions receive the `SettingsView` instead of the global `Settings` singleton
+
+**Runtime behavior:**
+
+- Settings queries check the experiment-specific overrides first
+- If a key is not found in the overrides, the global setting is used
+- The global `settings.yaml` file is never modified
+- Other experiments are completely unaffected
+
+**Thread safety:**
+
+- The global `Settings` singleton remains immutable
+- Each experiment gets its own `SettingsView` instance
+- No process-wide state mutations
+
+### Backward Compatibility
+
+**Legacy key names:**
+
+For backward compatibility, the following legacy key names are supported:
+
+- `default_outcome_metric` → maps to `profiling.default_outcome_metric`
+- `default_predictor_exclusions` → maps to `profiling.default_predictor_exclusions`
+- `default_filter_metric` → maps to `profiling.default_filter_metric`
+- `default_filter_value` → maps to `profiling.default_filter_value`
+- `default_num_perf_groups` → maps to `profiling.default_num_perf_groups`
+- `default_cutoff_values` / `default_cutoffs` → maps to `profiling.default_cutoff_values`
+- `default_influence_analyzer` → maps to `profiling.default_influence_analyzer`
+
+**Recommendation:** Use the `profiling.` prefix for consistency with `settings.yaml` structure.
+
+### Troubleshooting
+
+**Settings not taking effect:**
+
+1. **Check JSON syntax**: Use a JSON validator to ensure your JSON is valid (after mentally removing trailing commas)
+2. **Check key paths**: Verify the dotted path matches the structure in `settings.yaml`
+3. **Check section header**: Must be exactly `## Profile settings` (case-sensitive, level-2 header)
+4. **Check file location**: Settings must be in the markdown file being analyzed (e.g., `benchmark-prof.md`)
+
+**Verification:**
+
+To verify settings are being loaded:
+1. Open the experiment in the Profile tab
+2. Check that `default_outcome_metric` is pre-selected (if specified)
+3. Check that `default_predictor_exclusions` columns are already excluded in the predictor list
+4. Behavior changes (like temporal enrichment with custom timestamp column) should be visible in the analysis results
+
+### Best Practices
+
+1. **Use for experiment-specific needs**: Override settings only when the experiment requires different behavior than the global defaults
+2. **Document why**: Add a comment in the markdown explaining why settings are overridden
+3. **Keep it minimal**: Only override settings that need to change; rely on global defaults otherwise
+4. **Test your JSON**: Validate JSON syntax before committing (trailing commas are forgiving but other syntax errors are not)
+5. **Use consistent naming**: Prefer `profiling.*` prefix over legacy names for new configurations
 
 ## Profiling Backends and Data Collection
 
@@ -1408,7 +1749,8 @@ SHARP automatically detects whether data is tall (multi-source) or wide (already
 **Philosophy**: Zero settings. Users provide data; SHARP figures out the rest. If heuristics fail:
 ```yaml
 profiling:
-  source_column_names: [host, rank]       # Only override if auto-detection fails
+  data_model:
+    source_columns: [host, rank]       # Only override if auto-detection fails
 ```
 
 #### Source-Specific Analysis (Two Options)
@@ -1437,9 +1779,12 @@ When the user wants source-specific insights (e.g., "which host is the bottlenec
 
 ```yaml
 profiling:
-  # No format setting needed; auto-detected
-  # Optional override (rarely needed)
-  source_column_names: [host, hostname, node, rank, device, nic, thread, pid]
+  data_model:
+    # No format setting needed; auto-detected
+    # Optional overrides (rarely needed)
+    source_columns: null                # Auto-detect (or override with list)
+    source_specific_method: auto        # auto|pivot|interaction
+    max_sources_for_pivot: 500          # Switch to interaction if exceeded
 ```
 
 ### 3. Lag Detection and Directional Causal Inference
@@ -1570,7 +1915,7 @@ Before lag and causal analysis runs, SHARP reduces the 40K+ raw columns to ~30-8
 
 #### Strategy R3: Row Relevance Filter
 
-**Problem solved**: Some rows are missing outcome or predictor data, but they may be valuable for lag-based analysis. However, R3 should only check against the actual set of predictors that will be used in the analysis, not all columns.
+**Problem solved**: Some rows are missing outcome or predictor data, but they may be valuable for lag-based analysis (Granger causality, CCF). However, R3 should only check against the actual set of predictors that will be used in the analysis, not all columns.
 
 **Solution**: Drop rows that have **neither** outcome nor **any of the selected predictor values**. The selected predictors are the final set from the factor analyzer (after correlation filtering, max_predictors limits, exclusions, etc.). Keep rows with:
 - Only outcome (selected predictors may appear at earlier lags)
@@ -1706,7 +2051,183 @@ profiling:
 - Narratives explain what each enriched factor represents
 - User doesn't select or configure enrichers; activation is automatic
 
-## See Also
+### 6. Integration with the Profile Tab
+
+The Advanced Analysis features integrate seamlessly with the existing labeling and decision tree workflow, with **zero new configuration settings** required:
+
+**User perspective**:
+1. Load data (any format, tall or wide, with or without source columns)
+2. Select outcome metric
+3. (Optional) Select performance labeling strategy
+4. (Optional) Click "Show source-specific insights" button
+5. Review results: predictive factors + optimal lags + source-specific patterns (if requested)
+
+**Automatic internal steps** (user never sees these):
+1. **Format detection**: Infer tall vs wide, detect source columns (if present)
+2. **Data reduction**: C1 (adaptive column selection) + R2 (simple row filter) → ~200-300 predictors
+3. **Lag detection**: Granger causality identifies optimal lag per predictor
+4. **Source-specific analysis** (if user requested):
+   - If #sources ≤ 500: Pivot to wide → source-specific analysis
+   - If #sources > 500: Use interaction model → stays tall
+5. **Optional enrichment**: Synthetic columns added if enabled (Phase 7)
+6. **Decision tree**: Trained on lag-aligned predictors (+ enriched columns if present)
+
+**What the user sees**:
+- Performance classes (from labeling)
+- Predictive factors (from decision tree, lag-aware + directional)
+- Optimal lags and confidence levels
+- **If requested**: Source-specific insights (which host/rank is the bottleneck?)
+- **If enabled**: Aggregate enrichers (source-general trends) and interaction factors
+- Narrative explanations for each finding
+
+**Settings philosophy**:
+- ✅ **Automated**: Format, source columns, analysis mode selection, enricher activation
+- ✅ **Visible**: Info badge ("Multi-source detected (3 hosts)"), "View source-specific" action
+- ❌ **Not provided**: Format toggle, tall/wide choice, method selection, aggregation options
+- **Why**: VGO's top priority is Simplicity. Defer all detectable decisions until implementation time.
+
+### Design Rationale: Why These Choices?
+
+**Zero settings by default**: Auto-detect format, sources, and analysis modes. Users provide data; SHARP figures out the rest.
+
+**Tall as canonical**: Matches natural collection format; scales to large node counts; pools statistical power across sources.
+
+**Granger causality**: Balances simplicity (statsmodels available), interpretability (no user tuning), automation (discovers lags), and directional evidence.
+
+**Adaptive column selection**: Works on any multi-source null pattern without metadata; pragmatic for messy real-world data.
+
+**Two source-specific options**: Pivot for small #sources (familiar wide analysis), interaction model for unlimited scale (no pivot overhead).
+
+**Enrichers as decorators**: Preserve simplicity in core pipeline; enable advanced use cases without coupling; can be disabled independently.
+
+**GUI automation**: Source detection, source-specific method selection, enricher activation all automatic. User only selects outcome and (optionally) performance labeling. Core principle: minimize user decisions.
+
+## Future Enhancements (Deferred Development)
+
+The following features are architecturally designed but deferred pending real-world use-case feedback. They are documented here to guide implementation without complicating the current effort.
+
+### Ensemble Result Aggregation (`InfluenceSummarizer`)
+
+**Current state**: The Profile tab runs a single analyzer (tree, CCF, Granger, Hybrid, or PCMCI) selected via settings.
+
+**Future**: Run multiple analyzers in parallel or tiered fashion (cheap methods first) and combine their results.
+
+**Design**:
+- **InfluenceAnalyzerRegistry**: Already implemented in Phase 2. Encapsulates shared data, routes to multiple analyzers.
+- **InfluenceSummarizer** (new layer): Takes results from multiple analyzers, produces unified ranked list via consensus or weighted aggregation.
+  - Simple consensus: Factors appearing in top-10 of multiple methods get boosted
+  - Weighted: Combine p-values, confidence intervals, and directional agreement
+  - Future: Learnable fusion trained on historical correct/incorrect predictions
+
+**Settings**:
+```yaml
+profiling:
+  # Current single-analyzer mode
+  influence_analyzer: "granger"
+
+  # Future ensemble mode
+  # influence_analyzer: ["granger", "hybrid", "ccf"]
+  # ensemble_mode: "parallel"  # or "tiered" (cheap first, escalate if no signal)
+  # ensemble_aggregation: "consensus"  # or "weighted", "learnable"
+```
+
+**Why deferred**: We don't yet know which aggregation strategy users prefer or whether ensemble methods are cost-effective. Once real ensemble results are available, implement based on empirical feedback.
+
+**Implementation timeline**: Post-Phase 4 (after Granger is validated), ~1-2 weeks, ~150-200 LOC.
+
+### Dynamic System Modeling and Control-Theoretic Analysis
+
+**Current state**: All analyzers are statistical, operating on tabular data with class labels.
+
+**Future**: Support dynamic models (transfer functions, state-space systems) and control-theoretic analysis.
+
+**Motivating use cases**:
+- "Fit a transfer function from cache-misses to latency"
+- "Compute control authority: how much can we reduce latency by changing thread count?"
+- "Validate a provided system model against data"
+
+**Design**:
+- Separate `SystemModelAnalyzer` ABC alongside `InfluenceAnalyzer`
+- Input: Time-series data + outcome column (continuous), optional prior model
+- Output: Model parameters, transfer functions, control sensitivities
+- Example: `StateSpaceAnalyzer`, `TransferFunctionIdentifier`, `ControlAuthorityAnalyzer`
+
+**Why deferred**: No current use case drives this. Dynamic modeling adds significant complexity (continuous vs discrete time, stability regions, model validation). Implement only when users request system identification capabilities.
+
+**Implementation timeline**: Phase 8+, after ensemble features stabilize, ~2-3 weeks, ~300+ LOC.
+
+### Historical Tracking and Experiment Log
+
+**Current state**: Each Profile analysis run is independent. No historical record of which metrics were investigated, how ranking changed over time, or whether factors are consistent across runs.
+
+**Future**: Persist lightweight analysis summaries and enable historical comparison.
+
+**Design**:
+- `AnalysisSnapshot`: Stores top-K factors + metadata (timestamp, data shape, outcome distribution, runtime)
+- `ExperimentLog`: Append-only log of snapshots (JSON lines or SQLite)
+- Comparison tools: "What changed between Tuesday's run and Friday's run?"
+- Drift detection: Alert if top factors suddenly shift
+
+**Benefits**:
+- **Experiment tracking**: Correlate factor changes with system updates or workload changes
+- **Confidence building**: See that top factors consistently appear across runs
+- **Performance monitoring**: Historical context for understanding regressions
+
+**Design**:
+```python
+@dataclass
+class AnalysisSnapshot:
+    timestamp: datetime
+    data_hash: str  # Input data fingerprint
+    outcome_column: str
+    analyzer_run: str  # "granger", "hybrid", etc.
+    top_factors: list[InfluenceFactor]  # Top ~20 from this run
+    total_factors: int
+    runtime_seconds: float
+    metadata: dict  # User-provided experiment labels
+
+class ExperimentLog:
+    def append(self, snapshot: AnalysisSnapshot) -> None
+    def compare(self, T1: datetime, T2: datetime) -> ComparisonReport
+    def latest_by_outcome(self, outcome_col: str) -> AnalysisSnapshot
+```
+
+**First-pass implementation**: Write snapshots as JSON lines (~1MB per run). No UI yet—export for Excel/Python analysis.
+
+**Why deferred**: Requires stable `InfluenceSummarizer` (what exactly do we persist?) and real use data to understand what comparisons matter. Start with simple JSON export; UI comes later once patterns emerge.
+
+**Implementation timeline**: Phase 8+, as opt-in feature (disabled by default), ~1 week, ~100-150 LOC.
+
+### Extended Uncertainty Quantification
+
+**Current state**:
+- Each analyzer produces confidence intervals and p-values where applicable.
+- SHARP now adds a per-factor Bayesian confidence layer in the narrative:
+  - **Classification mode**: Laplace-approximate Bayesian logistic effect (binary, and one-vs-rest summary for multi-class)
+  - **Regression mode**: Bayesian ridge posterior effect
+  - Reported as standardized effect size, 95% credible interval, and $P(\text{effect} > 0)$
+
+**Future**: Cross-method uncertainty quantification and Bayesian aggregation.
+
+**Design**:
+- Combine p-values and confidence intervals from multiple analyzers via Fisher's method or meta-analysis
+- Bayesian meta-analysis: Combine effect sizes weighted by precision
+- Sensitivity analysis: How do conclusions change if we trust certain analyzers more?
+
+**Why deferred**: Simple consensus (Phase 8) covers most use cases. Bayesian methods are powerful but require careful calibration on real data. Deferred until ensemble mode is widely used.
+
+### Extension: Alternative Modeling Paradigms
+
+The current architecture (InfluenceAnalyzer ABC → list[InfluenceFactor]) is designed for statistical methods, but it can also accommodate other modeling paradigms:
+
+- **Machine learning ranking**: Use a trained neural net to rank factors by importance
+- **Expert systems**: Encode domain knowledge as rules ("if cache_misses > X then likely latency")
+- **Hybrid models**: Combine statistical evidence with expert rules
+- **Data-driven control**: Learn an empirical control policy (e.g., via RL)
+
+These require no changes to the core InfluenceAnalyzer interface—they just inherit and implement `analyze()`. The registry (Phase 2) accommodates heterogeneous analyzer types.
+
+See Also
 
 - [Backend Configuration Schema](schemas/backend.md) - Backend YAML structure
 - [Launch Documentation](launch.md) - Command-line options

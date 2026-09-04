@@ -853,22 +853,24 @@ class AutoLabeler(PerformanceLabeler):
         Label performance values using the hybrid strategy.
 
         Note: AutoLabeler is designed for temporal data where the original
-        training order matters. For new data, this method applies the learned
-        thresholds but cannot detect warmup/cooldown phases.
+        training order matters. For new data (e.g. a filtered subset), this
+        method re-runs the full hybrid detection on the provided values so
+        that the returned array always has the same length as ``values``.
 
         Args:
             values: Array of performance measurements
 
         Returns:
-            Array of class labels
+            Array of class labels (same length as values)
         """
-        # For the training data, return stored labels
+        # Fast path: exact same data as training — return stored labels.
         if len(values) == len(self._labels):
             return np.array(self._labels, dtype=object)
 
-        # For new data, we need to apply the learned thresholds
-        # This is a simplified version that doesn't detect temporal phases
-        return np.array(self._labels, dtype=object)
+        # Different size (e.g. filtered data): re-run the full labeling on
+        # the new values so the result is always the correct length.
+        fresh = AutoLabeler(values, lower_is_better=self.lower_is_better)
+        return np.array(fresh._labels, dtype=object)
 
     def get_class_names(self) -> List[str]:
         """Get ordered list of class names."""

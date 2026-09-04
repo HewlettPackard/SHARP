@@ -6,7 +6,14 @@ GUI utilities: runlog loaders, formatters, input validators.
 
 from src.core.runlogs import scan_runlogs, load_table, parse_markdown_runtime_options
 from src.core.stats.correlations import compute_generalized_correlation, safe_correlation
-from .filters import create_filter_ui, apply_filter, get_filterable_columns, is_full_range_filter
+from .filters import (
+    apply_filter,
+    get_active_filter_value,
+    get_filterable_columns,
+    is_full_range_filter,
+    static_filter_ui,
+    update_filter_widget,
+)
 from .profile.files import (
     check_prof_file_exists,
     get_markdown_path,
@@ -28,7 +35,9 @@ __all__ = [
     "parse_markdown_runtime_options",
     "compute_generalized_correlation",
     "safe_correlation",
-    "create_filter_ui",
+    "static_filter_ui",
+    "update_filter_widget",
+    "get_active_filter_value",
     "apply_filter",
     "get_filterable_columns",
     "is_full_range_filter",

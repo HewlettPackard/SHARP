@@ -26,12 +26,46 @@ from src.gui.utils.profile.distribution import update_labeler_from_click
 from src.core.config.settings import Settings
 
 
+def _should_preserve_existing_labeler(
+    existing_labeler: PerformanceLabeler | None,
+    *,
+    is_auto: bool,
+    lower_is_better: bool,
+    values: np.ndarray | None = None,
+) -> bool:
+    """Return True when _initialize_labeler should keep the existing labeler.
+
+    Checks mode and lower_is_better only — NOT group count, because the
+    browser value of num_perf_groups may be stale during a restore.
+
+    If *values* is provided and the labeler carries cutoff points, those
+    cutoffs are validated against [values.min(), values.max()].  A labeler
+    whose cutoffs fall outside the current data range is not preserved.
+    """
+    if existing_labeler is None:
+        return False
+    if getattr(existing_labeler, "lower_is_better", None) != lower_is_better:
+        return False
+    if is_auto:
+        return isinstance(existing_labeler, AutoLabeler)
+    if not isinstance(existing_labeler, (BinaryLabeler, ManualLabeler, RegressionLabeler)):
+        return False
+    # Range check: if the current data was provided, ensure all cutoffs are
+    # within its range.  RegressionLabeler has no cutoffs, so it always passes.
+    if values is not None and isinstance(existing_labeler, CutoffBasedLabeler):
+        lo, hi = float(values.min()), float(values.max())
+        if any(c < lo or c > hi for c in existing_labeler.cutoffs):
+            return False
+    return True
+
+
 def initialize_labeler_effect(
     input: Inputs,
     active_data: Any,
     validated_metric: Any,
     lower_is_better_setting: Any,
-    current_labeler: Any
+    current_labeler: Any,
+    pending_labeler_restore: Any = None,
 ) -> None:
     """
     Create a reactive effect to initialize labeler when data/metric/strategy changes.
@@ -42,7 +76,14 @@ def initialize_labeler_effect(
         validated_metric: Reactive calc returning validated metric column name
         lower_is_better_setting: Reactive value for lower_is_better flag
         current_labeler: Reactive value to store the labeler
+        pending_labeler_restore: Reactive value; skip labeler init while truthy.
     """
+    # Track the last metric for which we ran a full initialization.  When the
+    # outcome metric changes the existing labeler must always be recomputed —
+    # even if its type and lower_is_better still match — because the cutoff
+    # position is meaningless for a different column's value range.
+    _last_init_metric: dict[str, str] = {"value": ""}
+
     @reactive.effect
     def _initialize_labeler() -> None:
         """Initialize labeler when data/metric/lower_is_better/perf_auto_detect changes.
@@ -52,22 +93,25 @@ def initialize_labeler_effect(
         """
         data = active_data()
         metric_col = validated_metric()
-
-        if data is None or not metric_col or metric_col not in data.columns:
-            current_labeler.set(None)
-            return
-
-        values = data[metric_col].drop_nulls().to_numpy()
-        if len(values) < 2:
-            current_labeler.set(None)
-            return
-
         lower_is_better = lower_is_better_setting.get()
 
         try:
             is_auto = bool(input.perf_auto_detect())
         except SilentException:
             is_auto = False
+
+        if data is None or not metric_col or metric_col not in data.columns:
+            return
+
+        values = data[metric_col].drop_nulls().to_numpy()
+        if len(values) < 2:
+            return
+
+        # Skip while a markdown restore is pending (read via isolate so
+        # clearing the flag doesn't re-trigger this effect).
+        with reactive.isolate():
+            if pending_labeler_restore is not None and pending_labeler_restore.get() is not None:
+                return
 
         # Read num_groups without registering a reactive dependency — group-count
         # transitions are handled by handle_num_cutoffs_change_effect.
@@ -77,6 +121,16 @@ def initialize_labeler_effect(
             except (SilentException, ValueError, TypeError):
                 num_groups = 2
             num_groups = max(1, min(10, num_groups))
+            existing_labeler = current_labeler.get()
+
+        # Only attempt to preserve the existing labeler when the outcome metric
+        # has not changed.  A metric change always warrants a fresh computation.
+        metric_changed = _last_init_metric["value"] != metric_col
+        if _should_preserve_existing_labeler(
+            existing_labeler, is_auto=is_auto, lower_is_better=lower_is_better,
+            values=values,
+        ) and not metric_changed:
+            return
 
         try:
             labeler: PerformanceLabeler
@@ -91,6 +145,7 @@ def initialize_labeler_effect(
                 labeler = BinaryLabeler(values, lower_is_better)
             else:
                 labeler = ManualLabeler(values, lower_is_better, num_groups - 1)
+            _last_init_metric["value"] = metric_col
             current_labeler.set(labeler)
         except Exception:
             current_labeler.set(None)
@@ -255,7 +310,8 @@ def handle_num_cutoffs_change_effect(
     input: Inputs,
     active_data: Any,
     validated_metric: Any,
-    current_labeler: Any
+    current_labeler: Any,
+    pending_labeler_restore: Any = None,
 ) -> None:
     """
     Create a reactive effect to handle changes in the num_perf_groups dropdown.
@@ -268,11 +324,16 @@ def handle_num_cutoffs_change_effect(
         active_data: Reactive calc returning current dataframe
         validated_metric: Reactive calc returning validated metric column name
         current_labeler: Reactive value storing the current labeler
+        pending_labeler_restore: Reactive value; skip rebuild while truthy.
     """
     @reactive.effect
     @reactive.event(input.num_perf_groups, ignore_none=True)
     def _handle_num_groups_change() -> None:
         """Adjust labeler when the user changes the number of performance groups."""
+        # Skip while a markdown restore is pending.
+        if pending_labeler_restore is not None and pending_labeler_restore.get() is not None:
+            return
+
         with reactive.isolate():
             try:
                 is_auto = bool(input.perf_auto_detect())
@@ -357,25 +418,25 @@ def get_cutoff_display_info(labeler: PerformanceLabeler | None) -> tuple[str, bo
         return "Initializing...", False
 
 
-def render_cutoff_controls(
+def render_cutoff_actions(
     labeler: PerformanceLabeler | None,
     excluded_names: list[str] | None = None,
 ) -> list[ui.TagChild]:
     """
-    Render the Performance groups control row and associated action buttons.
+    Render labeler-derived action buttons and sync disabled state for group controls.
 
-    The UI shows a single row with an "Auto" checkbox and a "# groups" dropdown
-    (1-10). The dropdown is disabled while Auto is checked. A Search button is
-    always visible but grayed out when Auto or regression mode is active.
+    The perf_auto_detect checkbox and num_perf_groups stepper live in a stable
+    parent render and are NOT recreated here.  This function returns only the
+    search/predictors action buttons plus a JS snippet that synchronises the
+    stepper's disabled and opacity state with the current labeler.
 
     Args:
         labeler: Current performance labeler (None if not yet initialized)
         excluded_names: Excluded predictor names for the tooltip badge
 
     Returns:
-        List of UI elements for the control panel
+        List of UI elements for the action panel
     """
-    # --- Derive UI state from the current labeler ---
     is_auto = isinstance(labeler, AutoLabeler)
     is_regression = isinstance(labeler, RegressionLabeler)
     is_mutable = (
@@ -386,31 +447,6 @@ def render_cutoff_controls(
         and labeler.is_mutable
     )
     search_disabled = is_auto or is_regression or labeler is None
-
-    # Determine the selected value for the groups dropdown
-    if is_auto or labeler is None:
-        num_groups_selected = "2"  # sensible default when Auto is unchecked
-    elif is_regression:
-        num_groups_selected = "1"
-    elif isinstance(labeler, BinaryLabeler):
-        num_groups_selected = "2"
-    elif (cutoffs := labeler.get_cutoffs()) is not None:
-        num_groups_selected = str(len(cutoffs) + 1)
-    else:
-        num_groups_selected = "2"
-
-    auto_tooltip = (
-        "Auto: automatically detects performance groups using temporal phase "
-        "detection, tail isolation (IQR), and body clustering (Jenks breaks). "
-        "The number and positions of groups are determined by the data; "
-        "manual adjustment is not available in this mode."
-    )
-    groups_tooltip = (
-        "Number of performance groups:\n"
-        "1 = regression (no splitting)\n"
-        "2 = binary FAST/SLOW\n"
-        "3–10 = equal-quantile groups, adjustable by clicking or Search"
-    )
 
     if is_auto:
         search_title = "Search is not available in Auto mode."
@@ -426,56 +462,21 @@ def render_cutoff_controls(
 
     btn_class = "btn-secondary btn-sm" + (" disabled" if search_disabled else "")
 
-    number_input_style = (
-        "width: 48px; font-size: 0.85em; height: 26px; text-align: center;"
-        " padding: 1px 4px; display: inline-block;"
-    )
-    if is_auto:
-        number_input_style += " opacity: 0.4;"
-
-    stepper_control = ui.div(
-        ui.tags.input(
-            id="num_perf_groups",
-            type="number",
-            min="1",
-            max="10",
-            step="1",
-            value=num_groups_selected,
-            disabled=is_auto,
-            class_="form-control form-control-sm",
-            style=number_input_style,
-            title=groups_tooltip,
-        ),
-        style="display: flex; align-items: center;",
+    # Sync the disabled / opacity state of num_perf_groups which lives in the
+    # stable parent render and is never recreated here.
+    disabled_js = "true" if is_auto else "false"
+    opacity_js = "0.4" if is_auto else "1"
+    sync_script = ui.tags.script(
+        "(function(){"
+        "var el=document.getElementById('num_perf_groups');"
+        f"if(el){{el.disabled={disabled_js};"
+        f"el.style.opacity='{opacity_js}';}}"
+        "})()"
     )
 
     return [
-        ui.tags.p(ui.tags.strong("Performance groups"), style="margin-bottom: 4px;"),
-        # Two-column row: col-6 Auto checkbox | col-6 dropdown
-        ui.row(
-            ui.column(
-                6,
-                ui.div(
-                    ui.input_checkbox("perf_auto_detect", "Auto groups", value=is_auto),
-                    title=auto_tooltip,
-                ),
-            ),
-            ui.column(
-                6,
-                ui.div(
-                    ui.tags.span(
-                        "Fixed #",
-                        style="font-size: 0.85em; margin-right: 4px; white-space: nowrap;",
-                    ),
-                    stepper_control,
-                    title=groups_tooltip,
-                    style="display: flex; align-items: center;",
-                ),
-                style="border-left: 1px solid #ddd; padding-left: 8px;",
-            ),
-            style="margin-bottom: 5px;",
-        ),
-        # Search button + click hint (always visible; search grayed for Auto/regression)
+        sync_script,
+        # Search button (always visible; grayed for Auto/regression)
         ui.div(
             ui.input_action_button(
                 "search_cutoff_btn",

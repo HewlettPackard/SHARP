@@ -10,7 +10,6 @@ from typing import Any
 import numpy as np
 import polars as pl
 
-from src.core.config.settings import Settings
 from src.core.profile.analyzers import TreeInfluenceAnalyzer
 from src.core.profile.base import InfluenceFactor, QualityResult
 from src.core.profile.data_reduction import reduce_rows
@@ -27,7 +26,7 @@ BOOTSTRAP_CI_SAMPLES_SMALL = 200
 
 def resolve_analysis_limits(
     modal_filters: dict[str, Any] | None,
-    settings: Settings,
+    settings: Any,
 ) -> tuple[int, float]:
     """Resolve predictor selection limits using modal filters or defaults."""
     max_predictors = modal_filters.get("max_predictors") if modal_filters else None
@@ -59,7 +58,7 @@ def prepare_analysis_data(
     metric_col: str,
     current_exclusions: list[str],
     labeler: PerformanceLabeler,
-    settings: Settings,
+    settings: Any,
     outcome_mode: str,
 ) -> tuple[pl.DataFrame, np.ndarray, np.ndarray, list[str]] | None:
     """Prepare filtered data and labels for analysis."""
@@ -100,7 +99,7 @@ def prepare_analysis_data(
 def run_influence_analysis(
     data: pl.DataFrame,
     numeric_labels: np.ndarray,
-    settings: Settings,
+    settings: Any,
     metric_col: str,
     current_exclusions: list[str],
     max_predictors: int,
@@ -119,6 +118,12 @@ def run_influence_analysis(
         when the requested analyzer succeeded.
     """
     registry = create_analyzer_registry(settings)
+
+    # Extract timestamp column from settings if configured
+    timestamp_col = None
+    if settings is not None:
+        timestamp_col = settings.get("profiling.lag_detection.timestamp_column", None)
+
     registry.set_shared_state(
         data,
         numeric_labels,
@@ -131,6 +136,7 @@ def run_influence_analysis(
             "outcome_mode": outcome_mode,
             "lower_is_better": lower_is_better,
             "progress_callback": progress_callback,
+            "timestamp_col": timestamp_col,
         },
     )
     analyzer_name = analyzer_name or settings.get("profiling.influence_analyzer", "tree")
@@ -308,6 +314,7 @@ def compute_tree_factor_bootstrap_ci(
     exclude_cols: list[str],
     max_predictors: int,
     max_correlation: float,
+    settings: Any | None = None,
     progress_callback: Any | None = None,
 ) -> tuple[float, float] | None:
     """Compute bootstrap CI for one selected tree factor on demand."""
@@ -346,7 +353,9 @@ def compute_tree_factor_bootstrap_ci(
     if is_enriched:
         # Re-enrich the data using the same enrichers that were used during analysis
         # This ensures bootstrap samples have the same enriched features
-        settings = Settings()
+        if settings is None:
+            from src.core.config.settings import Settings
+            settings = Settings()
         # Detect source columns and re-create enrichers
         enrichers = analyzer._create_enrichers_for_data(data, settings, {})
 
