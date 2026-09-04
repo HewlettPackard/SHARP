@@ -240,13 +240,33 @@ def _filter_by_variance(
             except Exception:
                 pass
 
-    # Vectorized variance filter for numeric columns
+    # Vectorized variance filter for numeric columns, with optional null-count
+    # filtering for large datasets.  Small datasets rely on variance alone;
+    # large datasets also filter by null count to avoid sparse columns that lack
+    # sufficient samples for statistical tests (Granger, ADF).
     if numeric_cols:
-        stds = data.select([pl.col(c).std().alias(c) for c in numeric_cols]).row(0)
+        n_rows = len(data)
+        stds = data.select(
+            [pl.col(c).std().alias(c) for c in numeric_cols]
+        ).row(0)
         numeric_with_var = [
             col for col, std in zip(numeric_cols, stds)
             if std is not None and std > 0
         ]
+
+        # Only apply null-count filtering for larger datasets where it matters.
+        if n_rows >= 100 and numeric_with_var:
+            min_non_null = int(Settings().get(
+                'profiling.predictor_selection.min_non_null_rows', 30
+            ))
+            null_counts = data.select(
+                [pl.col(c).null_count().alias(c) for c in numeric_with_var]
+            ).row(0)
+            numeric_with_var = [
+                col
+                for col, null_cnt in zip(numeric_with_var, null_counts)
+                if (n_rows - null_cnt) >= min_non_null
+            ]
     else:
         numeric_with_var = []
 

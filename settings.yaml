@@ -50,7 +50,14 @@ profiling:
   max_correlation: 0.99  # Maximum correlation threshold for predictor inclusion
   max_predictors: 200  # Maximum number of predictors to consider in analysis (increased from 100 due to 10-16x speedup in selection)
   max_search: 100  # Maximum iterations for optimal cutoff search algorithm
-  influence_analyzer: "tree"  # Analyzer key selected in the Profile tab (defaults to decision tree)
+  influence_analyzer: "tree"  # Analyzer key (defaults to decision tree, falls back to granger when unavailable)
+
+  # PCMCI analyzer performance tuning
+  pcmci:
+    max_rows: 8000  # Downsample rows for PCMCI-only analysis speed
+    max_predictors: 40  # Preselect top predictors by outcome correlation before PCMCI
+    min_abs_correlation: 0.05  # Drop weak predictors before PCMCI
+    max_depth: 2  # Limit PC conditioning depth for faster skeleton discovery
 
   # Required metadata fields for profiling reproduction (--repro flag)
   required_md_fields:

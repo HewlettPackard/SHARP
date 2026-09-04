@@ -67,6 +67,7 @@ filterwarnings = [
     "ignore::RuntimeWarning:statsmodels",
     "ignore::RuntimeWarning:scipy",
     "ignore:ArviZ is undergoing a major refactor.*:FutureWarning:arviz",
+    "ignore:verbose is deprecated since functions should not print results.*:FutureWarning:statsmodels.tsa.stattools",
 ]
 addopts = "-v --tb=short"
 

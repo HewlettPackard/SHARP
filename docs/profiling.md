@@ -1442,7 +1442,66 @@ profiling:
   source_column_names: [host, hostname, node, rank, device, nic, thread, pid]
 ```
 
-### 3. Data Reduction: Adaptive Column and Row Selection
+### 3. Lag Detection and Directional Causal Inference
+
+#### Why Lag Detection Matters
+
+Outcome changes often **lag** behind factor changes:
+- A context switch at time $t$ affects cache state at $t+1$, which delays execution at $t+2$
+- Storage array reports metrics with a fixed 5-second delay
+- Application-level timers and kernel counters have different clocks
+
+Standard correlation analysis (same-row alignment) misses these delayed effects.
+
+#### Method: Granger Causality with Automatic Lag Selection
+
+SHARP uses **Granger causality testing** to detect both the optimal lag and directional evidence:
+
+**Principle**: $X$ "Granger-causes" $Y$ if past values of $X$ improve prediction of $Y$ beyond what past values of $Y$ alone provide.
+
+**Algorithm**:
+1. For each candidate predictor $X$:
+   - Fit AR model: $Y_t = \sum_{i=1}^{p} a_i Y_{t-i} + \epsilon_t$ (restricted)
+   - Fit ARIMAX model: $Y_t = \sum_{i=1}^{p} a_i Y_{t-i} + \sum_{j=1}^{q} b_j X_{t-j} + \epsilon_t$ (unrestricted)
+   - Compute F-test: $H_0: b_1 = \cdots = b_q = 0$ (no Granger causality)
+2. If $p$-value < 0.05 and $q^* = \arg\max_j |b_j|$ is significant, rank $X$ as a predictor
+   - Optimal lag: $q^*$ (the specific lag where $X$ has strongest predictive power over $Y$)
+   - Direction: $X \to Y$ (Granger cause) if test passes; or test $Y \to X$ separately
+
+**Advantages**:
+- Automatic lag detection (no user tuning)
+- Handles autocorrelation (standard correlation is unreliable with dependent data)
+- Gives directionality ($X \to Y$ vs $Y \to X$)
+- Available in `statsmodels` (already a SHARP dependency)
+
+**Limitations**:
+- Assumes linear relationships (non-linear hidden in residuals)
+- Tests pairwise causality (cannot control for confounders like full causal discovery)
+- "Granger causality" is predictive precedence, not true causation (but often useful in practice)
+
+#### Configuration
+
+```yaml
+profiling:
+  lag_detection:
+    method: granger                     # Options: granger, ccf (correlation only)
+    max_lag_auto: true                  # Automatic max lag from ACF decay
+    max_lag_fixed: 50                   # (If max_lag_auto=false) Fixed max lag in rows
+    significance_level: 0.05            # p-value threshold for reporting
+    timestamp_aware: true               # Use timestamp column for time-based lag if available
+```
+
+#### Output
+
+For each selected predictor, the profile report includes:
+- **Optimal lag**: number of rows (or time units if timestamps available)
+- **Granger p-value**: evidence strength (< 0.05 recommended)
+- **Direction**: X→Y (predictor causes outcome) or Y→X (reverse)
+- **Confidence**: HIGH (survived statistical thresholds) or MEDIUM (borderline)
+
+Example: "Cache misses at lag 3 Granger-cause SLOW performance (p=0.002, HIGH confidence)"
+
+### 4. Data Reduction: Adaptive Column and Row Selection
 
 Before lag and causal analysis runs, SHARP reduces the 40K+ raw columns to ~30-80 non-redundant predictors using a staged set of column and row filters. These are fully automatic and designed for multi-source data.
 
