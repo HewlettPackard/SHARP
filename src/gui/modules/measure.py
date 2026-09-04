@@ -8,6 +8,7 @@ Provides interface for launching benchmark experiments with various configuratio
 
 from shiny import ui, reactive, render, Inputs, Outputs, Session
 from typing import Dict, Any
+import json
 import polars as pl
 import time
 
@@ -20,13 +21,44 @@ from src.core.config import discover_backends
 from src.core.config.settings import Settings
 
 
+_REPEATER_SHORT_LABELS: Dict[str, str] = {
+    "COUNT": "Exact count",
+    "RSE": "Standard error",
+    "CI": "Confidence interval",
+    "HDI": "High-density interval",
+    "BB": "Block bootstrap",
+    "GMM": "Gaussian mixture",
+    "KS": "Kolmogorov-Smirnov",
+    "DC": "Auto-stop",
+    "DURATION": "Time duration",
+}
+
+
 def _get_repeater_choices() -> Dict[str, str]:
-    """Build repeater choices from REPEATER_REGISTRY."""
-    choices = {}
-    for key, info in REPEATER_REGISTRY.items():
-        # Use key as both value and display (description in title attribute)
-        choices[key] = key
-    return choices
+    """Build repeater choices from REPEATER_REGISTRY with short labels."""
+    return {key: _REPEATER_SHORT_LABELS.get(key, key) for key in REPEATER_REGISTRY}
+
+
+def _get_repeater_tooltip_script() -> str:
+    """Return a JS snippet that adds title attributes to stopping-rule <option> elements."""
+    descriptions = {k: v["description"] for k, v in REPEATER_REGISTRY.items()}
+    js_obj = json.dumps(descriptions)
+    return f"""
+    (function() {{
+        var desc = {js_obj};
+        function applyTitles() {{
+            document.querySelectorAll('#stopping option').forEach(function(opt) {{
+                if (desc[opt.value]) opt.title = desc[opt.value];
+            }});
+        }}
+        if (document.readyState === 'loading') {{
+            document.addEventListener('DOMContentLoaded', applyTitles);
+        }} else {{
+            applyTitles();
+        }}
+        $(document).on('shiny:sessioninitialized', applyTitles);
+    }})();
+    """
 
 
 def _get_benchmark_choices() -> Dict[str, str]:
@@ -48,8 +80,9 @@ def measure_ui() -> Any:
     Returns:
         Shiny UI panel for experiment measurement
     """
-    # Build repeater choices (always available)
+    # Build repeater choices and tooltip script (always available)
     repeater_choices = _get_repeater_choices()
+    repeater_tooltip_script = _get_repeater_tooltip_script()
 
     return ui.nav_panel(
         "Measure",
@@ -103,6 +136,7 @@ def measure_ui() -> Any:
                         }
                     });
                 """),
+                ui.tags.script(repeater_tooltip_script),
                 width=400,
             ),
             ui.output_ui("completion_status_bar"),
@@ -149,7 +183,6 @@ def measure_server(input: Inputs, output: Outputs, session: Session, refresh_tri
     def _receive_rerun_config() -> None:
         """Receive and parse rerun configuration from overview tab."""
         try:
-            import json
             if config_json := input.rerun_config_data():
                 config = json.loads(config_json)
                 _apply_rerun_config(config)
@@ -202,12 +235,10 @@ def measure_server(input: Inputs, output: Outputs, session: Session, refresh_tri
             if "stopping" in config and config["stopping"]:
                 ui.update_select("stopping", selected=config["stopping"])
 
-            # Handle backend: if None, set to "(none)", otherwise set to the backend
+            # Handle backend: restore single backend from rerun config
             if "backend" in config:
-                if config["backend"] is None:
-                    ui.update_select("backend", selected="(none)")
-                else:
-                    ui.update_select("backend", selected=config["backend"])
+                backends = [config["backend"]] if config["backend"] else []
+                ui.update_selectize("backend", selected=backends)
 
             # Handle backend_flags: prepend to moreopts
             if "backend_flags" in config and config["backend_flags"]:
@@ -225,30 +256,26 @@ def measure_server(input: Inputs, output: Outputs, session: Session, refresh_tri
     def _init_backends() -> None:
         try:
             backends = discover_backends()
-            choices = {"(none)": "(none)"}  # Add "None" option for multi-backend cases
-            # discover_backends() returns {backend_name: BackendConfig}
-            # We just need the names
-            for name in backends.keys():
-                choices[name] = name
+            choices = {name: name for name in backends.keys()}
             backend_choices.set(choices)
         except Exception as e:
-            # Fallback to just (none) if discovery fails
+            # Fallback to empty choices if discovery fails
             import traceback
             print(f"Backend discovery error: {e}")
             traceback.print_exc()
-            backend_choices.set({"(none)": "(none)"})
+            backend_choices.set({})
 
     @render.ui
     def backend_selector() -> ui.TagChild:
         """Render backend selector with available choices."""
         choices = backend_choices.get()
-        if not choices:
-            choices = {"(none)": "(none)"}
-        return ui.input_select(
+        return ui.input_selectize(
             "backend",
             "Backends to use",
             choices=choices,
-            selected="(none)",
+            selected=None,
+            multiple=True,
+            options={"placeholder": "(none — defaults to local)"},
         )
 
     @render.ui
@@ -333,16 +360,14 @@ def measure_server(input: Inputs, output: Outputs, session: Session, refresh_tri
 
             config: dict[str, Any] = {}  # Empty config, will be populated by load_backend_options
             try:
-                # Handle backend selection: if "(none)" is selected, use empty list
-                # The orchestrator will default to 'local' if backend_names is empty
-                selected_backend = input.backend()
-                if selected_backend and selected_backend != "(none)":
-                    backend_names = [selected_backend]
+                # Handle backend selection: empty tuple/list means default to local
+                selected_backends = input.backend()
+                backend_names = list(selected_backends) if selected_backends else []
+                if backend_names:
                     backend_options = load_backend_options(backend_names, config)
                     # config is modified in-place and now contains full backend_options and metrics
                 else:
                     # No backend specified - orchestrator will default to local
-                    backend_names = []
                     backend_options = {}
             except Exception as e:
                 print(f"Warning: Could not load backend options: {e}")
