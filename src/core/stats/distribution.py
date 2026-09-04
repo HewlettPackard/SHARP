@@ -4,7 +4,7 @@ Distribution analysis utilities.
 Provides functions for computing summary statistics, detecting change points,
 estimating autocorrelation, and characterizing distributions.
 
-© Copyright 2025--2025 Hewlett Packard Enterprise Development LP
+© Copyright 2025--2026 Hewlett Packard Enterprise Development LP
 """
 
 import numpy as np
@@ -665,9 +665,9 @@ def _render_scatter(ax: Any, values: np.ndarray, jitter: np.ndarray,
     if class_labels is not None and class_colors is not None:
         # Use provided order if available, otherwise sort alphabetically
         if class_names_order is not None:
-            labels_to_plot = class_names_order
+            labels_to_plot: list[str] = class_names_order
         else:
-            labels_to_plot = np.unique(class_labels)
+            labels_to_plot = [str(label) for label in np.unique(class_labels)]
 
         for label in labels_to_plot:
             mask = class_labels == label

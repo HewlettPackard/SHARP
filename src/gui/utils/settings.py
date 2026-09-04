@@ -3,8 +3,10 @@ Settings modal UI utilities for SHARP GUI.
 
 Provides functions to create and manage the settings modal dialog.
 
-© Copyright 2025--2025 Hewlett Packard Enterprise Development LP
+© Copyright 2025--2026 Hewlett Packard Enterprise Development LP
 """
+
+from typing import Any
 
 from shiny import ui, reactive
 from ruamel.yaml import YAML
@@ -12,7 +14,7 @@ from ruamel.yaml import YAML
 from src.core.config.settings import Settings
 
 
-def create_settings_modal() -> ui.modal:
+def create_settings_modal() -> Any:
     """
     Create the settings modal dialog with all configurable settings.
 
@@ -209,7 +211,7 @@ def create_settings_modal() -> ui.modal:
     )
 
 
-def save_settings(input, settings_path) -> None:
+def save_settings(input: Any, settings_path: Any) -> None:
     """
     Save settings from input values to settings.yaml.
 
@@ -276,7 +278,7 @@ def save_settings(input, settings_path) -> None:
         raise
 
 
-def register_settings_handlers(input, output, session, shiny_ui) -> None:
+def register_settings_handlers(input: Any, output: Any, session: Any, shiny_ui: Any) -> None:
     """
     Register reactive handlers for settings modal.
 

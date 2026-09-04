@@ -4,16 +4,14 @@ Subprocess execution and management.
 Handles running shell commands with timeout, capturing output,
 and collecting metrics from subprocess results.
 
-© Copyright 2025--2025 Hewlett Packard Enterprise Development LP
+© Copyright 2025--2026 Hewlett Packard Enterprise Development LP
 """
-
-from __future__ import annotations
 
 import subprocess
 import tempfile
 import time
 import warnings
-from typing import List, Tuple
+from typing import Any, List, Tuple
 
 
 class Runner:
@@ -41,7 +39,7 @@ class Runner:
         self.verbose = verbose
         self.stdin_fd = stdin_fd if stdin_fd >= 0 else None
 
-    def run_commands(self, commands: List[str], env: dict[str, str] | None = None) -> Tuple[bool, List[tempfile._TemporaryFileWrapper[bytes]], float]:
+    def run_commands(self, commands: List[str], env: dict[str, str] | None = None) -> "Tuple[bool, List[tempfile._TemporaryFileWrapper[Any]], float]":
         """
         Execute commands in parallel and wait for completion.
 
@@ -69,7 +67,7 @@ class Runner:
         elapsed_time = time.perf_counter() - t0
         return success, output_files, elapsed_time
 
-    def _launch_commands(self, commands: List[str], env: dict[str, str] | None = None) -> Tuple[List[subprocess.Popen[str]], List[tempfile._TemporaryFileWrapper[bytes]]]:
+    def _launch_commands(self, commands: List[str], env: dict[str, str] | None = None) -> "Tuple[List[subprocess.Popen[str]], List[tempfile._TemporaryFileWrapper[Any]]]":
         """
         Launch all commands in parallel.
 
@@ -104,7 +102,7 @@ class Runner:
         return popens, output_files
 
     def _wait_for_commands(self, popens: List[subprocess.Popen[str]], commands: List[str], start_time: float,
-                          output_files: List[tempfile._TemporaryFileWrapper[bytes]]) -> bool:
+                          output_files: "List[tempfile._TemporaryFileWrapper[Any]]") -> bool:
         """
         Wait for all commands to complete, checking for catastrophic failures.
 

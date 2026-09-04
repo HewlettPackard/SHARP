@@ -12,6 +12,8 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score
 from typing import Dict
 import polars as pl
 
+from src.core.stats.arrays import to_numpy
+
 
 def format_tree_text(tree: DecisionTreeClassifier, feature_names: list[str]) -> str:
     """
@@ -46,8 +48,8 @@ def get_tree_metrics(tree: DecisionTreeClassifier, X: pl.DataFrame, y: pl.Series
         Dict with accuracy, precision, recall
     """
     try:
-        X_array = X.to_numpy() if isinstance(X, pl.DataFrame) else X
-        y_array = y.to_numpy() if isinstance(y, pl.Series) else y
+        X_array = to_numpy(X) if isinstance(X, pl.DataFrame) else X
+        y_array = to_numpy(y) if isinstance(y, pl.Series) else y
 
         # Get predictions
         y_pred = tree.predict(X_array)

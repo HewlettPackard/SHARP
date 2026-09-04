@@ -4,10 +4,10 @@ Shared UI helper functions for Shiny GUI.
 Provides reusable logic for experiment selection, task updates,
 and common UI patterns to reduce duplication between modules.
 
-© Copyright 2025--2025 Hewlett Packard Enterprise Development LP
+© Copyright 2025--2026 Hewlett Packard Enterprise Development LP
 """
 
-from typing import Dict, List, Any, Union
+from typing import Dict, List, Union
 from shiny import ui, Session
 import polars as pl
 import numpy as np
@@ -101,8 +101,7 @@ def get_numeric_columns(df: pl.DataFrame) -> Dict[str, str]:
     return {
         col: col
         for col in df.columns
-        if not col.startswith("__sharp_")
-        and df[col].dtype in [pl.Float64, pl.Float32, pl.Int64, pl.Int32, pl.Int16, pl.Int8, pl.UInt64, pl.UInt32, pl.UInt16, pl.UInt8]
+        if df[col].dtype in [pl.Float64, pl.Float32, pl.Int64, pl.Int32, pl.Int16, pl.Int8, pl.UInt64, pl.UInt32, pl.UInt16, pl.UInt8]
     }
 
 def select_preferred_metric(
@@ -241,7 +240,10 @@ def render_point_inspector(
         return ui.div()
 
     try:
-        hover_x = float(hover.get("x"))
+        hover_x_raw = hover.get("x")
+        if hover_x_raw is None:
+            return ui.div()
+        hover_x = float(hover_x_raw)
     except Exception:
         return ui.div()
 

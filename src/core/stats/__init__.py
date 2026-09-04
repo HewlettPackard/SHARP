@@ -28,6 +28,7 @@ from .jenks_breaks import (
     goodness_of_variance_fit,
     optimal_jenks_classes
 )
+from .arrays import to_numpy
 
 __all__ = [
     # Distribution analysis
@@ -49,4 +50,6 @@ __all__ = [
     'jenks_breaks',
     'goodness_of_variance_fit',
     'optimal_jenks_classes',
+    # Arrays
+    'to_numpy',
 ]

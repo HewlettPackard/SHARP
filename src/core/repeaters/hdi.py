@@ -84,7 +84,12 @@ class HDIRepeater(CountRepeater):
             return False
 
         if self.get_count() > 1:
-            hdi = arviz.hdi(numpy.asarray(self._runtimes), hdi_prob=self.__hdi_limit)  # type: ignore
+            # ArviZ renamed the HDI probability kwarg from `hdi_prob` to `prob`
+            # in newer versions. Try the new API first, then fall back.
+            try:
+                hdi = arviz.hdi(numpy.asarray(self._runtimes), prob=self.__hdi_limit)  # type: ignore[call-arg]
+            except TypeError:
+                hdi = arviz.hdi(numpy.asarray(self._runtimes), hdi_prob=self.__hdi_limit)  # type: ignore[call-arg]
             mean = numpy.mean(self._runtimes)
             rel_hdi: float = 0 if mean == 0 else (hdi[1] - hdi[0]) / mean
             if self._verbose:

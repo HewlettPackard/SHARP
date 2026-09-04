@@ -3,7 +3,7 @@ Duration-based repeater strategy.
 
 Stops after a specified duration has elapsed.
 
-© Copyright 2025--2025 Hewlett Packard Enterprise Development LP
+© Copyright 2025--2026 Hewlett Packard Enterprise Development LP
 """
 
 import time
@@ -16,7 +16,7 @@ from .base import Repeater, RunData
 
 class DurationRepeater(Repeater):
     """
-    Repeater that stops after a specified duration.
+    Repeater that stops after a specified duration
     """
 
     _DEFAULT_VALUES = {
@@ -34,7 +34,7 @@ class DurationRepeater(Repeater):
 
         # Get duration from options
         duration_str = repeater_opts.get("duration", self._DEFAULT_VALUES["duration"]["default"])
-        self._duration_seconds = Duration(duration_str).to_seconds()
+        self._duration_seconds = float(Duration(duration_str).to_seconds())
         self._start_time = time.time()
 
     def __call__(self, pdata: RunData) -> bool:

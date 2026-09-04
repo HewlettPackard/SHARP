@@ -8,10 +8,8 @@ Coordinates the full lifecycle of a benchmark run:
 4. Extract and aggregate metrics
 5. Write results to CSV/Markdown logs
 
-© Copyright 2025--2025 Hewlett Packard Enterprise Development LP
+© Copyright 2025--2026 Hewlett Packard Enterprise Development LP
 """
-
-from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -428,7 +426,7 @@ class ExecutionOrchestrator:
                     else:
                         warnings.warn(f"Reset command error for backend {backend_name}: {e}")
 
-    def _extract_metrics(self, output_files: list[tempfile._TemporaryFileWrapper[bytes]], elapsed_time: float) -> RunData:
+    def _extract_metrics(self, output_files: "list[tempfile._TemporaryFileWrapper[Any]]", elapsed_time: float) -> RunData:
         """
         Extract metrics from output files and add wall-clock execution time.
 

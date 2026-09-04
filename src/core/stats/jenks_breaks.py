@@ -4,7 +4,7 @@ Jenks natural breaks optimization for 1D clustering.
 Provides the Fisher-Jenks algorithm and Goodness of Variance Fit metrics
 for identifying natural groupings in performance data.
 
-© Copyright 2025--2025 Hewlett Packard Enterprise Development LP
+© Copyright 2025--2026 Hewlett Packard Enterprise Development LP
 """
 
 import numpy as np
@@ -173,7 +173,7 @@ def optimal_jenks_classes(data: np.ndarray, min_classes: int = 2,
     # Limit max_classes to available unique values
     max_classes = min(max_classes, len(unique_vals))
 
-    best_breaks = []
+    best_breaks: list[float] = []
     best_n = min_classes
     prev_gvf = 0.0
 

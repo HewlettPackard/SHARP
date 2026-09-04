@@ -4,7 +4,7 @@ Summary tab for SHARP GUI.
 Provides dashboard view with KPI cards and recent runs table.
 Shows summary statistics and quick navigation to other tabs.
 
-© Copyright 2025--2025 Hewlett Packard Enterprise Development LP
+© Copyright 2025--2026 Hewlett Packard Enterprise Development LP
 """
 
 from shiny import ui, reactive, render, Inputs, Outputs, Session
@@ -491,7 +491,7 @@ def summary_server(input: Inputs, output: Outputs, session: Session, refresh_tri
             # Show success message
             ui.notification_show(
                 f"Successfully created experiment '{experiment_name}'.",
-                type="success",
+                type="message",
                 duration=3
             )
 
@@ -566,7 +566,7 @@ def summary_server(input: Inputs, output: Outputs, session: Session, refresh_tri
             # Show success message
             ui.notification_show(
                 f"Successfully uploaded {uploaded_count} file(s) to experiment '{experiment_name}'.",
-                type="success",
+                type="message",
                 duration=5
             )
 
