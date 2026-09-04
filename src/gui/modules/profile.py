@@ -18,7 +18,6 @@ from shiny import ui, render, reactive, Inputs, Outputs, Session
 from shiny.types import SilentException
 import numpy as np
 import polars as pl
-import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from pathlib import Path
 from typing import Any
@@ -28,31 +27,24 @@ from src.core.runlogs import load_table, get_experiments, get_tasks_for_experime
 from src.gui.utils import apply_filter, get_filterable_columns, create_filter_ui
 from src.gui.utils.filters import *
 from src.gui.utils.ui_helpers import *
-from src.gui.utils.comparisons import render_density_comparison_plot, compute_comparison_summary
-from src.gui.utils.profile.tree import *
-from src.gui.utils.profile.exclusions import *
-from src.gui.utils.profile.files import *
-from src.gui.utils.profile.labeler_ui import *
-from src.core.profile.cutoff import *
-from src.core.profile.labeler import *
-from src.gui.utils.profile.predictor_stats import get_auto_excluded_predictors
-from src.core.profile import predictor_selection
-from src.core.profile.data_model import detect_data_model, DataModelInfo
-from src.core.profile.data_reduction import reduce_rows
-from src.core.profile.analyzers.registry import create_analyzer_registry
-from src.gui.utils.profile.data_pipeline import *
-from src.gui.utils.profile.modals import *
-from src.gui.utils.profile.execution import *
-from src.gui.utils.profile.distribution import *
-from src.gui.utils.profile.factors import *
-from src.gui.utils.profile.mitigations import *
-from src.core.stats.feature_importance import get_ranked_features
+from src.gui.utils.comparisons import *
+from src.gui.utils.profile import *
+from src.gui.utils.profile.analysis import *
+from src.core.profile import *
 from src.core.config import discover_backends
 from src.core.config.backend_loader import validate_backend_chain
 from src.core.config.settings import Settings
+from src.core.profile.analyzers.registry import create_analyzer_registry
 from src.core.metrics.factors import load_factors
 from src.core.runlogs.parser import extract_metrics_from_markdown
 from src.core.stats.narrative import generate_comparison_narrative
+
+
+class _StubProfileSettings:
+    """Placeholder standing in for the future per-experiment ProfileSettings."""
+
+    def __init__(self) -> None:
+        self.settings_view = Settings()
 
 
 def get_metric_lower_is_better(metric_col: str, md_path: Path | None = None) -> bool:
@@ -79,7 +71,7 @@ def get_metric_lower_is_better(metric_col: str, md_path: Path | None = None) -> 
         if metric_col in metrics:
             metric_def = metrics[metric_col]
             if isinstance(metric_def, dict):
-                return metric_def.get('lower_is_better', True)
+                return bool(metric_def.get('lower_is_better', True))
 
         # If metric not found, default to True (lower is better)
         return True
@@ -140,6 +132,7 @@ def profile_ui() -> Any:
                         None,
                         value=True
                     ),
+                    title="Do lower values of the outcome indicate better performance?",
                     style="display: flex; flex-direction: column;"
                 ),
                 ui.tags.style("""
@@ -203,12 +196,11 @@ def profile_ui() -> Any:
                     }
                 """),
                 ui.div(
-                    ui.output_ui("profile_input_panel"),
-                    ui.output_ui("profile_factor_selector", style="margin-top: auto;"),
-                    style="display: flex; flex-direction: column; flex-grow: 1; justify-content: space-between; height: 100%;"
+                    ui.output_ui("profile_factor_selector"),
+                    style="display: flex; flex-direction: column; flex-grow: 1; justify-content: space-between; height: 100%; overflow: visible;"
                 ),
                 class_="profile-controls-col",
-                style="display: flex; flex-direction: column;"
+                style="display: flex; flex-direction: column; overflow: visible;"
             ),
             ui.column(
                 10,
@@ -224,8 +216,11 @@ def profile_ui() -> Any:
                     ),
                     ui.column(
                         6,
-                        ui.output_ui("profile_tree_plot"),
-                        style="max-height: 440px;"
+                        ui.div(
+                            ui.output_ui("profile_tree_plot"),
+                            ui.output_ui("profile_model_quality_caption"),
+                        ),
+                        style="max-height: 500px;"
                     )
                 ),
                 ui.row(
@@ -241,12 +236,12 @@ def profile_ui() -> Any:
         ui.hr(),
         ui.row(
             ui.column(
-                3,
+                4,
                 ui.output_ui("profile_factor_tabset"),
                 style="display: flex; flex-direction: column;"
             ),
             ui.column(
-                5,
+                4,
                 ui.output_plot("profile_factor_vs_perf_plot")
             ),
             ui.column(
@@ -320,6 +315,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
     current_labeler: reactive.Value[PerformanceLabeler | None] = reactive.Value(None)
     lower_is_better_setting: reactive.Value[bool] = reactive.Value(True)
     excluded_predictors: reactive.Value[list[str]] = reactive.Value(DEFAULT_EXCLUDED_PREDICTORS.copy())
+    applied_predictor_filters: reactive.Value[dict[str, Any] | None] = reactive.Value(None)
     predictor_modal_filters: reactive.Value[dict[str, Any]] = reactive.Value({})
     predictor_stats_full: reactive.Value[list[dict[str, Any]]] = reactive.Value([])
     predictor_correlations: reactive.Value[dict[str, float]] = reactive.Value({})
@@ -327,6 +323,9 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
     profiling_params: reactive.Value[dict[str, Any] | None] = reactive.Value(None)
     selected_factor: reactive.Value[str | None] = reactive.Value(None)
     mitigation_data: reactive.Value[pl.DataFrame | None] = reactive.Value(None)
+    factor_ci_overrides: reactive.Value[dict[str, tuple[float, float] | None]] = reactive.Value({})
+    factor_ci_computing: reactive.Value[bool] = reactive.Value(False)
+
 
     # Note: We do NOT store all metrics to avoid huge websocket payloads
 
@@ -367,8 +366,22 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
         mitigation_data.set(None)
         selected_factor.set(None)
         current_labeler.set(None)
+        factor_ci_overrides.set({})
+        factor_ci_computing.set(False)
 
         update_task_selector(session, experiment, "profile_task", include_empty=False)
+
+    @reactive.effect
+    def _reset_factor_ci_overrides() -> None:
+        """Clear on-demand CI cache when core analysis inputs change."""
+        _ = input.profile_task()
+        _ = validated_metric()
+        try:
+            _ = input.profile_influence_analyzer()
+        except SilentException:
+            pass
+        factor_ci_overrides.set({})
+        factor_ci_computing.set(False)
 
     # Update lower_is_better setting when metric changes
     @reactive.effect
@@ -411,6 +424,9 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
 
         # Reset labeler when task changes
         current_labeler.set(None)
+        excluded_predictors.set(DEFAULT_EXCLUDED_PREDICTORS.copy())
+        applied_predictor_filters.set(None)
+        predictor_modal_filters.set({})
 
         # If modal display was suppressed due to programmatic selection, consume flag
         if suppress_modal.get():
@@ -720,6 +736,15 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
         is_valid, error_msg = validate_markdown(md_path)
         return {"valid": is_valid, "error": error_msg}
 
+    @reactive.Calc
+    def profile_md_settings() -> _StubProfileSettings:
+        """Placeholder until per-experiment settings persistence lands.
+
+        Provides the ``.settings_view`` attribute that factor_ui.py and the
+        analysis pipeline expect, backed by the global Settings() for now.
+        """
+        return _StubProfileSettings()
+
     # --- Metric and Filter Inputs ---
     @reactive.effect
     def _update_metric_choices() -> None:
@@ -865,21 +890,43 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
             except Exception as e:
                 return f"✗ Error: {str(e)}"
         return ""
-    @reactive.Calc
-    def computed_trained_tree() -> Any | None:
-        """
-        Compute trained decision tree whenever metric, cutoff, or exclusions change.
-        Only trains after metric is selected.
 
-        Dependencies:
-        - input.profile_metric(): outcome metric (changes when dataset changes)
-        - excluded_predictors(): excluded predictor list
-        - user_cutoffs: manually set cutoff points
-        - suggested_cutoffs: automatically computed cutoffs
-        - input.classification_strategy(): selected classification strategy
-        - prof_csv_path(): current dataset file path
-        - active_data(): current dataset
-        """
+    # Show notification when analyzer is switching (before expensive computation)
+    @reactive.effect
+    @reactive.event(input.profile_influence_analyzer)
+    def _notify_analyzer_switch() -> None:
+        """Show notification when analyzer changes to indicate computation is starting."""
+        try:
+            # Only show notification if data is already loaded
+            if base_data() is None:
+                return
+            analyzer_name = input.profile_influence_analyzer()
+            analyzer_labels = create_analyzer_registry().get_analyzer_choices()
+            label = analyzer_labels.get(analyzer_name, analyzer_name)
+            ui.notification_show(
+                f"Computing {label} analysis...",
+                duration=None,  # Keep showing until dismissed
+                id="analyzer_computing",
+                type="message",
+            )
+        except SilentException:
+            pass
+
+    # Progress status tracking
+    ANALYSIS_STATUS_ID = "analysis_progress"
+
+    def update_analysis_status(stage: str) -> None:
+        """Update the floating progress notification."""
+        ui.notification_show(
+            stage,
+            type="message",
+            duration=None,
+            id=ANALYSIS_STATUS_ID,
+        )
+
+    @reactive.Calc
+    def computed_analysis_result() -> dict[str, Any] | None:
+        """Compute analyzer output (factors + optional trained tree model)."""
         # EXPLICIT dependencies - reading these creates reactivity
         metric_col = validated_metric()
         current_exclusions = excluded_predictors()
@@ -890,47 +937,59 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
         # are ready, not with preliminary reduced_data before correlations computed.
         corrs = predictor_correlations.get()
         if not corrs:
+            ui.notification_remove(id="analyzer_computing")
+            ui.notification_remove(id=ANALYSIS_STATUS_ID)
             return None
 
         # Early exit: metric not selected
         if not metric_col or metric_col.strip() == "":
+            ui.notification_remove(id="analyzer_computing")
+            ui.notification_remove(id=ANALYSIS_STATUS_ID)
             return None
 
         data = reduced_data()
 
         # Early exit: no data
         if data is None or data.is_empty():
+            ui.notification_remove(id="analyzer_computing")
+            ui.notification_remove(id=ANALYSIS_STATUS_ID)
             return None
 
         # Early exit: metric not in data
         if metric_col not in data.columns:
+            ui.notification_remove(id="analyzer_computing")
+            ui.notification_remove(id=ANALYSIS_STATUS_ID)
             return None
 
         # Early exit: no labeler
         if labeler is None:
+            ui.notification_remove(id="analyzer_computing")
+            ui.notification_remove(id=ANALYSIS_STATUS_ID)
             return None
 
         try:
-            # Get max_predictors and max_correlation from modal filters (if set)
-            # Otherwise use defaults from settings
-            modal_filters = predictor_modal_filters.get()
-            max_predictors = modal_filters.get("max_predictors") if modal_filters else None
-            max_correlation = modal_filters.get("max_corr") if modal_filters else None
+            update_analysis_status("Preparing analysis...")
+            settings = profile_md_settings().settings_view
+            modal_filters = applied_predictor_filters.get()
+            max_predictors, max_correlation = resolve_analysis_limits(
+                modal_filters,
+                settings,
+            )
 
-            if max_predictors is None:
-                max_predictors = Settings().get("profiling.max_predictors", 100)
-            if max_correlation is None:
-                max_correlation = Settings().get("profiling.max_correlation", 0.99)
+            try:
+                analyzer_name = input.profile_influence_analyzer()
+            except SilentException:
+                analyzer_name = settings.get("profiling.influence_analyzer", "tree")
 
             # Auto-exclude predictors with |correlation| >= max_correlation
             # This ensures highly correlated predictors (like compute_time with correlation=1.0)
             # are automatically excluded without requiring modal interaction
             stats = predictor_stats_full.get()
-            if stats:
-                from src.gui.utils.profile.predictor_stats import get_auto_excluded_predictors
-                auto_excluded = get_auto_excluded_predictors(stats, max_correlation)
-                # Combine current exclusions with auto-excluded predictors
-                current_exclusions = list(set(current_exclusions) | auto_excluded)
+            current_exclusions = merge_auto_exclusions(
+                current_exclusions,
+                stats,
+                max_correlation,
+            )
 
             # Always exclude the metric column - it's the outcome variable, not a predictor
             if metric_col not in current_exclusions:
@@ -940,81 +999,112 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
             # This automatically handles all labeler types without needing to update this function
             # when new labeler strategies are added
 
-            # Prepare data and labels for analyzer registry
-            predictor_cols = [
-                c for c in data.columns if c != metric_col and c not in current_exclusions
-            ]
-            row_reduced = reduce_rows(data, metric_col, predictor_cols)
+            outcome_mode = resolve_outcome_mode(labeler)
 
-            valid_mask = row_reduced[metric_col].is_not_null()
-            valid_data = row_reduced.filter(valid_mask)
-
-            if len(valid_data) < 3:
+            update_analysis_status("Filtering rows...")
+            analysis_inputs = prepare_analysis_data(
+                data,
+                metric_col,
+                current_exclusions,
+                labeler,
+                settings,
+                outcome_mode,
+            )
+            if analysis_inputs is None:
+                ui.notification_remove(id="analyzer_computing")
+                ui.notification_remove(id=ANALYSIS_STATUS_ID)
                 return None
 
-            # Sample to target_rows for faster training and visualization
-            settings = Settings()
-            target_rows = settings.get("profiling.tree_training.target_rows", 1000)
-            if len(valid_data) > target_rows:
-                sample_indices = np.random.choice(len(valid_data), size=target_rows, replace=False)
-                valid_data = valid_data[sorted(sample_indices)]
+            valid_data, labels, numeric_labels, class_names = analysis_inputs
 
-            # Build labels
-            metric_values = valid_data[metric_col].to_numpy()
-            labels = labeler.label(metric_values)
-            class_names = labeler.get_class_names()
+            update_analysis_status("Assigning performance labels...")
 
-            if labels.dtype.kind in ("U", "S", "O"):
-                label_to_int = {label: i for i, label in enumerate(class_names)}
-                numeric_labels = np.array([label_to_int[label] for label in labels])
-            else:
-                numeric_labels = labels.astype(int)
+            # Create progress callback for per-column updates
+            def on_progress(current: int, total: int, column_name: str) -> None:
+                if total <= 0:
+                    update_analysis_status(f"{analyzer_name} analysis: {column_name}")
+                    return
+                update_analysis_status(
+                    f"Running {analyzer_name} analysis ({current}/{total}): {column_name}"
+                )
 
-            # Analyze using registry (falls back to tree if analyzer unavailable)
-            registry = create_analyzer_registry(settings)
-            registry.set_shared_state(
+            update_analysis_status(f"Running {analyzer_name} analysis...")
+            factors, used_name, analyzer, fallback_warning = run_influence_analysis(
                 valid_data,
                 numeric_labels,
-                settings=settings,
-                outcome_col=metric_col,
-                context={
-                    "exclude_cols": current_exclusions,
-                    "max_predictors": max_predictors,
-                    "max_correlation": max_correlation,
-                    # Explicit: EnrichedInfluenceAnalyzer defaults outcome_mode to
-                    # "regression", which would silently override the tree
-                    # analyzer's own "classification" default if left unset.
-                    "outcome_mode": "classification",
-                },
+                settings,
+                metric_col,
+                current_exclusions,
+                max_predictors,
+                max_correlation,
+                analyzer_name,
+                outcome_mode=outcome_mode,
+                lower_is_better=lower_is_better_setting.get(),
+                progress_callback=on_progress,
             )
-            analyzer_name = settings.get("profiling.influence_analyzer", "tree")
-            registry.analyze_single(analyzer_name)
-
-            used_name = registry.last_analyzer_name or analyzer_name
-            analyzer = registry.get_analyzer(used_name)
-            trained_model = getattr(analyzer, "trained_model", None)
-            if trained_model is None:
+            if fallback_warning:
+                ui.notification_show(
+                    fallback_warning,
+                    type="warning",
+                    duration=10,
+                    id="analyzer_fallback_warning",
+                )
+            if analyzer is None:
+                ui.notification_remove(id="analyzer_computing")
+                ui.notification_remove(id=ANALYSIS_STATUS_ID)
                 return None
 
-            # When enrichment is active, the tree may reference synthetic
-            # columns (e.g. "cpu__agg_max__") that only exist in the enriched
-            # frame, not in valid_data.
-            tree_data = getattr(analyzer, "last_enriched_data", None)
-            if tree_data is None:
-                tree_data = valid_data
+            update_analysis_status("Computing confidence estimates...")
+            factors = enrich_factors_with_bayesian_confidence(
+                factors=factors,
+                data=valid_data,
+                outcome=numeric_labels,
+                outcome_mode=outcome_mode,
+                max_factors=20,
+            )
 
-            tree = trained_model.model
-            tree.feature_names_ = trained_model.feature_names
-            tree.original_predictors_ = trained_model.original_predictors
-            tree.class_names_ = class_names
-            tree.training_data_ = tree_data
-            tree.training_labels_ = labels
-            tree.training_metric_ = metric_col
-            return tree
+            update_analysis_status("Generating visualization...")
+            trained_model = getattr(analyzer, "trained_model", None)
+            tree_data = valid_data
+            from src.core.profile.column_enrichment import EnrichedInfluenceAnalyzer
+            if isinstance(analyzer, EnrichedInfluenceAnalyzer):
+                enriched_data = analyzer.last_enriched_data
+                if enriched_data is not None:
+                    tree_data = enriched_data
+            tree = attach_tree_metadata(
+                trained_model,
+                class_names,
+                tree_data,
+                labels,
+                metric_col,
+                outcome_mode=outcome_mode,
+            )
+
+            # Dismiss computing notification now that analysis is complete
+            ui.notification_remove(id="analyzer_computing")
+            ui.notification_remove(id=ANALYSIS_STATUS_ID)
+
+            return {
+                "factors": factors,
+                "analyzer_name": used_name,
+                "analyzer": analyzer,
+                "tree": tree,
+                "data": valid_data,
+                "labels": numeric_labels,
+                "class_names": class_names,
+                "exclude_cols": current_exclusions,
+                "max_predictors": max_predictors,
+                "max_correlation": max_correlation,
+                "outcome_mode": outcome_mode,
+                "metric_col": metric_col,
+            }
 
         except Exception:
             import traceback
             traceback.print_exc()
+            # Dismiss computing notification on error
+            ui.notification_remove(id="analyzer_computing")
+            ui.notification_remove(id=ANALYSIS_STATUS_ID)
             return None
 
     # --- Predictor Exclusion Modal ---
@@ -1046,44 +1136,9 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
         # detect_data_model() internally calls detect_source_columns() and detect_format().
         _model_info = profiling_data_model()
 
-        return compute_cleaned_columns(data)
+        cols = compute_cleaned_columns(data)
 
-    @reactive.Calc
-    def reduced_data() -> pl.DataFrame | None:
-        """Metric-dependent column reduction (C3).
-
-        Selects only the columns that survived metric-independent cleaning
-        (cleaned_columns) and then applies outcome-relevance (C3) filter
-        using precomputed predictor correlations.
-
-        Recomputes whenever active_data, validated_metric, or
-        predictor_correlations change.  Distribution, narrative, tree,
-        and factor analyzer should all consume this dataset.
-        """
-        data = active_data()
-        metric = validated_metric()
-        cols = cleaned_columns()
-        corrs = predictor_correlations.get()
-
-        if data is None or not metric:
-            return None
-
-        # Not ready yet — cleaning hasn't completed
-        if not cols:
-            return None
-
-        # Correlations not computed yet — return data with cleaned columns only
-        if not corrs:
-            keep = set(cols) | {metric}
-            return data.select([c for c in data.columns if c in keep])
-
-        # Apply C3 on cleaned columns using precomputed correlations
-        survivors = compute_reduced_columns(
-            data, metric, cols, corrs,
-        )
-        keep = {metric} | set(survivors)
-        result = data.select([c for c in data.columns if c in keep])
-        return result
+        return cols
 
     @reactive.Calc
     def original_baseline_data() -> pl.DataFrame | None:
@@ -1143,6 +1198,43 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
             traceback.print_exc()
             return ""
 
+    @reactive.Calc
+    def reduced_data() -> pl.DataFrame | None:
+        """Metric-dependent column reduction (C3).
+
+        Selects only the columns that survived metric-independent cleaning
+        (cleaned_columns) and then applies outcome-relevance (C3) filter
+        using precomputed predictor correlations.
+
+        Recomputes whenever active_data, validated_metric, or
+        predictor_correlations change.  Distribution, narrative, tree,
+        and factor analyzer should all consume this dataset.
+        """
+        data = active_data()
+        metric = validated_metric()
+        cols = cleaned_columns()
+        corrs = predictor_correlations.get()
+
+        if data is None or not metric:
+            return None
+
+        # Not ready yet — cleaning hasn't completed
+        if not cols:
+            return None
+
+        # Correlations not computed yet — return data with cleaned columns only
+        if not corrs:
+            keep = set(cols) | {metric}
+            return data.select([c for c in data.columns if c in keep])
+
+        # Apply C3 on cleaned columns using precomputed correlations
+        survivors = compute_reduced_columns(
+            data, metric, cols, corrs,
+        )
+        keep = {metric} | set(survivors)
+        result = data.select([c for c in data.columns if c in keep])
+        return result
+
     # Compute predictor correlations when outcome metric changes
     @reactive.effect
     @reactive.event(input.profile_metric)
@@ -1169,7 +1261,9 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
 
         # Auto-exclude highly-correlated predictors (only on initial load)
         updated = apply_auto_exclusions(
-            stats_rows, set(excluded_predictors()), predictor_modal_filters.get()
+            stats_rows,
+            set(excluded_predictors()),
+            applied_predictor_filters.get(),
         )
         if updated is not None:
             excluded_predictors.set(sorted(list(updated)))
@@ -1200,6 +1294,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
     def _apply_predictor_exclusions() -> None:
         """Apply predictor exclusions when Apply button is clicked."""
         apply_exclusions(input, excluded_predictors, predictor_stats_full, predictor_modal_filters)
+        applied_predictor_filters.set(predictor_modal_filters.get())
 
     @reactive.effect
     @reactive.event(input.reset_predictor_exclusions)
@@ -1207,6 +1302,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
         """Reset exclusions and threshold to defaults (same as reload)."""
         # Call the core reset logic
         reset_exclusions(excluded_predictors, predictor_stats_full, predictor_modal_filters)
+        applied_predictor_filters.set(None)
 
         # If the modal is open, update the visible controls immediately
         try:
@@ -1219,46 +1315,6 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
             pass
 
     # UI outputs
-
-    @output
-    @render.ui
-    def profile_input_panel() -> ui.TagChild:
-        """Left panel for user controls and filtering."""
-        data = active_data()
-        metric_col = validated_metric()
-
-        # Only show button if data is loaded
-        if data is None or data.is_empty():
-            return ui.div(
-                ui.tags.p(ui.tags.strong("Analysis Controls"), style="margin-bottom: 15px;"),
-                ui.tags.p("Load data to access controls", style="color: #999; font-size: 0.9em;"),
-                style="padding: 15px; background-color: #f8f9fa; border-radius: 5px;"
-            )
-
-        # Get current labeler and cutoff display info
-        labeler = current_labeler.get()
-        cutoff_display, show_cutoff_controls = get_cutoff_display_info(labeler)
-        # Get current strategy for dropdown - use isolate to prevent creating dependency
-        with reactive.isolate():
-            try:
-                strategy = input.classification_strategy()
-            except SilentException:
-                strategy = "binary"
-
-        # Render cutoff controls
-        cutoff_controls = render_cutoff_controls(
-            input=input,
-            strategy=strategy,
-            cutoff_display=cutoff_display,
-            show_cutoff_controls=show_cutoff_controls,
-            excluded_names=order_exclusions_with_defaults(excluded_predictors()),
-            labeler=labeler
-        )
-
-        return ui.div(
-            *cutoff_controls,
-            style="padding: 15px; background-color: #f8f9fa; border-radius: 5px;"
-        )
 
     @output
     @render.plot
@@ -1275,17 +1331,32 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
     @output
     @render.ui
     def profile_point_inspector() -> ui.TagChild:
-        """Show nearest point (value + original row index) for the current hover location."""
+        """Show nearest point (value + original row index) plus a labeler-mode hint."""
         data = active_data()
         metric_col = validated_metric()
         settings = Settings()
         max_scatter = settings.get("gui.explore.max_scatter_points", 2000)
-        return render_point_inspector(
+        point_ui = render_point_inspector(
             input.profile_distribution_plot_hover(),
             data,
             metric_col,
             max_scatter_points=max_scatter
         )
+        # UX hint: inform the user whether cutoffs are movable in the current mode
+        labeler = current_labeler.get()
+        if isinstance(labeler, AutoLabeler):
+            hint: ui.TagChild = ui.tags.span(
+                "Auto-detected \u2014 cutoffs not adjustable",
+                style="font-size: 0.75em; color: #888; display: block; margin-top: 2px;",
+            )
+        elif labeler is not None and isinstance(labeler, CutoffBasedLabeler) and labeler.is_mutable:
+            hint = ui.tags.span(
+                "Click to move nearest cutoff",
+                style="font-size: 0.75em; color: #555; display: block; margin-top: 2px;",
+            )
+        else:
+            hint = ui.div()
+        return ui.div(point_ui, hint)
 
     @output
     @render.ui
@@ -1302,236 +1373,87 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
     @output
     @render.ui
     def profile_tree_plot() -> ui.TagChild:
-        """Render decision tree as interactive HTML via Supertree."""
+        """Render analyzer-specific primary visualization."""
         try:
-            return ui.HTML(render_tree_for_ui(
-                tree=computed_trained_tree(),
-                data=reduced_data(),
+            analysis = computed_analysis_result()
+            if analysis is None:
+                return ui.p('No analysis available', style='color: #999; padding: 10px;')
+
+            factors = analysis.get("factors", [])
+            analyzer_name = analysis.get("analyzer_name", "tree")
+            visualizer = get_visualizer_for(
+                analyzer_name=analyzer_name,
+                tree=analysis.get("tree"),
                 metric_col=validated_metric(),
-                labeler=current_labeler.get()
-            ))
+                labeler=current_labeler.get(),
+            )
+
+            return visualizer.render_primary(
+                factors=factors,
+                data=analysis.get("data", reduced_data()),
+                labels=analysis.get("labels", np.array([])),
+                class_names=analysis.get("class_names", []),
+                class_colors=[],
+            )
         except Exception:
             import traceback
             traceback.print_exc()
             return ui.p('Error rendering interactive tree', style='color: red; padding: 10px;')
 
-    @output
-    @render.ui
-    def profile_factor_selector() -> ui.TagChild:
-        """Render dropdown selector for factors used in the tree."""
-        try:
-            tree = computed_trained_tree()
-            if tree is None:
-                return ui.p(
-                    'Train a tree to select factors',
-                    style='color: #999; padding: 10px; text-align: center; font-size: 0.9em;'
-                )
+    # --- Model quality: auto-computed reactive whenever analysis changes ---
 
-            # Get feature names from the tree
-            if not hasattr(tree, 'feature_names_'):
-                return ui.p(
-                    'Tree has no feature names',
-                    style='color: #999; padding: 10px;'
-                )
+    @reactive.Calc
+    def computed_quality_result() -> Any:
+        """Cross-validated quality for the current analyzer's top-10 factors.
 
-            feature_names = tree.feature_names_
-            if not feature_names:
-                return ui.p(
-                    'No features in tree',
-                    style='color: #999; padding: 10px;'
-                )
-
-            # Sort features by importance (descending)
-            try:
-                ranked_features = get_ranked_features(tree)
-                # Extract just the feature names in importance order
-                sorted_names = [name for name, score in ranked_features]
-            except Exception:
-                # Fallback to alphabetical sort
-                sorted_names = sorted(feature_names)
-
-            # Create choices dict with empty option first
-            choices = {"": "(select a factor)"} | {name: name for name in sorted_names}
-
-            return ui.card(
-                ui.tags.style("""
-                    #profile_selected_factor {
-                        width: 100% !important;
-                    }
-                    .selectize-dropdown {
-                        font-size: 0.85em !important;
-                        line-height: 1.2 !important;
-                    }
-                    .selectize-dropdown .option {
-                        padding: 4px 8px !important;
-                    }
-                    .selectize-input {
-                        font-size: 0.9em !important;
-                    }
-                """),
-                ui.input_selectize(
-                    "profile_selected_factor",
-                    "Select factor to analyze:",
-                    choices=choices,
-                    selected="",
-                    width="100%",
-                    options={
-                        'placeholder': 'Choose a factor from the tree...',
-                        'maxOptions': 100,
-                    }
-                ),
-                style='background-color: #f8f9fa; padding: 10px; flex: 1; display: flex; flex-direction: column;'
-            )
-
-        except Exception as e:
-            tb.print_exc()
-            return ui.p(f'Error: {str(e)}', style='color: red;')
-
-    # Handler for factor selection from dropdown
-    @reactive.effect
-    @reactive.event(input.profile_selected_factor)
-    def _handle_factor_selection() -> None:
-        """Handle factor selection from dropdown."""
-        try:
-            factor_name = input.profile_selected_factor()
-            if factor_name and factor_name.strip():
-                selected_factor.set(factor_name)
-        except Exception:
-            tb.print_exc()
+        Recomputes automatically whenever computed_analysis_result() changes
+        (new analyzer selection, new data, new labeler, etc.).
+        """
+        analysis = computed_analysis_result()
+        if analysis is None:
+            return None
+        return compute_factor_quality(
+            factors=analysis.get("factors", []),
+            data=analysis.get("data"),
+            labels=analysis.get("labels", np.array([])),
+            metric_col=analysis.get("metric_col", validated_metric()),
+            outcome_mode=analysis.get("outcome_mode", "classification"),
+            analyzer=analysis.get("analyzer"),
+        )
 
     @output
     @render.ui
-    def profile_factor_tabset() -> ui.TagChild:
-        """Render factor description and mitigation tabs (only when factor selected)."""
-        try:
-            factor_name = selected_factor()
-            if not factor_name:
-                return ui.tags.div()  # Empty div when no factor selected
+    def profile_model_quality_caption() -> ui.TagChild:
+        """Show cross-validated quality score below the model visualization."""
+        result = computed_quality_result()
+        small_style = "font-size: 0.78rem; color: #555; margin-top: 4px;"
+        if result is None:
+            return ui.div()
+        if not hasattr(result, "score"):
+            return ui.p("Quality evaluation failed.", style=small_style + " color: #c00;")
+        score_pct = f"{result.score * 100:.1f}%" if result.metric_name == "Balanced Accuracy" else f"{result.score:.3f}"
+        return ui.p(
+            f"Ranking quality ({result.n_folds}-fold CV, {result.n_factors} factors): "
+            f"{result.metric_name} = {score_pct}. "
+            "Higher means the analyzer placed more predictive factors first.",
+            style=small_style,
+        )
 
-            return ui.tags.div(
-                ui.navset_tab(
-                    ui.nav_panel(
-                        "Factor description",
-                        ui.output_ui("profile_factor_info_card")
-                    ),
-                    ui.nav_panel(
-                        "Suggested mitigations",
-                        ui.output_ui("profile_mitigation_selector"),
-                        ui.output_ui("profile_mitigation_info_card")
-                    ),
-                    id="profile_factor_tab"
-                ),
-                style="flex: 1; display: flex; flex-direction: column;"
-            )
-
-        except Exception as e:
-            tb.print_exc()
-            return ui.p(f'Error: {str(e)}', style='color: red;')
-
-    @output
-    @render.ui
-    def profile_factor_info_card() -> ui.TagChild:
-        """Render factor information card using helper function."""
-        try:
-            factor_name = selected_factor()
-            if not factor_name:
-                return ui.p(
-                    'Click on the tree visualization to select a factor',
-                    style='color: #999; padding: 20px; text-align: center;'
-                )
-
-            return render_factor_info_card(factor_name)
-
-        except Exception as e:
-            tb.print_exc()
-            return ui.p(f'Error: {str(e)}', style='color: red;')
-
-    @output
-    @render.plot
-    def profile_factor_vs_perf_plot() -> Figure | None:
-        """Render scatter plot using helper function."""
-        try:
-            factor_name = selected_factor()
-            if not factor_name:
-                # Return empty plot with instruction
-                fig, ax = plt.subplots(figsize=(10, 6))
-                ax.text(0.5, 0.5, 'Select a factor from the tree to view relationship',
-                       ha='center', va='center', fontsize=12, color='#999')
-                ax.set_xlim(0, 1)
-                ax.set_ylim(0, 1)
-                ax.axis('off')
-                return fig
-
-            data = reduced_data()
-            if data is None:
-                return None
-
-            metric = validated_metric()
-            labeler = current_labeler.get()
-
-            return render_factor_scatter_plot(data, factor_name, metric, labeler)
-
-        except Exception as e:
-            tb.print_exc()
-            fig, ax = plt.subplots(figsize=(10, 6))
-            ax.text(0.5, 0.5, f'Error: {str(e)}',
-                   ha='center', va='center', fontsize=12, color='red')
-            ax.set_xlim(0, 1)
-            ax.set_ylim(0, 1)
-            ax.axis('off')
-            return fig
-
-    @output
-    @render.ui
-    def profile_factor_comparison_table() -> ui.TagChild:
-        """Render comparison table using helper function."""
-        try:
-            factor_name = selected_factor()
-            if not factor_name:
-                return ui.p(
-                    'Select a factor to view group comparison',
-                    style='color: #999; padding: 20px; text-align: center;'
-                )
-
-            data = reduced_data()
-            if data is None:
-                return ui.div()
-
-            metric = validated_metric()
-            labeler = current_labeler.get()
-
-            return render_factor_comparison_table(data, factor_name, metric, labeler)
-
-        except Exception as e:
-            tb.print_exc()
-            return ui.p(f'Error: {str(e)}', style='color: red;')
-
-    @output
-    @render.ui
-    def profile_mitigation_selector() -> ui.TagChild:
-        """Render dropdown selector for mitigations related to selected factor."""
-        try:
-            factor_name = selected_factor()
-            return render_mitigation_selector(factor_name)
-
-        except Exception as e:
-            tb.print_exc()
-            return ui.p(f'Error: {str(e)}', style='color: red;')
-
-    @output
-    @render.ui
-    def profile_mitigation_info_card() -> ui.TagChild:
-        """Render mitigation information card."""
-        try:
-            mitigation_name = input.profile_selected_mitigation()
-            return render_mitigation_info_card(mitigation_name)
-        except SilentException:
-            # Input not yet created - this is normal during initial render
-            # SilentException MUST be caught BEFORE generic Exception
-            return render_mitigation_info_card(None)
-        except Exception as e:
-            tb.print_exc()
-            return ui.p(f'Error: {str(e)}', style='color: red;')
+    # --- Factor Analysis UI (delegated to factor_ui module) ---
+    register_factor_outputs(
+        input, output, session,
+        selected_factor=selected_factor,
+        computed_analysis_result=computed_analysis_result,
+        current_labeler=current_labeler,
+        factor_ci_overrides=factor_ci_overrides,
+        factor_ci_computing=factor_ci_computing,
+        validated_metric=validated_metric,
+        reduced_data=reduced_data,
+        active_data=active_data,
+        excluded_predictors=excluded_predictors,
+        profile_md_settings=profile_md_settings,
+        order_exclusions_fn=order_exclusions_with_defaults,
+    )
 
     # Handler for "Try it!" button
     @reactive.effect

@@ -3,21 +3,23 @@ Labeler state management for profile tab.
 
 Handles initialization, updates, and interactions with performance labelers.
 
-© Copyright 2025--2025 Hewlett Packard Enterprise Development LP
+© Copyright 2025--2026 Hewlett Packard Enterprise Development LP
 """
+from typing import Any
+
 from shiny import reactive, Inputs, ui
 from shiny.types import SilentException
 import numpy as np
-import polars as pl
-from typing import Any
 
 from src.core.profile.labeler import (
     PerformanceLabeler,
     BinaryLabeler,
+    CutoffBasedLabeler,
     TertileLabeler,
     QuartileLabeler,
     AutoLabeler,
-    ManualLabeler
+    ManualLabeler,
+    RegressionLabeler,
 )
 from src.gui.utils.profile.tree import search_for_cutoff
 from src.gui.utils.profile.distribution import update_labeler_from_click
@@ -26,10 +28,10 @@ from src.core.config.settings import Settings
 
 def initialize_labeler_effect(
     input: Inputs,
-    active_data: reactive.Calc,
-    validated_metric: reactive.Calc,
-    lower_is_better_setting: reactive.Value,
-    current_labeler: reactive.Value
+    active_data: Any,
+    validated_metric: Any,
+    lower_is_better_setting: Any,
+    current_labeler: Any
 ) -> None:
     """
     Create a reactive effect to initialize labeler when data/metric/strategy changes.
@@ -41,79 +43,64 @@ def initialize_labeler_effect(
         lower_is_better_setting: Reactive value for lower_is_better flag
         current_labeler: Reactive value to store the labeler
     """
-    # Track previous strategy to detect mode changes
-    prev_strategy = reactive.Value(None)
-
     @reactive.effect
     def _initialize_labeler() -> None:
-        """Initialize labeler when data/metric/lower_is_better/strategy changes."""
+        """Initialize labeler when data/metric/lower_is_better/perf_auto_detect changes.
+
+        num_perf_groups is read via isolate so it does NOT trigger this effect;
+        group-count changes are handled exclusively by handle_num_cutoffs_change_effect.
+        """
         data = active_data()
         metric_col = validated_metric()
 
-        # Reset if no data or metric
         if data is None or not metric_col or metric_col not in data.columns:
             current_labeler.set(None)
-            prev_strategy.set(None)
             return
 
-        # Get metric values
         values = data[metric_col].drop_nulls().to_numpy()
         if len(values) < 2:
             current_labeler.set(None)
-            prev_strategy.set(None)
             return
 
-        # Get lower_is_better setting
         lower_is_better = lower_is_better_setting.get()
 
-        # Get strategy
         try:
-            strategy = input.classification_strategy()
+            is_auto = bool(input.perf_auto_detect())
         except SilentException:
-            strategy = "binary"
+            is_auto = False
 
-        # Check if we're staying in manual mode (no strategy change)
-        # If so, don't recreate - let handle_num_cutoffs_change_effect handle it
-        if strategy == "manual" and prev_strategy.get() == "manual":
-            # Keep existing ManualLabeler, don't reinitialize
-            # The handle_num_cutoffs_change_effect will handle num_cutoffs changes
-            return
+        # Read num_groups without registering a reactive dependency — group-count
+        # transitions are handled by handle_num_cutoffs_change_effect.
+        with reactive.isolate():
+            try:
+                num_groups = int(input.num_perf_groups() or "2")
+            except (SilentException, ValueError, TypeError):
+                num_groups = 2
+            num_groups = max(1, min(10, num_groups))
 
-        # Update previous strategy
-        prev_strategy.set(strategy)
-
-        # Initialize labeler based on strategy
         try:
-            match strategy:
-                case "auto":
-                    # Auto labeling can be slow - use ui.notification to show progress
-                    with ui.Progress(min=0, max=1) as p:
-                        p.set(message="Analyzing distribution...", detail="Running changepoint detection and clustering")
-                        labeler = AutoLabeler(values, lower_is_better)
-                case "manual":
-                    # Get num_cutoffs if available, default to 1
-                    try:
-                        num_cutoffs = int(input.manual_num_cutoffs())
-                    except (SilentException, ValueError):
-                        num_cutoffs = 1
-                    labeler = ManualLabeler(values, lower_is_better, num_cutoffs)
-                case "tertile":
-                    labeler = TertileLabeler(values, lower_is_better)
-                case "quartile":
-                    labeler = QuartileLabeler(values, lower_is_better)
-                case _:  # binary (default)
-                    labeler = BinaryLabeler(values, lower_is_better)
+            labeler: PerformanceLabeler
+            if is_auto:
+                with ui.Progress(min=0, max=1) as p:
+                    p.set(message="Analyzing distribution...",
+                          detail="Running changepoint detection and clustering")
+                    labeler = AutoLabeler(values, lower_is_better)
+            elif num_groups <= 1:
+                labeler = RegressionLabeler(values, lower_is_better)
+            elif num_groups == 2:
+                labeler = BinaryLabeler(values, lower_is_better)
+            else:
+                labeler = ManualLabeler(values, lower_is_better, num_groups - 1)
             current_labeler.set(labeler)
         except Exception:
             current_labeler.set(None)
-            prev_strategy.set(None)
 
 
 
 def handle_plot_click_effect(
     input: Inputs,
-    current_labeler: reactive.Value,
-    lower_is_better_setting: reactive.Value
+    current_labeler: Any,
+    lower_is_better_setting: Any
 ) -> None:
     """
     Create a reactive effect to handle plot clicks for cutoff adjustment.
@@ -147,11 +134,12 @@ def handle_plot_click_effect(
 
 def handle_cutoff_search_effect(
     input: Inputs,
-    active_data: reactive.Calc,
-    validated_metric: reactive.Calc,
-    excluded_predictors: reactive.Value,
-    current_labeler: reactive.Value,
-    lower_is_better_setting: reactive.Value
+    active_data: Any,
+    validated_metric: Any,
+    excluded_predictors: Any,
+    current_labeler: Any,
+    lower_is_better_setting: Any,
+    settings: Any | None = None,
 ) -> None:
     """
     Create a reactive effect to handle cutoff search button.
@@ -163,8 +151,11 @@ def handle_cutoff_search_effect(
         excluded_predictors: Reactive value with excluded predictor list
         current_labeler: Reactive value storing the current labeler
         lower_is_better_setting: Reactive value for lower_is_better flag
+        settings: Settings instance or callable returning settings (optional)
     """
     from shiny import ui
+
+    resolved_settings = settings
 
     @reactive.effect
     @reactive.event(input.search_cutoff_btn)
@@ -183,8 +174,12 @@ def handle_cutoff_search_effect(
             return
 
         # Get settings
-        settings = Settings()
-        max_search_points = settings.get("profiling.max_search", 100)
+        runtime_settings = resolved_settings
+        if runtime_settings is None:
+            runtime_settings = Settings()
+        elif callable(runtime_settings):
+            runtime_settings = runtime_settings()
+        max_search_points = runtime_settings.get("profiling.max_search", 100)
 
         # Get excluded predictors
         current_exclusions = excluded_predictors()
@@ -198,8 +193,12 @@ def handle_cutoff_search_effect(
         # Show progress bar
         with ui.Progress(min=0, max=max_search_points) as p:
             if is_manual:
-                # Manual labeler: search for optimal number of cutoffs and their values
-                p.set(message=f"Searching optimal cutoffs...", detail="Trying different configurations...")
+                # Manual labeler: keep cutoff count fixed, optimize cutoff positions.
+                target_num_cutoffs = len(labeler.get_cutoffs())
+                p.set(
+                    message=f"Searching optimal cutoffs...",
+                    detail=f"Optimizing {target_num_cutoffs + 1} groups...",
+                )
 
                 # Use search_optimal_manual_cutoffs
                 from src.gui.utils.profile.tree import search_optimal_manual_cutoffs
@@ -213,15 +212,15 @@ def handle_cutoff_search_effect(
                     metric_col=metric_col,
                     exclude=current_exclusions,
                     progress_callback=update_progress,
-                    lower_is_better=lower_is_better
+                    lower_is_better=lower_is_better,
+                    fixed_num_cutoffs=target_num_cutoffs,
                 )
 
                 if optimal_cutoffs is not None and len(optimal_cutoffs) > 0:
                     new_labeler = ManualLabeler.with_cutoffs(optimal_cutoffs, lower_is_better)
-                    # Set labeler FIRST so handle_num_cutoffs_change_effect sees the new cutoffs
                     current_labeler.set(new_labeler)
-                    # Update the input after - the effect will see new_num == len(cutoffs) and skip
-                    ui.update_select("manual_num_cutoffs", selected=str(len(optimal_cutoffs)))
+                    # The rendered panel re-derives num_groups_selected from the new labeler,
+                    # so no separate ui.update_select call is needed.
                     p.set(message="Search complete!", value=max_search_points,
                           detail=f"Found {len(optimal_cutoffs)} cutoffs")
                 else:
@@ -254,12 +253,15 @@ def handle_cutoff_search_effect(
 
 def handle_num_cutoffs_change_effect(
     input: Inputs,
-    active_data: reactive.Calc,
-    validated_metric: reactive.Calc,
-    current_labeler: reactive.Value
+    active_data: Any,
+    validated_metric: Any,
+    current_labeler: Any
 ) -> None:
     """
-    Create a reactive effect to handle changes in num_cutoffs for Manual labeler.
+    Create a reactive effect to handle changes in the num_perf_groups dropdown.
+
+    Handles all group-count transitions while preserving existing cutoff positions
+    where possible (ManualLabeler → ManualLabeler with different count).
 
     Args:
         input: Shiny inputs
@@ -268,26 +270,26 @@ def handle_num_cutoffs_change_effect(
         current_labeler: Reactive value storing the current labeler
     """
     @reactive.effect
-    @reactive.event(input.manual_num_cutoffs, ignore_none=True)
-    def _handle_num_cutoffs_change() -> None:
-        """Adjust number of cutoffs when user changes the select input."""
-        # Use isolate to read both labeler and current input to avoid loops
+    @reactive.event(input.num_perf_groups, ignore_none=True)
+    def _handle_num_groups_change() -> None:
+        """Adjust labeler when the user changes the number of performance groups."""
         with reactive.isolate():
-            labeler = current_labeler.get()
             try:
-                new_num = int(input.manual_num_cutoffs())
+                is_auto = bool(input.perf_auto_detect())
+            except SilentException:
+                is_auto = False
+
+            if is_auto:
+                return  # Auto mode: labeler is managed by initialize_labeler_effect
+
+            try:
+                num_groups = int(input.num_perf_groups() or "2")
             except (SilentException, ValueError, TypeError):
                 return
+            num_groups = max(1, min(10, num_groups))
 
-        # Only handle for ManualLabeler
-        if labeler is None or not isinstance(labeler, ManualLabeler):
-            return
+            labeler = current_labeler.get()
 
-        # Check if the number actually changed
-        if new_num == len(labeler.get_cutoffs()):
-            return
-
-        # Get data range for placing new cutoffs
         data = active_data()
         metric_col = validated_metric()
         if data is None or not metric_col or metric_col not in data.columns:
@@ -297,11 +299,43 @@ def handle_num_cutoffs_change_effect(
         if len(values) < 2:
             return
 
-        data_range = (float(np.min(values)), float(np.max(values)))
+        lower_is_better = (
+            labeler.lower_is_better
+            if labeler is not None and hasattr(labeler, "lower_is_better")
+            else True
+        )
 
-        # Update labeler with new number of cutoffs
-        new_labeler = labeler.set_num_cutoffs(new_num, data_range)
-        current_labeler.set(new_labeler)
+        if num_groups <= 1:
+            if not isinstance(labeler, RegressionLabeler):
+                current_labeler.set(RegressionLabeler(values, lower_is_better))
+            return
+
+        num_cutoffs = num_groups - 1
+
+        if isinstance(labeler, ManualLabeler):
+            if len(labeler.get_cutoffs()) == num_cutoffs:
+                return  # Already correct
+            if num_cutoffs == 1:
+                # Transition to binary: fresh auto-placed cutoff
+                current_labeler.set(BinaryLabeler(values, lower_is_better))
+            else:
+                # Adjust cutoff count, preserving existing positions where possible
+                data_range = (float(np.min(values)), float(np.max(values)))
+                current_labeler.set(labeler.set_num_cutoffs(num_cutoffs, data_range))
+            return
+
+        if isinstance(labeler, BinaryLabeler):
+            if num_cutoffs == 1:
+                return  # Already correct
+            # Grow to multi-group: fresh quantile-based ManualLabeler
+            current_labeler.set(ManualLabeler(values, lower_is_better, num_cutoffs))
+            return
+
+        # Any other labeler type (Auto, Regression, legacy Tertile/Quartile): create fresh
+        if num_cutoffs == 1:
+            current_labeler.set(BinaryLabeler(values, lower_is_better))
+        else:
+            current_labeler.set(ManualLabeler(values, lower_is_better, num_cutoffs))
 
 
 def get_cutoff_display_info(labeler: PerformanceLabeler | None) -> tuple[str, bool]:
@@ -324,92 +358,155 @@ def get_cutoff_display_info(labeler: PerformanceLabeler | None) -> tuple[str, bo
 
 
 def render_cutoff_controls(
-    input: Inputs,
-    strategy: str,
-    cutoff_display: str,
-    show_cutoff_controls: bool,
+    labeler: PerformanceLabeler | None,
     excluded_names: list[str] | None = None,
-    labeler: PerformanceLabeler | None = None
 ) -> list[ui.TagChild]:
     """
-    Render complete analysis controls including strategy selector and cutoff controls.
+    Render the Performance groups control row and associated action buttons.
+
+    The UI shows a single row with an "Auto" checkbox and a "# groups" dropdown
+    (1-10). The dropdown is disabled while Auto is checked. A Search button is
+    always visible but grayed out when Auto or regression mode is active.
 
     Args:
-        input: Shiny inputs object
-        strategy: Current classification strategy
-        cutoff_display: Formatted string showing current cutoffs
-        show_cutoff_controls: Whether to show cutoff adjustment controls
-        excluded_names: List of names of excluded predictors (optional, for tooltip)
-        labeler: Current labeler (optional, needed for Manual strategy)
+        labeler: Current performance labeler (None if not yet initialized)
+        excluded_names: Excluded predictor names for the tooltip badge
 
     Returns:
-        List of UI elements for the entire control panel
+        List of UI elements for the control panel
     """
-    # Determine if we're in manual mode
-    is_manual = strategy == "manual"
+    # --- Derive UI state from the current labeler ---
+    is_auto = isinstance(labeler, AutoLabeler)
+    is_regression = isinstance(labeler, RegressionLabeler)
+    is_mutable = (
+        not is_auto
+        and not is_regression
+        and labeler is not None
+        and isinstance(labeler, CutoffBasedLabeler)
+        and labeler.is_mutable
+    )
+    search_disabled = is_auto or is_regression or labeler is None
 
-    # Get current num_cutoffs for manual labeler
-    current_num_cutoffs = 1
-    if is_manual and isinstance(labeler, ManualLabeler):
-        current_num_cutoffs = len(labeler.get_cutoffs())
+    # Determine the selected value for the groups dropdown
+    if is_auto or labeler is None:
+        num_groups_selected = "2"  # sensible default when Auto is unchecked
+    elif is_regression:
+        num_groups_selected = "1"
+    elif isinstance(labeler, BinaryLabeler):
+        num_groups_selected = "2"
+    elif (cutoffs := labeler.get_cutoffs()) is not None:
+        num_groups_selected = str(len(cutoffs) + 1)
+    else:
+        num_groups_selected = "2"
+
+    auto_tooltip = (
+        "Auto: automatically detects performance groups using temporal phase "
+        "detection, tail isolation (IQR), and body clustering (Jenks breaks). "
+        "The number and positions of groups are determined by the data; "
+        "manual adjustment is not available in this mode."
+    )
+    groups_tooltip = (
+        "Number of performance groups:\n"
+        "1 = regression (no splitting)\n"
+        "2 = binary FAST/SLOW\n"
+        "3–10 = equal-quantile groups, adjustable by clicking or Search"
+    )
+
+    if is_auto:
+        search_title = "Search is not available in Auto mode."
+    elif is_regression:
+        search_title = "Search is not available in regression mode (1 group)."
+    elif is_mutable:
+        search_title = (
+            "Search finds the optimal cutoff positions that minimize tree entropy. "
+            "Clicking on the distribution plot moves the nearest cutoff manually."
+        )
+    else:
+        search_title = ""
+
+    btn_class = "btn-secondary btn-sm" + (" disabled" if search_disabled else "")
+
+    number_input_style = (
+        "width: 48px; font-size: 0.85em; height: 26px; text-align: center;"
+        " padding: 1px 4px; display: inline-block;"
+    )
+    if is_auto:
+        number_input_style += " opacity: 0.4;"
+
+    stepper_control = ui.div(
+        ui.tags.input(
+            id="num_perf_groups",
+            type="number",
+            min="1",
+            max="10",
+            step="1",
+            value=num_groups_selected,
+            disabled=is_auto,
+            class_="form-control form-control-sm",
+            style=number_input_style,
+            title=groups_tooltip,
+        ),
+        style="display: flex; align-items: center;",
+    )
 
     return [
-        ui.tags.p(ui.tags.strong("Analysis Controls"), style="margin-bottom: 15px;"),
-        ui.input_select(
-            "classification_strategy",
-            "Performance labeling strategy",
-            choices={
-                "binary": "Binary (FAST/SLOW)",
-                "tertile": "Tertiles (3 groups)",
-                "quartile": "Quartiles (4 groups)",
-                "auto": "Auto (Hybrid Detection)",
-                "manual": "Manual (Custom Groups)"
-            },
-            selected=strategy
-        ),
-        # Row with select dropdown aligned horizontally next to label
-        ui.div(
-            ui.tags.span("# Cutoffs:", style="margin-right: 8px; font-size: 0.9em; line-height: 2.2;"),
-            ui.input_select(
-                "manual_num_cutoffs",
-                None,
-                choices={str(i): str(i) for i in range(1, 10)},
-                selected=str(current_num_cutoffs),
-                width="60px"
+        ui.tags.p(ui.tags.strong("Performance groups"), style="margin-bottom: 4px;"),
+        # Two-column row: col-6 Auto checkbox | col-6 dropdown
+        ui.row(
+            ui.column(
+                6,
+                ui.div(
+                    ui.input_checkbox("perf_auto_detect", "Auto groups", value=is_auto),
+                    title=auto_tooltip,
+                ),
             ),
-            style=f"margin-top: 10px; display: {'flex' if is_manual else 'none'}; align-items: center;"
+            ui.column(
+                6,
+                ui.div(
+                    ui.tags.span(
+                        "Fixed #",
+                        style="font-size: 0.85em; margin-right: 4px; white-space: nowrap;",
+                    ),
+                    stepper_control,
+                    title=groups_tooltip,
+                    style="display: flex; align-items: center;",
+                ),
+                style="border-left: 1px solid #ddd; padding-left: 8px;",
+            ),
+            style="margin-bottom: 5px;",
         ),
-        ui.tags.p(
-            "Click near cutoff to move it",
-            style=f"font-size: 0.9em; margin-top: 5px; margin-bottom: 5px; {'display: none;' if not show_cutoff_controls else ''}"
-        ),
+        # Search button + click hint (always visible; search grayed for Auto/regression)
         ui.div(
             ui.input_action_button(
                 "search_cutoff_btn",
-                "Search for Cutoff" if not is_manual else "Find Cutoffs",
-                class_="btn-secondary btn-sm",
-                icon=ui.tags.span(ui.tags.i(class_="bi bi-search"), "\u00A0"),
-                width="100%"
+                "Search for optimal tree",
+                class_=btn_class,
+                icon=ui.tags.i(class_="bi bi-search"),
             ),
-            style=f"margin-top: 5px; {'display: none;' if not show_cutoff_controls else ''}"
+            title=search_title,
+            style="display: flex; align-items: center; margin-top: 2px;",
         ),
-        ui.tags.hr(style="margin: 15px 0;"),
-        ui.input_action_button(
-            "exclude_predictors_btn",
-            "Exclude Predictors",
-            class_="btn-secondary btn-sm",
-            icon=ui.tags.span(ui.tags.i(class_="bi bi-table"), "\u00A0")
-        ),
-        ui.tags.p(
+        # Predictors button + exclusion count badge
+        ui.div(
+            ui.input_action_button(
+                "exclude_predictors_btn",
+                "Predictors",
+                class_="btn-secondary btn-sm",
+                icon=ui.tags.i(class_="bi bi-table"),
+            ),
             ui.tags.span(
-                f"Excluded: {len(excluded_names) if excluded_names else 0} predictors",
+                f"({len(excluded_names) if excluded_names else 0} excluded)",
                 title=(
                     "Excluded predictors:\n" + "\n".join(excluded_names)
                     if excluded_names and len(excluded_names) > 0
                     else "No predictors excluded"
                 ),
-                style="cursor: help; border-bottom: 1px dotted #999;"
+                style=(
+                    "cursor: help; border-bottom: 1px dotted #999; "
+                    "font-size: 0.8em; color: #666; margin-left: 6px;"
+                ),
             ),
-            style="color: #666; font-size: 0.85em; margin-top: 10px;"
+            title="Click here to determine which predictors are included or excluded from the factor analysis",
+            style="display: flex; align-items: center; gap: 0; margin-top: 5px;",
         ),
     ]

@@ -3,84 +3,58 @@ Profile tab utilities.
 
 This package contains modular utilities for the profiling workflow.
 
-© Copyright 2025--2025 Hewlett Packard Enterprise Development LP
+© Copyright 2025--2026 Hewlett Packard Enterprise Development LP
 """
 
-# Re-export commonly used functions for convenience
-from .tree import (
-    compute_tree,
-    select_tree_predictors,
-    render_tree_plot,
-    summarize_tree,
-    search_for_cutoff,
-    select_complete_rows,
-)
+from . import analysis as _analysis
+from . import data_pipeline as _data_pipeline
+from . import distribution as _distribution
+from . import exclusions as _exclusions
+from . import execution as _execution
+from . import factors as _factors
+from . import files as _files
+from . import labeler_ui as _labeler_ui
+from . import mitigations as _mitigations
+from . import modals as _modals
+from . import mode as _mode
+from . import tree as _tree
+from . import visualizers as _visualizers
+from . import factor_ui as _factor_ui
 
-from .exclusions import (
-    compute_predictor_stats,
-    create_predictor_exclusion_ui,
-    build_predictor_exclusion_modal,
-    apply_exclusions,
-    DEFAULT_EXCLUDED_PREDICTORS,
-)
+from .analysis import *
+from .data_pipeline import *
+from .distribution import *
+from .exclusions import *
+from .execution import *
+from .factors import *
+from .files import *
+from .labeler_ui import *
+from .mitigations import *
+from .modals import *
+from .mode import *
+from .tree import *
+from .visualizers import *
+from .factor_ui import *
 
-from .files import (
-    check_prof_file_exists,
-    get_markdown_path,
-    validate_markdown,
-    extract_run_time_from_md,
-    extract_backends_from_md,
-    get_file_paths,
-    detect_file_state,
-)
-
-from .modals import (
-    build_choose_source_modal,
-    build_configure_modal,
-    build_invalid_backend_modal,
-    build_profiling_error_modal,
-)
-
-from .execution import (
-    determine_task_name_for_profiling,
-    build_orchestrator_options,
-    ProfilingExecutor,
-    load_profiling_data,
-)
-
-__all__ = [
-    # Tree functions
-    "compute_tree",
-    "select_tree_predictors",
-    "render_tree_plot",
-    "summarize_tree",
-    "search_for_cutoff",
-    "select_complete_rows",
-    # Metric functions
-    "suggest_cutoff",
-    "compute_cutoff_from_data",
-    "compute_predictor_stats",
-    "create_predictor_exclusion_ui",
-    "build_predictor_exclusion_modal",
-    "apply_exclusions",
-    "DEFAULT_EXCLUDED_PREDICTORS",
-    # File functions
-    "check_prof_file_exists",
-    "get_markdown_path",
-    "validate_markdown",
-    "extract_run_time_from_md",
-    "extract_backends_from_md",
-    "get_file_paths",
-    "detect_file_state",
-    # Modal functions
-    "build_choose_source_modal",
-    "build_configure_modal",
-    "build_invalid_backend_modal",
-    "build_profiling_error_modal",
-    # Execution functions
-    "determine_task_name_for_profiling",
-    "build_orchestrator_options",
-    "ProfilingExecutor",
-    "load_profiling_data",
-]
+__all__ = []
+for _module in (
+    _analysis,
+    _data_pipeline,
+    _distribution,
+    _exclusions,
+    _execution,
+    _factors,
+    _files,
+    _labeler_ui,
+    _mitigations,
+    _modals,
+    _mode,
+    _tree,
+    _visualizers,
+    _factor_ui,
+):
+    if hasattr(_module, "__all__"):
+        __all__.extend(_module.__all__)
+    else:
+        __all__.extend([name for name in dir(_module) if not name.startswith("_")])
 

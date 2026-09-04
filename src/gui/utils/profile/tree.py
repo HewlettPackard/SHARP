@@ -11,9 +11,8 @@ src.core.profile directly for training and analysis.
 © Copyright 2025--2026 Hewlett Packard Enterprise Development LP
 """
 
-from typing import Any, Dict, List, Callable
+from typing import Any, Dict, List, Callable, cast
 from io import BytesIO
-import os
 import traceback
 import numpy as np
 import polars as pl
@@ -25,7 +24,8 @@ from sklearn.tree import DecisionTreeClassifier
 from src.core.config.settings import Settings
 from src.core.profile.decision_tree import DecisionTreeTrainer
 from src.core.profile.labeler import PerformanceLabeler, BinaryLabeler
-from src.core.profile.cutoff import search_optimal_cutoff as _core_search_optimal_cutoff
+from src.core.profile.cutoff import CutoffClassSelector
+from src.gui.utils.profile.mode import resolve_outcome_mode
 from src.core.profile import predictor_selection
 from src.core.profile.data_reduction import reduce_rows
 
@@ -134,9 +134,15 @@ def select_complete_rows(
         return data.head(0)
 
 
-def compute_tree(data: pl.DataFrame, metric: str, labeler: PerformanceLabeler,
-                exclude: list[str] | None = None, max_predictors: int = 100,
-                max_correlation: float = 0.99, predictors: list[str] | None = None) -> DecisionTreeClassifier | None:
+def compute_tree(
+    data: pl.DataFrame,
+    metric: str,
+    labeler: PerformanceLabeler,
+    exclude: list[str] | None = None,
+    max_predictors: int = 100,
+    max_correlation: float = 0.99,
+    predictors: list[str] | None = None,
+) -> DecisionTreeClassifier | None:
     """
     Train decision tree classifier for performance classification.
 
@@ -225,6 +231,29 @@ def compute_tree(data: pl.DataFrame, metric: str, labeler: PerformanceLabeler,
     except Exception:
         traceback.print_exc()
         return None
+
+
+def attach_tree_metadata(
+    trained_model: Any | None,
+    class_names: list[str],
+    valid_data: pl.DataFrame,
+    labels: np.ndarray,
+    metric_col: str,
+    outcome_mode: str = "classification",
+) -> Any | None:
+    """Attach GUI-specific metadata to a trained tree model."""
+    if trained_model is None:
+        return None
+
+    tree = trained_model.model
+    tree.feature_names_ = trained_model.feature_names
+    tree.original_predictors_ = trained_model.original_predictors
+    tree.class_names_ = class_names
+    tree.training_data_ = valid_data
+    tree.training_labels_ = labels
+    tree.training_metric_ = metric_col
+    tree.outcome_mode_ = outcome_mode
+    return tree
 
 
 def explain_tree_unavailable(data: pl.DataFrame | None, metric_col: str | None,
@@ -439,13 +468,15 @@ def search_optimal_manual_cutoffs(
     exclude: list[str],
     progress_callback: Callable[..., Any] | None = None,
     lower_is_better: bool = True,
-    max_cutoffs: int = 9
+    max_cutoffs: int = 9,
+    fixed_num_cutoffs: int | None = None,
 ) -> list[float] | None:
     """
-    Search for optimal number and values of cutoffs for Manual labeler.
+    Search for optimal values of cutoffs for Manual labeler.
 
-    Uses Jenks natural breaks to find candidate cutoff configurations (1-9 cutoffs),
-    then evaluates each using decision tree AIC. Returns configuration with minimum AIC.
+    Uses Jenks natural breaks to find candidate cutoff configurations, then
+    evaluates each using decision tree AIC. Returns configuration with minimum AIC.
+    If fixed_num_cutoffs is provided, only that cutoff count is evaluated.
 
     Args:
         data: Polars DataFrame containing the data
@@ -454,6 +485,7 @@ def search_optimal_manual_cutoffs(
         progress_callback: Optional callback function for progress updates
         lower_is_better: Whether lower metric values are better
         max_cutoffs: Maximum number of cutoffs to try (default: 9)
+        fixed_num_cutoffs: If provided, evaluate exactly this many cutoffs (1-9)
 
     Returns:
         List of optimal cutoff values, or None if no valid configuration found
@@ -470,10 +502,19 @@ def search_optimal_manual_cutoffs(
     best_aic = float('inf')
     best_cutoffs = None
 
-    # Try different numbers of cutoffs (1 to max_cutoffs)
-    for num_cutoffs in range(1, min(max_cutoffs + 1, 10)):
+    if fixed_num_cutoffs is not None:
+        if not 1 <= fixed_num_cutoffs <= 9:
+            raise ValueError(f"fixed_num_cutoffs must be between 1 and 9, got {fixed_num_cutoffs}")
+        cutoff_counts = [fixed_num_cutoffs]
+    else:
+        cutoff_counts = list(range(1, min(max_cutoffs + 1, 10)))
+
+    total_configs = max(len(cutoff_counts), 1)
+
+    # Try one or more cutoff-count configurations
+    for idx, num_cutoffs in enumerate(cutoff_counts, start=1):
         if progress_callback:
-            progress = num_cutoffs / max_cutoffs
+            progress = idx / total_configs
             progress_callback(progress, f"Trying {num_cutoffs} cutoffs...")
 
         try:
@@ -560,7 +601,7 @@ def _create_dot_node(node_id: int, tree: Any, feature_names: List[str],
     """Create DOT graph node specification for a tree node."""
     if tree.feature[node_id] == -2:  # Leaf node
         values = tree.value[node_id][0]
-        class_idx = np.argmax(values)
+        class_idx = int(np.argmax(values))
 
         # Map internal index to actual class label if classes provided
         # This handles cases where tree.classes_ is a subset (e.g. [1] only)
@@ -666,7 +707,7 @@ def render_tree_plot(tree: DecisionTreeClassifier, class_colors: List[str]) -> F
         dot_data = _build_tree_dot_graph(tree, feature_names, class_colors)
         return _render_dot_to_matplotlib(dot_data)
 
-    except (ExecutableNotFound, FileNotFoundError) as e:
+    except (FileNotFoundError, RuntimeError) as e:
         error_msg = (
             "Graphviz 'dot' executable not found.\n\n"
             "Install Graphviz system package:\n"
@@ -687,7 +728,8 @@ def _prepare_tree_visualization_data(
     feature_names: List[str],
     predictors: List[str],
     labeler: PerformanceLabeler,
-    class_names: List[str]
+    class_names: List[str],
+    outcome_mode: str = "classification",
 ) -> tuple[np.ndarray, np.ndarray]:
     """Prepare X (features) and y (labels) arrays for tree visualization.
 
@@ -714,21 +756,28 @@ def _prepare_tree_visualization_data(
         valid_data = data.filter(valid_mask)
 
         # Reconstruct features to match tree's expected schema
+        X_arr: np.ndarray | None
         if feature_names and not all(f.startswith("Feature_") for f in feature_names):
-            X = _reconstruct_features(valid_data, feature_names)
+            X_arr = _reconstruct_features(valid_data, feature_names)
         else:
             # Fallback encoding
-            X, _ = _encode_features(valid_data.select(predictors), predictors)
-            if X is None:
+            X_arr, _ = _encode_features(valid_data.select(predictors), predictors)
+            if X_arr is None:
                 raise ValueError("Feature encoding failed")
 
-        # Generate labels
+        X = X_arr
+
+        # Generate labels/targets
         metric_values = valid_data[metric_col].to_numpy()
         labels = labeler.label(metric_values)
 
-        # Map labels to integers
-        label_to_int = {label: i for i, label in enumerate(class_names)}
-        y = np.array([label_to_int.get(l, 0) for l in labels])
+        # Regression mode: keep continuous target values
+        if outcome_mode == "regression":
+            y = np.asarray(labels, dtype=float)
+        else:
+            # Classification mode: map labels to class indices
+            label_to_int = {label: i for i, label in enumerate(class_names)}
+            y = np.array([label_to_int.get(l, 0) for l in labels])
 
         return X, y
     except Exception as e:
@@ -760,22 +809,48 @@ def _generate_supertree_html(
         import tempfile
         import os
 
-        # Try to instantiate with names
-        try:
-            st = SuperTree(tree, X, y, feature_names, class_names)
-        except Exception:
-            # Fallback without names
-            st = SuperTree(tree, X, y)
+        # Instantiate with progressively simpler signatures for compatibility.
+        st = None
+        for ctor_args in (
+            (tree, X, y, feature_names, class_names),
+            (tree, X, y, feature_names),
+            (tree, X, y),
+        ):
+            try:
+                st = SuperTree(*ctor_args)
+                break
+            except Exception:
+                continue
 
-        # Generate HTML via temp file
+        if st is None:
+            return None
+
+        # Generate HTML via temp file; try common save_html API variants.
         with tempfile.TemporaryDirectory() as tmpdir:
-            output_path = os.path.join(tmpdir, 'tree')
-            st.save_html(filename=output_path, which_tree=0)
-            html_file = output_path + '.html'
+            output_base = os.path.join(tmpdir, 'tree')
+            output_html = os.path.join(tmpdir, 'tree.html')
 
-            if os.path.exists(html_file):
-                with open(html_file, 'r', encoding='utf-8') as f:
-                    return f.read()
+            saved = False
+            for save_kwargs in (
+                {"filename": output_base, "which_tree": 0},
+                {"filename": output_base},
+                {"filename": output_html, "which_tree": 0},
+                {"filename": output_html},
+            ):
+                try:
+                    st.save_html(**save_kwargs)
+                    saved = True
+                    break
+                except Exception:
+                    continue
+
+            if not saved:
+                return None
+
+            for html_file in (output_html, output_base + '.html'):
+                if os.path.exists(html_file):
+                    with open(html_file, 'r', encoding='utf-8') as f:
+                        return f.read()
 
         return None
     except Exception:
@@ -811,12 +886,12 @@ def render_supertree_html(tree: DecisionTreeClassifier,
         returns HTML-escaped error message.
     """
     if tree is None:
-        import html
+        import html as html_module
         reason = explain_tree_unavailable(data, metric_col, labeler)
         return (
             '<div style="padding:10px;color:#a00;">'
             'No decision tree could be trained with the current data/cutoffs.'
-            f'<br/>{html.escape(reason)}'
+            f'<br/>{html_module.escape(reason)}'
             '</div>'
         )
 
@@ -846,7 +921,6 @@ def render_supertree_html(tree: DecisionTreeClassifier,
             '</div>'
         )
 
-    # Prepare visualization data
     # Use training data if available (ensures visualization matches training sample)
     training_data = getattr(tree, 'training_data_', None)
     if training_data is not None:
@@ -854,9 +928,17 @@ def render_supertree_html(tree: DecisionTreeClassifier,
     else:
         viz_data = data
 
+    # Prepare visualization data
+    outcome_mode = getattr(tree, "outcome_mode_", resolve_outcome_mode(labeler))
     try:
         X, y = _prepare_tree_visualization_data(
-            viz_data, metric_col, feature_names, predictors, labeler, class_names
+            viz_data,
+            metric_col,
+            feature_names,
+            predictors,
+            labeler,
+            class_names,
+            outcome_mode=outcome_mode,
         )
     except ValueError as e:
         return (
@@ -866,9 +948,9 @@ def render_supertree_html(tree: DecisionTreeClassifier,
         )
 
     # Generate raw HTML
-    html = _generate_supertree_html(tree, X, y, feature_names, class_names)
+    html_str = _generate_supertree_html(tree, X, y, feature_names, class_names)
 
-    if not html:
+    if not html_str:
         return (
             '<div style="padding:10px;color:#a00;">'
             'Supertree is installed but could not render the tree with the current API.'
@@ -877,8 +959,8 @@ def render_supertree_html(tree: DecisionTreeClassifier,
         )
 
     # Post-process HTML to customize appearance
-    html = _customize_supertree_html(html, class_names, class_colors)
-    return html
+    html_str = _customize_supertree_html(html_str, class_names, class_colors)
+    return html_str
 
 
 def render_tree_for_ui(
@@ -924,12 +1006,21 @@ def render_tree_for_ui(
     # Extract metadata from tree and labeler
     feature_names = getattr(tree, 'feature_names_', None)
     class_names = labeler.get_class_names()
+    if not class_names:
+        class_names = ["Outcome"]
 
     # Compute colors from class names
     from src.gui.utils.profile.distribution import get_class_colors
     class_colors = get_class_colors(class_names)
 
     # Render using full API
+    if data is None:
+        return (
+            '<div style="padding:10px;color:#a00;">'
+            'Cannot render interactive tree: no data available.'
+            '</div>'
+        )
+
     return render_supertree_html(
         tree, feature_names, class_names, class_colors,
         data, metric_col, labeler

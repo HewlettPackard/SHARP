@@ -250,12 +250,13 @@ def _plot_scatter_with_regression(ax: Axes, factor_clean: np.ndarray, metric_cle
     ax.grid(True, alpha=0.3)
 
 
-def render_factor_info_card(factor_name: str) -> ui.TagChild:
+def render_factor_info_card(factor_name: str, display_name: str | None = None) -> ui.TagChild:
     """
     Render information card for a performance factor.
 
     Args:
-        factor_name: Name of the factor
+        factor_name: Raw factor/column name
+        display_name: Optional display label shown in UI headings
 
     Returns:
         Shiny UI card with factor description, references, and mitigations
@@ -277,8 +278,10 @@ def render_factor_info_card(factor_name: str) -> ui.TagChild:
         for item in pair
     ][:-1]) if ref_links else ui.tags.span('No references available', style='color: #999;')
 
+    shown_name = display_name or factor_name
+
     return ui.card(
-        ui.card_header(f'Factor: {factor_name}'),
+        ui.card_header(f'Factor: {shown_name}'),
         ui.tags.div(
             ui.markdown(description),
             style='margin-bottom: 15px;'
@@ -291,16 +294,22 @@ def render_factor_info_card(factor_name: str) -> ui.TagChild:
     )
 
 
-def render_factor_scatter_plot(data: pl.DataFrame, factor_name: str, metric: str,
-                               labeler: PerformanceLabeler | None = None) -> Figure | None:
+def render_factor_scatter_plot(
+    data: pl.DataFrame,
+    factor_name: str,
+    metric: str,
+    labeler: PerformanceLabeler | None = None,
+    display_name: str | None = None,
+) -> Figure | None:
     """
     Render scatter plot of factor vs performance metric with classification.
 
     Args:
         data: DataFrame with factor and metric columns
-        factor_name: Name of the factor column
+        factor_name: Raw factor/column name
         metric: Name of the performance metric column
         labeler: Optional labeler for assigning class labels to points
+        display_name: Optional display label for titles/axis labels
 
     Returns:
         Matplotlib figure or None if error
@@ -336,9 +345,10 @@ def render_factor_scatter_plot(data: pl.DataFrame, factor_name: str, metric: str
 
     # Create plot
     fig, ax = plt.subplots(figsize=(10, 6))
-    _plot_scatter_with_regression(ax, factor_clean, metric_clean, labels, model, factor_name, metric)
+    shown_name = display_name or factor_name
+    _plot_scatter_with_regression(ax, factor_clean, metric_clean, labels, model, shown_name, metric)
 
-    ax.set_title(f'{factor_name} explains {r2_continuous*100:.2f}% of variation in {metric}\n'
+    ax.set_title(f'{shown_name} explains {r2_continuous*100:.2f}% of variation in {metric}\n'
                 f'and {log_r2*100:.2f}% of variation in performance classes',
                 fontsize=12, fontweight='bold')
 
@@ -348,16 +358,22 @@ def render_factor_scatter_plot(data: pl.DataFrame, factor_name: str, metric: str
     return fig
 
 
-def render_factor_comparison_table(data: pl.DataFrame, factor_name: str, metric: str,
-                                   labeler: PerformanceLabeler | None = None) -> ui.TagChild:
+def render_factor_comparison_table(
+    data: pl.DataFrame,
+    factor_name: str,
+    metric: str,
+    labeler: PerformanceLabeler | None = None,
+    display_name: str | None = None,
+) -> ui.TagChild:
     """
     Render comparison table showing factor statistics by performance class.
 
     Args:
         data: DataFrame with factor and metric columns
-        factor_name: Name of the factor column
+        factor_name: Raw factor/column name
         metric: Name of the performance metric column
         labeler: Labeler for assigning class labels
+        display_name: Optional display label for headings
 
     Returns:
         Shiny UI table with group statistics
@@ -405,8 +421,9 @@ def render_factor_comparison_table(data: pl.DataFrame, factor_name: str, metric:
         # Create color map with transparency
         group_colors = {name: color + '66' for name, color in zip(class_names, class_colors)}
 
+        shown_name = display_name or factor_name
         return ui.tags.div(
-            ui.tags.h4(f'{factor_name} Statistics by Group', style='margin-bottom: 10px;'),
+            ui.tags.h4(f'{shown_name} Statistics by Group', style='margin-bottom: 10px;'),
             ui.tags.table(
                 ui.tags.thead(
                     ui.tags.tr(
