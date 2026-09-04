@@ -11,7 +11,7 @@ Workflow:
 5. Display distribution characteristics (plot + narrative)
 6. Optional: manual decision tree training with feature selection
 
-© Copyright 2025--2025 Hewlett Packard Enterprise Development LP
+© Copyright 2025--2026 Hewlett Packard Enterprise Development LP
 """
 
 from shiny import ui, render, reactive, Inputs, Outputs, Session
@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 import traceback as tb
 
-from src.core.runlogs import load_csv, get_experiments, get_tasks_for_experiment
+from src.core.runlogs import load_table, get_experiments, get_tasks_for_experiment
 from src.gui.utils import apply_filter, get_filterable_columns, create_filter_ui
 from src.gui.utils.filters import *
 from src.gui.utils.ui_helpers import *
@@ -36,6 +36,8 @@ from src.core.profile.cutoff import *
 from src.core.profile.labeler import *
 from src.gui.utils.profile.predictor_stats import get_auto_excluded_predictors
 from src.core.profile import predictor_selection
+from src.core.profile.data_model import detect_data_model, DataModelInfo
+from src.gui.utils.profile.data_pipeline import *
 from src.gui.utils.profile.modals import *
 from src.gui.utils.profile.execution import *
 from src.gui.utils.profile.distribution import *
@@ -663,7 +665,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
             return None
 
         try:
-            return load_csv(task_csv)
+            return load_table(task_csv)
         except Exception:
             return None
 
@@ -684,9 +686,18 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
             return None
 
         try:
-            return load_csv(prof_path)
+            return load_table(prof_path)
         except Exception:
             return None
+
+    @reactive.Calc
+    def profiling_data_model() -> DataModelInfo | None:
+        """Detect tall vs wide format and source columns for profiling data."""
+        prof_data = prof_csv_data()
+        data = prof_data if (prof_data is not None and not prof_data.is_empty()) else csv_data()
+        if data is None:
+            return None
+        return detect_data_model(data)
 
     @reactive.Calc
     def markdown_path() -> str | None:
@@ -871,19 +882,21 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
         current_exclusions = excluded_predictors()
         labeler = current_labeler.get()
 
+        # Wait for predictor correlations to be computed before training tree.
+        # This prevents double-computation: tree should only train once correlations
+        # are ready, not with preliminary reduced_data before correlations computed.
+        corrs = predictor_correlations.get()
+        if not corrs:
+            return None
+
         # Early exit: metric not selected
         if not metric_col or metric_col.strip() == "":
             return None
 
-        data = active_data()
+        data = reduced_data()
 
         # Early exit: no data
-        try:
-            is_empty = data.is_empty() if data is not None else True
-        except:
-            is_empty = True
-
-        if data is None or is_empty:
+        if data is None or data.is_empty():
             return None
 
         # Early exit: metric not in data
@@ -950,6 +963,61 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
             return None
 
     @reactive.Calc
+    def cleaned_columns() -> list[str]:
+        """Metric-independent column cleaning (C1 + C2).
+
+        Returns list of surviving column names. Runs once per file load.
+        Does not depend on outcome metric, so it is not recomputed when the
+        user changes the metric selection.
+        """
+        data = base_data()
+        if data is None:
+            return []
+
+        # Ensure data model detection is part of the active load/reduction path.
+        # detect_data_model() internally calls detect_source_columns() and detect_format().
+        _model_info = profiling_data_model()
+
+        return compute_cleaned_columns(data)
+
+    @reactive.Calc
+    def reduced_data() -> pl.DataFrame | None:
+        """Metric-dependent column reduction (C3).
+
+        Selects only the columns that survived metric-independent cleaning
+        (cleaned_columns) and then applies outcome-relevance (C3) filter
+        using precomputed predictor correlations.
+
+        Recomputes whenever active_data, validated_metric, or
+        predictor_correlations change.  Distribution, narrative, tree,
+        and factor analyzer should all consume this dataset.
+        """
+        data = active_data()
+        metric = validated_metric()
+        cols = cleaned_columns()
+        corrs = predictor_correlations.get()
+
+        if data is None or not metric:
+            return None
+
+        # Not ready yet — cleaning hasn't completed
+        if not cols:
+            return None
+
+        # Correlations not computed yet — return data with cleaned columns only
+        if not corrs:
+            keep = set(cols) | {metric}
+            return data.select([c for c in data.columns if c in keep])
+
+        # Apply C3 on cleaned columns using precomputed correlations
+        survivors = compute_reduced_columns(
+            data, metric, cols, corrs,
+        )
+        keep = {metric} | set(survivors)
+        result = data.select([c for c in data.columns if c in keep])
+        return result
+
+    @reactive.Calc
     def original_baseline_data() -> pl.DataFrame | None:
         """Get the original baseline dataset (not profiling) for mitigation comparison.
 
@@ -965,7 +1033,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
                 return None
 
             # Load the original CSV
-            data = load_csv(original_csv)
+            data = load_table(original_csv)
             return data
         except Exception:
             return None
@@ -1024,56 +1092,19 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
             predictor_stats_full.set([])
             return
 
-        # Get all potential predictors (exclude only outcome metric and metadata cols)
-        # Use Polars batch n_unique() for efficiency instead of per-column loop
-        exclude_cols = {metric_col, "start", "task"}
-        candidate_cols = [c for c in data.columns if c not in exclude_cols]
-
-        # Batch compute n_unique for all columns at once
-        n_unique_expr = [pl.col(c).n_unique().alias(c) for c in candidate_cols]
-        n_unique_counts = data.select(n_unique_expr).row(0)
-
-        # Filter to columns with n_unique > 1
-        potential_predictors = [
-            col for col, n_uniq in zip(candidate_cols, n_unique_counts) if n_uniq > 1
-        ]
-
-        # Exclude any non-potential predictors from correlation computation
-        exclude_for_correlations = [
-            c for c in data.columns
-            if c != metric_col and c not in potential_predictors
-        ]
-
-        correlations = predictor_selection.compute_predictor_correlations(
-            data, metric_col, exclude_for_correlations
+        cols = cleaned_columns()
+        correlations, stats_rows = compute_outcome_correlations(
+            data, metric_col, cols
         )
         predictor_correlations.set(correlations)
-
-        stats_rows = [
-            {
-                "name": pred_name,
-                "non_na_count": data[pred_name].drop_nulls().len(),
-                "correlation": float(correlation),
-            }
-            for pred_name, correlation in correlations.items()
-        ]
         predictor_stats_full.set(stats_rows)
 
-        # Only auto-exclude on initial load, not after user has used Apply
-        modal_filters = predictor_modal_filters.get()
-        user_has_applied = modal_filters.get("user_has_applied", False) if modal_filters else False
-
-        if not user_has_applied:
-            max_correlation = modal_filters.get("max_corr") if modal_filters else None
-            if max_correlation is None:
-                max_correlation = Settings().get("profiling.max_correlation", 0.99)
-
-            auto_excluded = get_auto_excluded_predictors(stats_rows, max_correlation)
-            current_exclusions = set(excluded_predictors())
-            new_exclusions = current_exclusions | auto_excluded
-
-            if new_exclusions != current_exclusions:
-                excluded_predictors.set(sorted(list(new_exclusions)))
+        # Auto-exclude highly-correlated predictors (only on initial load)
+        updated = apply_auto_exclusions(
+            stats_rows, set(excluded_predictors()), predictor_modal_filters.get()
+        )
+        if updated is not None:
+            excluded_predictors.set(sorted(list(updated)))
 
     # --- Labeler Initialization ---
     # Initialize labeler management effects (after reactive Calc functions are defined)
@@ -1165,7 +1196,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
     @render.plot
     def profile_distribution_plot() -> Figure | None:
         """Render distribution plot using helper function."""
-        data = active_data()
+        data = reduced_data()
         metric_col = validated_metric()
 
         # Get current labeler
@@ -1192,7 +1223,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
     @render.ui
     def profile_distribution_narrative() -> ui.TagChild:
         """Show distribution narrative using helper function."""
-        data = active_data()
+        data = reduced_data()
         metric_col = validated_metric()
 
         if not metric_col:
@@ -1207,7 +1238,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
         try:
             return ui.HTML(render_tree_for_ui(
                 tree=computed_trained_tree(),
-                data=active_data(),
+                data=reduced_data(),
                 metric_col=validated_metric(),
                 labeler=current_labeler.get()
             ))
@@ -1363,7 +1394,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
                 ax.axis('off')
                 return fig
 
-            data = active_data()
+            data = reduced_data()
             if data is None:
                 return None
 
@@ -1394,7 +1425,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
                     style='color: #999; padding: 20px; text-align: center;'
                 )
 
-            data = active_data()
+            data = reduced_data()
             if data is None:
                 return ui.div()
 
@@ -1494,7 +1525,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
             mitigation_csv = original_md_path.parent / f"{original_md_path.stem}-{mitigation_name}.csv"
 
             if mitigation_csv.exists():
-                mit_data = load_csv(str(mitigation_csv))
+                mit_data = load_table(str(mitigation_csv))
                 # Store mitigation data
                 mitigation_data.set(mit_data)
                 ui.notification_show(
@@ -1571,7 +1602,7 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
                     mit_csv = md_path.parent / f"{md_path.stem}-{mitigation_name}.csv"
 
                     if mit_csv.exists():
-                        mit_data = load_csv(str(mit_csv))
+                        mit_data = load_table(str(mit_csv))
                         mitigation_data.set(mit_data)
                     else:
                         ui.notification_show(

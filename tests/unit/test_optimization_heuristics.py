@@ -30,7 +30,8 @@ class TestMetricTypeExtraction:
         """Test extraction stops at location indicators or numeric tokens."""
         assert _extract_metric_type("LD_Qlen_tp_0_sd_0_377") == "LD_Qlen_tp"
         assert _extract_metric_type("PD_Qlen_54_0_2_1") == "PD_Qlen"
-        assert _extract_metric_type("PROC_nice_nd0_28") == "PROC_nice_nd0"
+        # Node IDs are filtered out
+        assert _extract_metric_type("PROC_nice_nd0_28") == "PROC_nice"
         # Stops after 2 additional parts: VVLogCons(1) + hit(2)
         assert _extract_metric_type("VVLogCons_hit_blks_TPVV_30") == "VVLogCons_hit_blks"
 
@@ -71,14 +72,34 @@ class TestMetricTypeExtraction:
 
     def test_semantic_grouping_preserves_information(self):
         """Test that similar metrics group together, different ones don't."""
-        # Same metric family - identifiers like nd0, nd1 stop the extraction
+        # Node IDs are now filtered out, so these should group together
         group1 = _extract_metric_type("LLC_misses_nd0")
         group2 = _extract_metric_type("LLC_misses_nd1")
-        # Both preserve the metric family
-        assert "LLC_misses" in group1 and "LLC_misses" in group2
+        assert group1 == group2 == "LLC_misses"
 
         # Different metric family
         assert _extract_metric_type("LLC_hits_nd0") != _extract_metric_type("L1_misses_nd0")
+
+    def test_node_id_filtering_consolidates_per_node_metrics(self):
+        """Test that node/instance identifiers are filtered for semantic grouping."""
+        # AMD L2 cache metrics from different nodes should group together
+        assert _extract_metric_type("AMDL2_nd1_L2_Hit_pti") == "AMDL2_L2_Hit"
+        assert _extract_metric_type("AMDL2_nd2_L2_Hit_pti") == "AMDL2_L2_Hit"
+        assert _extract_metric_type("AMDL2_nd0_L2_Access_from_DC_Miss_pti") == "AMDL2_L2_Access"
+
+        # Data cache fills from different nodes should group
+        assert _extract_metric_type("AMDDc_nd1_All_DC_Fills_pti") == "AMDDc_All_DC"
+        assert _extract_metric_type("AMDDc_nd2_All_DC_Fills_pti") == "AMDDc_All_DC"
+
+        # CPU util from different CPUs should group
+        assert _extract_metric_type("CPUutil_cpu0_metric") == "CPUutil_metric"
+        assert _extract_metric_type("CPUutil_cpu15_metric") == "CPUutil_metric"
+
+        # Node/core/socket/numa variations
+        assert _extract_metric_type("metric_node0_value") == "metric_value"
+        assert _extract_metric_type("metric_core5_value") == "metric_value"
+        assert _extract_metric_type("metric_socket1_value") == "metric_value"
+        assert _extract_metric_type("metric_numa2_value") == "metric_value"
 
 
 class TestRepresentativeSelection:

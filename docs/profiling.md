@@ -1350,6 +1350,236 @@ profiling:
     base_sample_ratio: 1.0      # Or keep 100% of samples even for large classes
 ```
 
+## Advanced Analysis: Lag Detection, Causal Inference, and Data Models
+
+### Overview
+
+Beyond the basic Profile tab workflow (labeling → tree → interpretation), SHARP supports advanced analysis through three complementary mechanisms:
+
+1. **Time-Lagged Association Detection** — Automatically finds when outcome changes are preceded by factor changes
+2. **Directional Causal Inference** — Distinguishes "X causes Y" from "Y causes X" or "both are caused by Z"
+3. **Multi-Source Data Handling** — Derives both source-general (~pooled metrics across hosts) and source-specific insights from the same dataset
+
+### Selecting the Outcome Metric
+
+**Important**: The `outcome_column` setting is **optional** and serves as a convenience **default**, not a requirement. Here's how it works:
+
+- **Primary method**: The GUI's Profile tab lets you **select the outcome metric interactively** for each analysis. This is the recommended approach because:
+  - Outcome metrics change between experiments (e.g., `time` for execution, `throughput` for bandwidth)
+  - A single CSV file may contain multiple outcome metrics (e.g., both `latency` and `cpu_time`)
+  - Different analyses on the same data may have different target metrics
+
+- **Optional default (settings.yaml)**:
+  ```yaml
+  profiling:
+    outcome_column: time              # Only used if GUI selection is skipped
+  ```
+  - If set, SHARP uses this column as the default outcome without GUI prompting
+  - Useful for batch/automated workflows with consistent outcome names across runs
+  - If not set or column is not found, GUI requires manual selection
+
+- **Auto-detection fallback** (if neither setting nor GUI selection):
+  - Heuristically detects outcome from column names matching: `outcome`, `target`, `time`, `latency`, `throughput`, `duration`
+  - Falls back to the highest-variance numeric column if no matches found
+  - **Not recommended** — explicit GUI selection or setting is preferred
+
+**Recommendation**: Leave `outcome_column` unset and use the GUI selector. Set it only if you have a standardized column name across all your experiment runs.
+
+### 2. Canonical Data Model: Tall Format with Wide Derivation
+
+SHARP uses **tall format as the primary data model** (one row per source per timestamp), storing source identity in dedicated columns (e.g., `host`, `rank`, `device`, `nic`). This format is:
+- **Natural**: Matches how profiling backends collect data (each data source reports independently)
+- **Compact**: $M$ metric columns + $S$ source ID columns instead of $M \times S$ cross-product
+- **Pooled**: Enables statistical power by aggregating across sources
+
+#### Automatic Format Detection (Zero Settings by Default)
+
+SHARP automatically detects whether data is tall (multi-source) or wide (already source-encoded):
+
+**Source column auto-detection**:
+1. Look for columns named `host`, `rank`, `device`, `nic`, `thread`, `pid` (case-insensitive)
+2. Check if cardinality is low relative to row count (typically 2-100 unique values)
+3. Verify values are stable and appear in multiple rows
+
+**Result**:
+- **If sources found** → Tall format detected. Analysis proceeds natively (pooled across sources).
+- **If no sources found** → Either single-source tall or already-wide format. Analysis proceeds as-is.
+
+**Philosophy**: Zero settings. Users provide data; SHARP figures out the rest. If heuristics fail:
+```yaml
+profiling:
+  source_column_names: [host, rank]       # Only override if auto-detection fails
+```
+
+#### Source-Specific Analysis (Two Options)
+
+When the user wants source-specific insights (e.g., "which host is the bottleneck?"), SHARP offers two approaches:
+
+**Option A: Pivot to Wide Format** (for familiar wide analysis)
+- Transpose tall data so each source gets its own columns
+- Columns become: `cache_misses__host_3`, `context_switches__host_5`, etc.
+- Full wide-format analysis proceeds directly
+- Fast for small #sources (<500). Restricted by column explosion at large scales.
+
+**Option B: Interaction Model** (for unlimited scalability, no pivot)
+- Create synthetic metric×source interaction columns directly in tall format
+- Columns: `cache_misses__x__host_3`, `context_switches__x__host_5` (clearly marked)
+- Analysis stays in tall format → scales to 1000+ sources
+- Slightly slower than wide but no pivot overhead
+
+**Automatic selection**:
+- Default: Native tall analysis (pooled, source-general)
+- User requests "source-specific":
+  - If #sources ≤ 500 → offer pivot (Option A)
+  - If #sources > 500 → use interaction model (Option B)
+
+#### Configuration
+
+```yaml
+profiling:
+  # No format setting needed; auto-detected
+  # Optional override (rarely needed)
+  source_column_names: [host, hostname, node, rank, device, nic, thread, pid]
+```
+
+### 3. Data Reduction: Adaptive Column and Row Selection
+
+Before lag and causal analysis runs, SHARP reduces the 40K+ raw columns to ~30-80 non-redundant predictors using a staged set of column and row filters. These are fully automatic and designed for multi-source data.
+
+#### Strategy C1: Adaptive Column Completeness Gate
+
+**Problem solved**: Which columns contain signal vs noise? Without source metadata, how do you detect all-null columns from a specific host?
+
+**Solution**: Percentile-based adaptive gate + absolute minimum, requiring **no source metadata**:
+
+1. **Compute null distribution**: For each column, calculate the percentage of non-null values across all rows.
+2. **Percentile threshold**: Find the 5th percentile of this distribution; columns below it are dropped (assumed to be sparse/noisy).
+3. **Absolute minimum**: Always keep columns with ≥ 30 non-null observations (protects against sparse but signal-rich columns).
+4. **Outcome alignment**: Preserve sparse columns that appear alongside non-null outcome values.
+
+**Why this works**:
+- No need to know source structure; works on any multi-source null pattern
+- Robust to sparse data from minority sources
+- Fast ($O(n)$ scan + quantile computation)
+
+**Example**: In 39,570-column storage telemetry with 99.97% overall sparsity:
+- 526 columns are ~100% null → dropped
+- 9,726 columns are 91-99% null → dropped
+- Bottom 5% percentile (sparse but real) retained if ≥ 30 non-null observations
+- Result: ~1,500 columns survive, mostly from active sources
+
+#### Strategy C2: Near-Zero Variance Filter
+
+**Problem solved**: Columns that are effectively constant add noise and waste computation.
+
+**Solution**: Drop columns where the most frequent value accounts for 95%+ of non-null values. This works for numeric and categorical columns.
+
+#### Strategy C3: Outcome-Relevance Gate
+
+**Problem solved**: Many columns have near-zero association with the outcome and should not enter causal analysis.
+
+**Solution**: Drop columns whose absolute correlation with the outcome is below a minimum threshold (default: 0.05).
+
+#### Strategy C4: Mutual Information Screening (Optional)
+
+**Problem solved**: Non-standard column names break semantic grouping.
+
+**Solution**: Optional mutual-information screening selects the top-N outcome-relevant columns without relying on naming conventions.
+
+#### Strategy R1: Simple Row Filter
+
+**Problem solved**: Remove completely empty rows (all columns null) that contain no signal whatsoever.
+
+**Solution**: Drop rows where every single column is null. This is **outcome-agnostic** and can be applied at load time before the user chooses an outcome metric.
+
+**Why applied first**:
+- Transparent: Only removes rows with zero information (all columns null)
+- Early application: Can run at load time, independent of outcome selection
+- No tuning required: Simple predicate works on any data structure
+
+**Expected behavior**:
+- Single-source data: Few/no rows dropped (good data density)
+- Multi-source data: Removes only completely empty rows, preserves outcome-centric and predictor-centric rows
+
+
+#### Strategy R2: Warmup/Cooldown Exclusion (Optional)
+
+**Problem solved**: Warmup/cooldown phases follow different causal dynamics.
+
+**Solution**: Optionally drop an initial warmup fraction or use changepoint detection to isolate steady-state behavior.
+
+
+#### Strategy R3: Row Relevance Filter
+
+**Problem solved**: Some rows are missing outcome or predictor data, but they may be valuable for lag-based analysis. However, R3 should only check against the actual set of predictors that will be used in the analysis, not all columns.
+
+**Solution**: Drop rows that have **neither** outcome nor **any of the selected predictor values**. The selected predictors are the final set from the factor analyzer (after correlation filtering, max_predictors limits, exclusions, etc.). Keep rows with:
+- Only outcome (selected predictors may appear at earlier lags)
+- Only selected predictors (outcome may appear at later lags)
+- Both (standard case)
+
+**Why applied last**:
+- Depends on knowing which predictors the analyzer selected
+- Uses the actual predictor set from the factor analyzer, not all columns
+- Preserves rows needed for time-lagged analysis with the right columns
+
+**Expected behavior**:
+- Rows with outcome but no selected predictors: kept (outcome at t, predictors at t-lag)
+- Rows with selected predictors but no outcome: kept (predictors at t, outcome at t+lag)
+- Rows with neither outcome nor selected predictors: dropped (no information for this analysis)
+- Rows with both: kept as usual
+
+**Expected behavior**:
+- Removes metadata rows and startup/shutdown signals that lack predictor data
+- Preserves mixed source data where rows may have outcome without predictors (or vice versa)
+
+#### Row Reduction Pipeline Order
+
+Row reduction strategies are applied in a specific order to ensure outcome-agnostic filters happen first:
+
+1. **R1 first** (outcome-agnostic): Remove completely empty rows. Safe to apply at load time before outcome is known.
+2. **R2 next** (outcome-independent): Exclude warmup/cooldown phases based on temporal structure, independent of what outcome metric you choose.
+3. **R3 last** (outcome-dependent): Drop rows sparse in the outcome and selected predictors. Applied only after outcome and predictor columns are known.
+
+**Why this order?**
+- R1 can run at data load time with no knowledge of analysis parameters
+- R2 applies structural filters (time phases) independent of which columns you analyze
+- R3 depends on knowing both the outcome and which predictor columns survived column reduction (C1-C4)
+
+This ordering enables incremental filtering: R1 removes completely empty rows first, R2 isolates steady-state periods, then R3 keeps rows that have any potential causal relevance (outcome or predictor data) for lag-based analysis.
+
+#### Configuration
+
+```yaml
+profiling:
+  data_reduction:
+    # Small-data bypass thresholds
+    max_columns_without_reduction: 500      # Skip column reduction if data has fewer columns
+    max_rows_without_reduction: 50000       # Skip row reduction if data has fewer rows
+
+    # C1: Column completeness gate
+    c1_min_absolute_non_null: 30            # Minimum non-null values required in a column
+    c1_max_null_percentile: 0.05            # Drop columns in bottom N% by null fraction
+    c1_preserve_outcome_aligned_sparse: true  # Preserve sparse columns that appear with outcome
+
+    # C2: Near-zero variance filter
+    c2_max_constant_fraction: 0.95          # Drop columns where mode fraction >= this
+
+    # C3: Outcome-relevance gate
+    c3_min_abs_correlation: 0.05            # Drop columns with |r| < this with outcome
+
+    # C4: Mutual information screening (optional)
+    c4_use_mutual_information: false        # Use MI screening instead of semantic grouping
+    c4_n_select: 300                        # Number of top columns to select by MI
+
+    # R2: Warmup/cooldown exclusion
+    r2_exclude_warmup: false                # Exclude warmup/cooldown rows (optional)
+    r2_warmup_fraction: null                # Fraction of rows to drop at start (if not null, use this)
+    r2_use_changepoints: false              # Auto-detect warmup via changepoint detection
+
+    # R3: Row relevance filter (no configuration needed)
+```
+
 ## See Also
 
 - [Backend Configuration Schema](schemas/backend.md) - Backend YAML structure

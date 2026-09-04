@@ -6,7 +6,7 @@ Defines the interfaces for:
 - ClassifierTrainer: Trains classification models
 - FactorAnalyzer: Extracts influential factors from trained models
 
-© Copyright 2025--2025 Hewlett Packard Enterprise Development LP
+© Copyright 2025--2026 Hewlett Packard Enterprise Development LP
 """
 
 from abc import ABC, abstractmethod
@@ -240,7 +240,8 @@ class FactorAnalyzer(ABC):
             trained_model: A trained classification model
 
         Returns:
-            List of FactorImportance objects sorted by importance (descending)
+            Ordered list of FactorImportance objects sorted by importance (descending).
+            Each factor appears exactly once (no duplicates).
         """
         pass
 

@@ -3,7 +3,7 @@ Compare tab for SHARP GUI.
 
 Provides interface for comparing two experiment runs with statistical analysis.
 
-© Copyright 2025--2025 Hewlett Packard Enterprise Development LP
+© Copyright 2025--2026 Hewlett Packard Enterprise Development LP
 """
 
 from pathlib import Path
@@ -15,7 +15,7 @@ from typing import Any, Dict, List
 
 from src.core.config.settings import Settings
 from src.core.stats.narrative import generate_comparison_narrative
-from src.core.runlogs import load_csv
+from src.core.runlogs import load_table
 from src.core.runlogs.metadata_compare import compare_metadata
 from src.gui.utils.comparisons import *
 from src.gui.utils.ui_helpers import *
@@ -186,7 +186,7 @@ def compare_server(input: Inputs, output: Outputs, session: Session) -> None:
         baseline_loading.set(True)
 
         try:
-            df = load_csv(csv_path)
+            df = load_table(csv_path)
             baseline_df.set(df)
             baseline_filtered.set(df)  # Initialize filtered data
             baseline_loading.set(False)
@@ -214,7 +214,7 @@ def compare_server(input: Inputs, output: Outputs, session: Session) -> None:
         treatment_loading.set(True)
 
         try:
-            df = load_csv(csv_path)
+            df = load_table(csv_path)
             treatment_df.set(df)
             treatment_filtered.set(df)  # Initialize filtered data
             treatment_loading.set(False)

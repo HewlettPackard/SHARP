@@ -18,7 +18,6 @@ data:
   backends_dir: backends  # Directory containing backend configuration files
   benchmarks_dir: benchmarks  # Directory containing benchmark definitions
   output_precision: 5  # Decimal places for numeric output in CSV/reports
-  row_count_for_type: 1000  # Number of rows polars scans for column type inference
   runlogs_dir: runlogs  # Directory where experiment results are stored
 
 gui:
@@ -63,6 +62,37 @@ profiling:
     min_eta: 0.01  # Minimum eta-squared (effect size) for categorical predictors
     max_per_group: 3  # Maximum representatives to select per metric group
     chunk_size: 5000  # Chunk size for vectorized correlation computation
+
+  # Data model detection: source columns for tall vs wide format
+  source_column_names: [host, hostname, node, rank, device, nic, thread, pid]
+
+  # Data reduction: column and row filtering strategies (Phase 1.1)
+  data_reduction:
+    enabled: true                          # Master switch for all row/column reduction
+
+    # Small-data bypass thresholds
+    max_columns_without_reduction: 500      # Skip column reduction if data has fewer columns
+    max_rows_without_reduction: 50000       # Skip row reduction if data has fewer rows
+
+    # C1: Column completeness gate parameters
+    c1_min_absolute_non_null: 30            # Minimum non-null values required in a column
+    c1_max_null_percentile: 0.05            # Drop columns in bottom N% by null fraction
+    c1_preserve_outcome_aligned_sparse: true  # Preserve sparse columns that appear with outcome
+
+    # C2: Near-zero variance filter
+    c2_max_constant_fraction: 0.95          # Drop columns where mode fraction >= this
+
+    # C3: Outcome-relevance gate
+    c3_min_abs_correlation: 0.05            # Drop columns with |r| < this with outcome
+
+    # C4: Mutual information screening (optional, for non-standard naming)
+    c4_use_mutual_information: false        # Use MI screening instead of semantic grouping
+    c4_n_select: 300                        # Number of top columns to select by MI
+
+    # R2: Warmup/cooldown exclusion
+    r2_exclude_warmup: false                # Exclude warmup/cooldown rows (optional)
+    r2_warmup_fraction: null                # Fraction of rows to drop at start (if not null, use this)
+    r2_use_changepoints: false              # Auto-detect warmup via changepoint detection
 
   # Decision tree training parameters
   tree_training:

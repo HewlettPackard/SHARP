@@ -14,7 +14,7 @@ Install `uv`, then create the project environment from the repository root:
 ```sh
 curl -LsSf https://astral.sh/uv/install.sh | sh
 cd sharp
-uv sync --extra dev
+uv sync --group dev
 ```
 
 This creates `.venv/` and installs the Python packages pinned in `uv.lock`. The supported Python version is defined in `pyproject.toml`.

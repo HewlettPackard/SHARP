@@ -4,7 +4,7 @@ CSV data loading for runlogs.
 Functions for loading experiment CSV data files into Polars DataFrames
 for analysis and visualization.
 
-© Copyright 2025--2025 Hewlett Packard Enterprise Development LP
+© Copyright 2025--2026 Hewlett Packard Enterprise Development LP
 """
 
 import polars as pl
@@ -12,8 +12,6 @@ import json
 import re
 from pathlib import Path
 from typing import Any
-
-from src.core.config.settings import Settings
 
 
 def load_csv(csv_path: str | Path) -> pl.DataFrame:
@@ -35,18 +33,38 @@ def load_csv(csv_path: str | Path) -> pl.DataFrame:
     if not csv_path.exists():
         raise FileNotFoundError(f"CSV file not found: {csv_path}")
 
-    row_count = Settings().get("data.row_count_for_type", 1000)
-
     df = pl.read_csv(
         csv_path,
         null_values=["NA", "N/A", ""],
-        rechunk=True,  # Rechunk for better performance in subsequent operations
-        low_memory=False,  # Use more memory for faster loading
-        n_threads=1,  # Single-threaded avoids contention on wide files
-        infer_schema_length=row_count  # Scan more rows for type inference to handle sparse columns
+        rechunk=True,       # Rechunk for better performance in subsequent operations
+        low_memory=False,   # Use more memory for faster loading
+        n_threads=1,        # Single-threaded avoids contention on wide files
+        infer_schema_length=None,  # Scan all rows so sparse columns (e.g. allreduce_latency_us)
+                                   # are inferred as numeric rather than String
     )
 
     return df
+
+
+def load_table(path: str | Path) -> pl.DataFrame:
+    """Load CSV or Parquet file into Polars DataFrame.
+
+    Args:
+        path: Path to CSV or Parquet file
+
+    Returns:
+        Polars DataFrame with data
+    """
+    path = Path(path)
+
+    if not path.exists():
+        raise FileNotFoundError(f"Data file not found: {path}")
+
+    suffix = path.suffix.lower()
+    if suffix in {".parquet", ".pq"}:
+        return pl.read_parquet(path)
+
+    return load_csv(path)
 
 
 def load_runlog(csv_path: str | Path, md_path: str | Path | None = None) -> pl.DataFrame:
@@ -67,7 +85,7 @@ def load_runlog(csv_path: str | Path, md_path: str | Path | None = None) -> pl.D
         md_path = Path(md_path)
 
     # Load CSV data
-    df = load_csv(csv_path)
+    df = load_table(csv_path)
 
     # If no launch_id column, return as is (legacy format support)
     if "launch_id" not in df.columns:

@@ -8,7 +8,7 @@ This module provides a modular framework for:
 
 Each component has an abstract interface allowing different implementations.
 
-© Copyright 2025--2025 Hewlett Packard Enterprise Development LP
+© Copyright 2025--2026 Hewlett Packard Enterprise Development LP
 """
 
 from .base import ClassSelector, ClassifierTrainer, FactorAnalyzer
@@ -21,6 +21,7 @@ from .cutoff import (
     search_optimal_cutoff,
 )
 from .decision_tree import DecisionTreeTrainer, TreeFactorAnalyzer
+from .lag_detection import auto_max_lag, max_lag_correlation, sparse_lag_screening
 
 __all__ = [
     # Abstract interfaces
@@ -36,6 +37,9 @@ __all__ = [
     "CutoffClassSelector",
     "DecisionTreeTrainer",
     "TreeFactorAnalyzer",
+    "auto_max_lag",
+    "max_lag_correlation",
+    "sparse_lag_screening",
     # Cutoff utilities
     "suggest_cutoff",
     "suggest_cutoff_from_data",

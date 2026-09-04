@@ -33,7 +33,7 @@ Default settings (backends, repeaters, output directories, GUI options) are conf
 After [setting up](./docs/setup/README.md) the software and hardware, create the project environment and list the shipped benchmarks:
 
 ```sh
-uv sync --extra dev
+uv sync --group dev
 uv run launch --list-benchmarks
 ```
 

@@ -7,7 +7,7 @@ Handles profiling execution orchestration with clean separation of concerns:
 - Orchestrator execution
 - Result loading
 
-© Copyright 2025 Hewlett Packard Enterprise Development LP
+© Copyright 2025--2026 Hewlett Packard Enterprise Development LP
 """
 
 import traceback
@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Callable, Any, Iterable, cast
 
 from src.core.runlogs import (
-    load_csv,
+    load_table,
     parse_markdown_runtime_options,
     extract_runtime_options_from_markdown
 )
@@ -248,7 +248,7 @@ def load_profiling_data(prof_csv_path: str) -> tuple[Any, str | None]:
         - error_message: Error string or None if successful
     """
     try:
-        data = load_csv(prof_csv_path)
+        data = load_table(prof_csv_path)
         return data, None
     except Exception as e:
         error_msg = f"Error loading profiling results: {str(e)}"

@@ -4,7 +4,7 @@ GUI utilities: runlog loaders, formatters, input validators.
 © Copyright 2025--2025 Hewlett Packard Enterprise Development LP
 """
 
-from src.core.runlogs import scan_runlogs, load_csv, parse_markdown_runtime_options
+from src.core.runlogs import scan_runlogs, load_table, parse_markdown_runtime_options
 from src.core.stats.correlations import compute_generalized_correlation, safe_correlation
 from .filters import create_filter_ui, apply_filter, get_filterable_columns, is_full_range_filter
 from .profile.files import (
@@ -24,7 +24,7 @@ from .profile.tree import (
 
 __all__ = [
     "scan_runlogs",
-    "load_csv",
+    "load_table",
     "parse_markdown_runtime_options",
     "compute_generalized_correlation",
     "safe_correlation",

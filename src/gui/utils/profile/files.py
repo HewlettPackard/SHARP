@@ -4,14 +4,14 @@ File and metadata utilities for profile workflow.
 Handles markdown path derivation, validation, metadata extraction,
 and file state detection for profiling workflow.
 
-© Copyright 2025--2025 Hewlett Packard Enterprise Development LP
+© Copyright 2025--2026 Hewlett Packard Enterprise Development LP
 """
 
 from pathlib import Path
 from typing import Dict, Tuple
 import polars as pl
 
-from src.core.runlogs import parse_markdown_runtime_options, parse_markdown_metadata, load_csv
+from src.core.runlogs import parse_markdown_runtime_options, parse_markdown_metadata, load_table
 from src.core.config.settings import Settings
 
 
@@ -253,7 +253,7 @@ def load_csv_with_validation(csv_path: str, md_path: str | None = None) -> Tuple
 
     # Load CSV
     try:
-        df = load_csv(csv_path)
+        df = load_table(csv_path)
         if df is None or df.is_empty():
             return None, f"CSV file is empty: {csv_path}"
         return df, None

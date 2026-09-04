@@ -60,9 +60,12 @@ def select_predictors(
     metric_col: str,
     exclude: list[str] | None = None,
     max_predictors: int = 100,
-    max_correlation: float = 0.99
+    max_correlation: float = 0.99,
 ) -> list[str]:
     """Select best predictors using hybrid approach (vectorized + semantic grouping).
+
+    Expects data that has already been column-reduced by the GUI reactive
+    pipeline (reduce_columns_independent + reduce_columns_dependent).
 
     Args:
         data: DataFrame containing potential predictors
@@ -91,7 +94,8 @@ def select_predictors(
         )
 
         # Phase 3: Semantic grouping and representative selection
-        return _select_top_predictors(correlations, max_predictors, max_correlation)
+        result = _select_top_predictors(correlations, max_predictors, max_correlation)
+        return result
 
     except Exception:
         import traceback
@@ -99,12 +103,23 @@ def select_predictors(
         return []
 
 
+def select_predictors_from_correlations(
+    correlations: dict[str, float],
+    max_predictors: int = 100,
+    max_correlation: float = 0.99,
+) -> list[str]:
+    """Select predictors directly from a precomputed correlation map."""
+    if not correlations:
+        return []
+    return _select_top_predictors(correlations, max_predictors, max_correlation)
+
+
 def select_predictors_from_labels(
     data: pl.DataFrame,
     labels: np.ndarray,
     exclude: list[str],
     max_predictors: int,
-    max_correlation: float
+    max_correlation: float,
 ) -> list[str]:
     """Select best predictors for predicting class labels (for classification training).
 
@@ -116,6 +131,8 @@ def select_predictors_from_labels(
     Use case: After classifying performance data into performance classes (via ClassSelector),
     use this function to select which predictors (e.g., CPU, memory metrics) best explain
     the difference between classes. The selected predictors then train the classifier.
+
+    Expects data that has already been column-reduced by the GUI reactive pipeline.
 
     Args:
         data: DataFrame containing potential predictors
@@ -138,7 +155,11 @@ def select_predictors_from_labels(
     # Create temporary metric column from numeric labels
     temp_data = data.with_columns([pl.Series("_temp_target", numeric_labels)])
     predictors = select_predictors(
-        temp_data, "_temp_target", exclude, max_predictors, max_correlation
+        temp_data,
+        "_temp_target",
+        exclude,
+        max_predictors,
+        max_correlation,
     )
     return [p for p in predictors if p != "_temp_target"]
 
@@ -299,12 +320,15 @@ def _extract_metric_type(col: str) -> str:
 
     Splits on underscores, dots, brackets, and dollar signs.
     Stops at numeric tokens (assumed to be instance/location identifiers).
+    Node/instance identifiers (nd\d+, node\d+, etc.) are filtered out to
+    group per-node metrics together.
 
     Examples:
         LD_Qlen_tp_0_sd_0_377 → LD_Qlen_tp
-        PROC_nice_nd0_28 → PROC_nice_nd0
-        system.cpu.usage.node0 → system_cpu_usage_node0
-        cpu.utilization.5 → cpu_utilization
+        AMDL2_nd2_L2_Hit_pti → AMDL2_L2_Hit
+        AMDDc_nd1_All_DC_Fills_pti → AMDDc_All_DC
+        CPUutil_0_0_0 → CPUutil
+        system.cpu.usage.node0 → system_cpu_usage
     """
     parts = re.split(r'[_.\[\]\(\)$]+', col)
     parts = [p for p in parts if p]
@@ -312,6 +336,18 @@ def _extract_metric_type(col: str) -> str:
     if not parts:
         return col
 
+    # Filter out node/instance identifiers to group per-node metrics
+    # Pattern: nd\d+, node\d+, cpu\d+, core\d+, socket\d+, numa\d+
+    node_pattern = re.compile(r'^(nd|node|cpu|core|socket|numa)\d+$', re.IGNORECASE)
+    filtered_parts = []
+    for part in parts:
+        if not node_pattern.match(part):
+            filtered_parts.append(part)
+
+    if not filtered_parts:
+        return col
+
+    parts = filtered_parts
     prefix = parts[0]
 
     # Stop at numeric tokens or after 2 additional parts (limit depth)

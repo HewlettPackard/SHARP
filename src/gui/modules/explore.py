@@ -4,7 +4,7 @@ Explore tab for Python Shiny GUI.
 Interactive data exploration with file selection, filtering,
 distribution visualization, and pairwise comparisons.
 
-© Copyright 2025--2025 Hewlett Packard Enterprise Development LP
+© Copyright 2025--2026 Hewlett Packard Enterprise Development LP
 """
 
 from shiny import ui, render, reactive, Inputs, Outputs, Session
@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from pathlib import Path
 
-from src.core.runlogs import load_csv, get_experiments, get_tasks_for_experiment
+from src.core.runlogs import load_table, get_experiments, get_tasks_for_experiment
 from src.core.stats.distribution import compute_summary, characterize_distribution, create_distribution_plot
 from src.core.config.settings import Settings
 from src.gui.utils import apply_filter, get_filterable_columns, create_filter_ui
@@ -217,11 +217,11 @@ def explore_server(input: Inputs, output: Outputs, session: Session) -> None:
             data_loading.set(False)
 
     def _load_csv_file(file_path: str | Path) -> None:
-        """Load CSV file and update reactive values."""
+        """Load data file (CSV/Parquet) and update reactive values."""
         try:
             ui.notification_show("Loading data...", type="message", duration=None, id="explore_load_msg")
 
-            df = load_csv(file_path)
+            df = load_table(file_path)
 
             # Get metric names (numeric columns)
             metric_cols_dict = get_numeric_columns(df)

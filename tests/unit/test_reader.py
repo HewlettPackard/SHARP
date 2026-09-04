@@ -4,13 +4,15 @@ Unit tests for runlogs reader.
 Tests verify:
 - Loading CSV data
 - Merging invariant parameters from Markdown metadata
+
+© Copyright 2025--2026 Hewlett Packard Enterprise Development LP
 """
 
 import pytest
 import json
 import polars as pl
 from pathlib import Path
-from src.core.runlogs.reader import load_runlog, load_csv
+from src.core.runlogs.reader import load_runlog, load_csv, load_table
 
 def test_load_csv_basic(tmp_path):
     """Test basic CSV loading."""
@@ -20,6 +22,16 @@ def test_load_csv_basic(tmp_path):
     df = load_csv(csv_path)
     assert df.shape == (2, 2)
     assert df["col1"][0] == 1
+
+
+def test_load_table_parquet(tmp_path):
+    """Test loading Parquet data via load_table."""
+    parquet_path = tmp_path / "test.parquet"
+    pl.DataFrame({"col1": [1, 2], "col2": [3, 4]}).write_parquet(parquet_path)
+
+    df = load_table(parquet_path)
+    assert df.shape == (2, 2)
+    assert df["col2"][1] == 4
 
 def test_load_runlog_legacy(tmp_path):
     """Test loading legacy CSV (no launch_id)."""

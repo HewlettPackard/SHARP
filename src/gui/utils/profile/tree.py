@@ -8,7 +8,7 @@ This module provides backward-compatible wrappers around the core profile
 module, plus GUI-specific rendering functions. New code should use
 src.core.profile directly for training and analysis.
 
-© Copyright 2025--2025 Hewlett Packard Enterprise Development LP
+© Copyright 2025--2026 Hewlett Packard Enterprise Development LP
 """
 
 from typing import Any, Dict, List, Callable
@@ -27,6 +27,7 @@ from src.core.profile.decision_tree import DecisionTreeTrainer
 from src.core.profile.labeler import PerformanceLabeler, BinaryLabeler
 from src.core.profile.cutoff import search_optimal_cutoff as _core_search_optimal_cutoff
 from src.core.profile import predictor_selection
+from src.core.profile.data_reduction import reduce_rows
 
 
 # Re-export from core for backward compatibility
@@ -68,7 +69,13 @@ def select_tree_predictors(data: pl.DataFrame, metric: str, exclude: list[str] |
     """Select best predictors for decision tree using generalized correlation."""
     if exclude is None:
         exclude = []
-    return predictor_selection.select_predictors(data, metric, exclude, max_predictors, max_correlation)
+    return predictor_selection.select_predictors(
+        data,
+        metric,
+        exclude,
+        max_predictors,
+        max_correlation,
+    )
 
 
 def select_complete_rows(
@@ -133,8 +140,11 @@ def compute_tree(data: pl.DataFrame, metric: str, labeler: PerformanceLabeler,
     """
     Train decision tree classifier for performance classification.
 
+    Expects data that has already been column-reduced by the GUI reactive
+    pipeline (cleaned_columns + reduced_data). Only row reduction is done here.
+
     Args:
-        data: Polars dataframe with features and metric
+        data: Polars dataframe with features and metric (already column-reduced)
         metric: Target metric column name
         labeler: PerformanceLabeler instance for creating labels
         exclude: List of column names to exclude from features
@@ -158,12 +168,23 @@ def compute_tree(data: pl.DataFrame, metric: str, labeler: PerformanceLabeler,
         if metric not in data.columns:
             return None
 
-        # Create labels using labeler
-        valid_mask = data[metric].is_not_null()
-        valid_data = data.filter(valid_mask)
+        # Row reduction before labeling (data is already column-reduced)
+        predictor_cols = [c for c in data.columns if c != metric and c not in exclude]
+        row_reduced = reduce_rows(data, metric, predictor_cols)
+
+        # Create labels using labeler on rows where outcome exists
+        valid_mask = row_reduced[metric].is_not_null()
+        valid_data = row_reduced.filter(valid_mask)
 
         if len(valid_data) < 3:
             return None
+
+        # Sample to target_rows for faster training and visualization
+        settings = Settings()
+        target_rows = settings.get("profiling.tree_training.target_rows", 1000)
+        if len(valid_data) > target_rows:
+            sample_indices = np.random.choice(len(valid_data), size=target_rows, replace=False)
+            valid_data = valid_data[sorted(sample_indices)]
 
         # Get metric values and classify them
         metric_values = valid_data[metric].to_numpy()
@@ -177,11 +198,12 @@ def compute_tree(data: pl.DataFrame, metric: str, labeler: PerformanceLabeler,
         # Train using core module
         trainer = DecisionTreeTrainer()
         trained = trainer.train(
-            valid_data, numeric_labels,
+            valid_data,
+            numeric_labels,
             exclude_cols=exclude,
             max_predictors=max_predictors,
             max_correlation=max_correlation,
-            predictors=predictors
+            predictors=predictors,
         )
 
         if trained is None:
@@ -192,6 +214,11 @@ def compute_tree(data: pl.DataFrame, metric: str, labeler: PerformanceLabeler,
         tree.feature_names_ = trained.feature_names
         tree.original_predictors_ = trained.original_predictors
         tree.class_names_ = unique_labels  # Store class names for visualization
+
+        # Store training data for visualization (ensures viz shows same sample used for training)
+        tree.training_data_ = valid_data
+        tree.training_labels_ = labels
+        tree.training_metric_ = metric
 
         return tree
 
@@ -662,11 +689,14 @@ def _prepare_tree_visualization_data(
     labeler: PerformanceLabeler,
     class_names: List[str]
 ) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Prepare X (features) and y (labels) arrays for tree visualization.
+    """Prepare X (features) and y (labels) arrays for tree visualization.
+
+    When passed training_data_ from the tree object, this uses the exact
+    same sample that was used for training, ensuring perfect agreement
+    between the tree structure and visualization statistics.
 
     Args:
-        data: Original data
+        data: DataFrame (either training_data_ from tree, or full dataset)
         metric_col: Metric column name
         feature_names: Encoded feature names from trained tree
         predictors: Original predictor column names
@@ -817,9 +847,16 @@ def render_supertree_html(tree: DecisionTreeClassifier,
         )
 
     # Prepare visualization data
+    # Use training data if available (ensures visualization matches training sample)
+    training_data = getattr(tree, 'training_data_', None)
+    if training_data is not None:
+        viz_data = training_data
+    else:
+        viz_data = data
+
     try:
         X, y = _prepare_tree_visualization_data(
-            data, metric_col, feature_names, predictors, labeler, class_names
+            viz_data, metric_col, feature_names, predictors, labeler, class_names
         )
     except ValueError as e:
         return (

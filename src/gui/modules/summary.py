@@ -15,7 +15,7 @@ from matplotlib.figure import Figure
 from typing import Any, List, Dict
 
 from src.core.config.settings import Settings
-from src.gui.utils import scan_runlogs, load_csv, parse_markdown_runtime_options
+from src.gui.utils import scan_runlogs, load_table, parse_markdown_runtime_options
 from src.core.runlogs import get_experiments
 from pathlib import Path
 import shutil
@@ -157,7 +157,7 @@ def summary_server(input: Inputs, output: Outputs, session: Session, refresh_tri
             # Fall back to loading CSV if no duration in metadata
             elif run.get("csv_path"):
                 try:
-                    df = load_csv(run["csv_path"])
+                    df = load_table(run["csv_path"])
                     if "outer_time" in df.columns:
                         mean_time = df["outer_time"].mean()
                         if mean_time is not None:

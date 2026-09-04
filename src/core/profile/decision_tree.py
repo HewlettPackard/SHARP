@@ -4,7 +4,7 @@ Decision tree classifier trainer for performance profiling.
 Trains sklearn DecisionTreeClassifier models on performance data,
 with support for categorical variable encoding and predictor selection.
 
-© Copyright 2025--2025 Hewlett Packard Enterprise Development LP
+© Copyright 2025--2026 Hewlett Packard Enterprise Development LP
 """
 
 import numpy as np
@@ -52,10 +52,13 @@ class DecisionTreeTrainer(ClassifierTrainer):
         exclude_cols: list[str] | None = None,
         max_predictors: int = 100,
         max_correlation: float = 0.99,
-        predictors: list[str] | None = None
+        predictors: list[str] | None = None,
     ) -> TrainedModel | None:
         """
         Train a decision tree classifier.
+
+        Expects data that has already been column-reduced by the GUI
+        reactive pipeline (reduce_columns_independent + reduce_columns_dependent).
 
         Args:
             data: DataFrame containing features
@@ -80,7 +83,11 @@ class DecisionTreeTrainer(ClassifierTrainer):
                 # Need a metric column for predictor selection
                 # Use a dummy metric based on labels
                 predictors = predictor_selection.select_predictors_from_labels(
-                    data, labels, exclude_cols, max_predictors, max_correlation
+                    data,
+                    labels,
+                    exclude_cols,
+                    max_predictors,
+                    max_correlation,
                 )
 
             if not predictors:

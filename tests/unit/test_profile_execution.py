@@ -229,21 +229,21 @@ class TestProfilingExecutor:
 class TestLoadProfilingData:
     """Test profiling data loading."""
 
-    @patch('src.gui.utils.profile.execution.load_csv')
-    def test_successful_load(self, mock_load_csv):
+    @patch('src.gui.utils.profile.execution.load_table')
+    def test_successful_load(self, mock_load_table):
         """Successfully loads CSV data."""
         mock_data = Mock()
-        mock_load_csv.return_value = mock_data
+        mock_load_table.return_value = mock_data
 
         data, error = load_profiling_data('/path/to/prof.csv')
 
         assert data == mock_data
         assert error is None
 
-    @patch('src.gui.utils.profile.execution.load_csv')
-    def test_load_error(self, mock_load_csv):
+    @patch('src.gui.utils.profile.execution.load_table')
+    def test_load_error(self, mock_load_table):
         """Handles load errors gracefully."""
-        mock_load_csv.side_effect = FileNotFoundError("File not found")
+        mock_load_table.side_effect = FileNotFoundError("File not found")
 
         data, error = load_profiling_data('/path/to/missing.csv')
 
