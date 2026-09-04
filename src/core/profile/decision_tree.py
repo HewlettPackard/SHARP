@@ -1,15 +1,16 @@
 """
-Decision tree classifier trainer for performance profiling.
+Decision tree trainers for performance profiling.
 
-Trains sklearn DecisionTreeClassifier models on performance data,
-with support for categorical variable encoding and predictor selection.
+Trains sklearn DecisionTreeClassifier and DecisionTreeRegressor models on
+performance data, with support for categorical variable encoding and
+predictor selection.
 
 © Copyright 2025--2026 Hewlett Packard Enterprise Development LP
 """
 
 import numpy as np
 import polars as pl
-from sklearn.tree import DecisionTreeClassifier
+from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 
 from .base import ClassifierTrainer, TrainedModel, ModelSummary
 from . import predictor_selection
@@ -175,7 +176,7 @@ class DecisionTreeTrainer(ClassifierTrainer):
         if len(y) < 5000:
             return X, y
 
-        indices_to_keep = []
+        indices_to_keep: list[int] = []
         for cls in unique_classes:
             cls_mask = y == cls
             cls_indices = np.where(cls_mask)[0]
@@ -217,13 +218,12 @@ class DecisionTreeTrainer(ClassifierTrainer):
             # Random sampling within the class
             if n_keep < n_cls:
                 sampled_cls_indices = np.random.choice(cls_indices, n_keep, replace=False)
-                indices_to_keep.extend(sampled_cls_indices)
+                indices_to_keep.extend(int(idx) for idx in sampled_cls_indices)
             else:
-                indices_to_keep.extend(cls_indices)
+                indices_to_keep.extend(int(idx) for idx in cls_indices)
 
-        indices_to_keep = np.array(indices_to_keep)
-        return X[indices_to_keep], y[indices_to_keep]
-
+        sampled_indices = np.array(indices_to_keep)
+        return X[sampled_indices], y[sampled_indices]
     def summarize(
         self,
         trained_model: TrainedModel,
@@ -261,7 +261,8 @@ class DecisionTreeTrainer(ClassifierTrainer):
             # Drop NaN rows
             mask = ~np.isnan(X).any(axis=1)
             X_clean = X[mask]
-            y_clean = labels[mask] if len(labels) == len(mask) else labels[:len(X_clean)]
+            labels_arr = np.asarray(labels)
+            y_clean = labels_arr[mask] if len(labels_arr) == len(mask) else labels_arr[:len(X_clean)]
 
             if len(X_clean) == 0:
                 return None
@@ -282,6 +283,188 @@ class DecisionTreeTrainer(ClassifierTrainer):
                 aic=aic,
                 accuracy=accuracy,
                 log_likelihood=log_likelihood
+            )
+
+        except Exception:
+            import traceback
+            traceback.print_exc()
+            return None
+
+
+class DecisionTreeRegressorTrainer:
+    """
+    Trains decision tree regressors for continuous performance analysis.
+
+    Uses sklearn's DecisionTreeRegressor with one-hot encoding for
+    categorical variables and configurable tree parameters.  Mirrors
+    DecisionTreeTrainer but targets a continuous outcome (metric value)
+    instead of categorical labels.
+    """
+
+    def __init__(
+        self,
+        max_depth: int = 5,
+        min_samples_split: int = 5,
+        min_samples_leaf: int = 2,
+        random_state: int = 42,
+    ):
+        self.max_depth = max_depth
+        self.min_samples_split = min_samples_split
+        self.min_samples_leaf = min_samples_leaf
+        self.random_state = random_state
+
+    def train(
+        self,
+        data: pl.DataFrame,
+        outcome: np.ndarray,
+        exclude_cols: list[str] | None = None,
+        max_predictors: int = 100,
+        max_correlation: float = 0.99,
+        predictors: list[str] | None = None,
+        outcome_col: str | None = None,
+    ) -> TrainedModel | None:
+        """
+        Train a decision tree regressor on continuous outcome values.
+
+        Args:
+            data: DataFrame containing features
+            outcome: Continuous outcome array (same length as data)
+            exclude_cols: Columns to exclude from features
+            max_predictors: Maximum number of predictors to use
+            max_correlation: Maximum correlation threshold
+            predictors: Pre-selected predictor list (overrides selection)
+            outcome_col: Name of the outcome column for predictor selection
+
+        Returns:
+            TrainedModel wrapper, or None if training fails
+        """
+        if data is None or data.is_empty():
+            return None
+        if exclude_cols is None:
+            exclude_cols = []
+
+        try:
+            if predictors is None:
+                if outcome_col and outcome_col in data.columns:
+                    predictors = predictor_selection.select_predictors(
+                        data,
+                        outcome_col,
+                        exclude_cols,
+                        max_predictors,
+                        max_correlation,
+                    )
+                else:
+                    # Fallback: use labels-based selection with outcome as proxy
+                    predictors = predictor_selection.select_predictors_from_labels(
+                        data,
+                        outcome,
+                        exclude_cols,
+                        max_predictors,
+                        max_correlation,
+                    )
+
+            if not predictors:
+                return None
+
+            X_data = data.select(predictors)
+            X, encoded_feature_names = predictor_selection.encode_features(
+                X_data, predictors
+            )
+            if X is None:
+                return None
+
+            y = outcome
+            # Simple random downsampling for large datasets
+            target_rows = Settings().get(
+                "profiling.tree_training.target_rows", 10000
+            )
+            if len(y) > target_rows:
+                rng = np.random.RandomState(self.random_state)
+                idx = rng.choice(len(y), size=target_rows, replace=False)
+                X, y = X[idx], y[idx]
+
+            tree = DecisionTreeRegressor(
+                max_depth=self.max_depth,
+                min_samples_split=self.min_samples_split,
+                min_samples_leaf=self.min_samples_leaf,
+                random_state=self.random_state,
+            )
+            tree.fit(X, y)
+
+            return TrainedModel(
+                model=tree,
+                feature_names=encoded_feature_names,
+                original_predictors=predictors,
+                parameters={
+                    "max_depth": self.max_depth,
+                    "min_samples_split": self.min_samples_split,
+                    "min_samples_leaf": self.min_samples_leaf,
+                    "n_samples": len(outcome),
+                },
+            )
+
+        except Exception:
+            import traceback
+            traceback.print_exc()
+            return None
+
+    def summarize(
+        self,
+        trained_model: TrainedModel,
+        data: pl.DataFrame,
+        outcome: np.ndarray,
+    ) -> ModelSummary | None:
+        """
+        Compute regression summary statistics (R², node counts).
+
+        Args:
+            trained_model: The trained model to summarize
+            data: Original training data
+            outcome: Continuous outcome values
+
+        Returns:
+            ModelSummary with statistics, or None if computation fails
+        """
+        if trained_model is None or trained_model.model is None:
+            return None
+
+        try:
+            tree = trained_model.model
+            n_nodes = tree.tree_.node_count
+            n_leaves = tree.tree_.n_leaves
+
+            X_data = data.select(trained_model.original_predictors)
+            X, _ = predictor_selection.encode_features(
+                X_data, trained_model.original_predictors
+            )
+            if X is None:
+                return None
+
+            mask = ~np.isnan(X).any(axis=1)
+            X_clean = X[mask]
+            y_clean = np.asarray(outcome)[mask] if len(outcome) == len(mask) else outcome[:len(X_clean)]
+
+            if len(X_clean) == 0:
+                return None
+
+            y_pred = tree.predict(X_clean)
+
+            # R² as the accuracy analogue for regression
+            ss_res = np.sum((y_clean - y_pred) ** 2)
+            ss_tot = np.sum((y_clean - np.mean(y_clean)) ** 2)
+            r_squared = 1.0 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
+
+            # Use n_nodes as parameter count for AIC analogue
+            n = len(y_clean)
+            log_likelihood = -n / 2 * np.log(max(ss_res / n, 1e-10))
+            aic = float(2 * n_nodes - 2 * log_likelihood)
+
+            return ModelSummary(
+                n_nodes=n_nodes,
+                n_leaves=n_leaves,
+                aic=aic,
+                accuracy=r_squared,
+                log_likelihood=log_likelihood,
             )
 
         except Exception:
@@ -341,3 +524,9 @@ class TreeFactorAnalyzer(FactorAnalyzer):
         factors.sort(key=lambda f: f.importance, reverse=True)
 
         return factors
+
+    def _extract_original_name(self, feature_name: str) -> str | None:
+        """Extract original column name from an encoded feature name."""
+        if "=" in feature_name:
+            return feature_name.split("=", 1)[0]
+        return None

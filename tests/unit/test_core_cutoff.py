@@ -13,8 +13,11 @@ import polars as pl
 from src.core.profile.cutoff import (
     suggest_cutoff,
     suggest_cutoff_from_data as compute_cutoff_from_data,
+    search_optimal_cutoff_with_classifier,
     validate_cutoff_range,
 )
+from src.core.profile.decision_tree import DecisionTreeTrainer
+from src.core.profile.labeler import BinaryLabeler
 
 
 class TestSuggestCutoff:
@@ -205,3 +208,32 @@ class TestValidateCutoffRange:
         # Only 4 non-null values: 10, 20 below; 40, 50 above
         assert n_below == 2
         assert n_above == 2
+
+
+def test_search_optimal_cutoff_allows_small_minority_class():
+    """Cutoff search should work when minority class is below 5% but above 2%."""
+    np.random.seed(0)
+
+    n_majority = 97
+    n_minority = 3
+    metric = np.array([1.0] * n_majority + [10.0] * n_minority)
+    feature = np.array([0.0] * n_majority + [1.0] * n_minority)
+
+    data = pl.DataFrame(
+        {
+            "metric": metric,
+            "feature": feature,
+        }
+    )
+
+    trainer = DecisionTreeTrainer(max_depth=2, min_samples_leaf=1)
+    cutoff = search_optimal_cutoff_with_classifier(
+        data=data,
+        metric_col="metric",
+        trainer=trainer,
+        labeler_factory=lambda c: BinaryLabeler.with_cutoff(c, lower_is_better=True),
+        exclusions=[],
+        max_search_points=20,
+    )
+
+    assert cutoff is not None

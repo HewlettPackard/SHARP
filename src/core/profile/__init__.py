@@ -12,7 +12,16 @@ Each component has an abstract interface allowing different implementations.
 """
 
 from .base import ClassSelector, ClassifierTrainer, FactorAnalyzer
-from .base import ClassificationResult, TrainedModel, FactorImportance, ModelSummary
+from .base import (
+    ClassificationResult,
+    TrainedModel,
+    FactorImportance,
+    ModelSummary,
+    CausalDirection,
+    InfluenceFactor,
+    InfluenceAnalyzer,
+    AnalyzerVisualizer,
+)
 from .cutoff import (
     CutoffClassSelector,
     suggest_cutoff,
@@ -20,8 +29,23 @@ from .cutoff import (
     validate_cutoff_range,
     search_optimal_cutoff,
 )
-from .decision_tree import DecisionTreeTrainer, TreeFactorAnalyzer
+from .decision_tree import DecisionTreeTrainer, DecisionTreeRegressorTrainer, TreeFactorAnalyzer
+from .data_model import DataModelInfo, detect_data_model
+from .analyzers.registry import InfluenceAnalyzerRegistry, create_analyzer_registry
+from .analyzers import *
+from .labeler import (
+    PerformanceLabeler,
+    RegressionLabeler,
+    CutoffBasedLabeler,
+    BinaryLabeler,
+    TertileLabeler,
+    QuartileLabeler,
+    AutoLabeler,
+    ManualLabeler,
+)
 from .lag_detection import auto_max_lag, max_lag_correlation, sparse_lag_screening
+from .direction import DirectionResult, detect_direction
+from .confounding import partial_correlation, prune_confounded, ci_pre_screening
 
 __all__ = [
     # Abstract interfaces
@@ -33,16 +57,45 @@ __all__ = [
     "TrainedModel",
     "FactorImportance",
     "ModelSummary",
+    "CausalDirection",
+    "InfluenceFactor",
+    "InfluenceAnalyzer",
+    "AnalyzerVisualizer",
     # Concrete implementations
     "CutoffClassSelector",
     "DecisionTreeTrainer",
+    "DecisionTreeRegressorTrainer",
     "TreeFactorAnalyzer",
+    "TrainedModelInfluenceAnalyzer",
+    "TreeInfluenceAnalyzer",
     "auto_max_lag",
     "max_lag_correlation",
     "sparse_lag_screening",
+    # Direction testing
+    "DirectionResult",
+    "detect_direction",
+    # Confounding utilities
+    "partial_correlation",
+    "prune_confounded",
+    "ci_pre_screening",
+    # Registry
+    "InfluenceAnalyzerRegistry",
+    "create_analyzer_registry",
     # Cutoff utilities
     "suggest_cutoff",
     "suggest_cutoff_from_data",
     "validate_cutoff_range",
     "search_optimal_cutoff",
+    # Data model
+    "DataModelInfo",
+    "detect_data_model",
+    # Labelers
+    "PerformanceLabeler",
+    "RegressionLabeler",
+    "CutoffBasedLabeler",
+    "BinaryLabeler",
+    "TertileLabeler",
+    "QuartileLabeler",
+    "AutoLabeler",
+    "ManualLabeler",
 ]

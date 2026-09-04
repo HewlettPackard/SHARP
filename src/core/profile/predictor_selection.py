@@ -14,6 +14,7 @@ import numpy as np
 import polars as pl
 import scipy.stats as ss
 
+from src.core.stats.arrays import is_numeric_polars_dtype
 from src.core.config.settings import Settings
 
 
@@ -222,11 +223,6 @@ def _filter_by_variance(
         'profiling.predictor_selection.max_categorical_unique', 100
     )
 
-    numeric_types = {
-        pl.Float64, pl.Float32, pl.Int64, pl.Int32, pl.Int16, pl.Int8,
-        pl.UInt64, pl.UInt32, pl.UInt16, pl.UInt8, pl.Boolean
-    }
-
     numeric_cols = []
     categorical_cols = []
 
@@ -234,7 +230,7 @@ def _filter_by_variance(
         if col in exclude or col == metric_col:
             continue
 
-        if data[col].dtype in numeric_types:
+        if is_numeric_polars_dtype(data[col].dtype):
             numeric_cols.append(col)
         elif data[col].dtype == pl.Utf8:
             try:

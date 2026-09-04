@@ -16,6 +16,7 @@ Workflow:
 
 from shiny import ui, render, reactive, Inputs, Outputs, Session
 from shiny.types import SilentException
+import numpy as np
 import polars as pl
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
@@ -37,6 +38,8 @@ from src.core.profile.labeler import *
 from src.gui.utils.profile.predictor_stats import get_auto_excluded_predictors
 from src.core.profile import predictor_selection
 from src.core.profile.data_model import detect_data_model, DataModelInfo
+from src.core.profile.data_reduction import reduce_rows
+from src.core.profile.analyzers.registry import create_analyzer_registry
 from src.gui.utils.profile.data_pipeline import *
 from src.gui.utils.profile.modals import *
 from src.gui.utils.profile.execution import *
@@ -937,11 +940,65 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
             # This automatically handles all labeler types without needing to update this function
             # when new labeler strategies are added
 
-            # Train tree using labeler
-            tree = compute_tree(data, metric_col, labeler,
-                                   exclude=current_exclusions,
-                                   max_predictors=max_predictors,
-                                   max_correlation=max_correlation)
+            # Prepare data and labels for analyzer registry
+            predictor_cols = [
+                c for c in data.columns if c != metric_col and c not in current_exclusions
+            ]
+            row_reduced = reduce_rows(data, metric_col, predictor_cols)
+
+            valid_mask = row_reduced[metric_col].is_not_null()
+            valid_data = row_reduced.filter(valid_mask)
+
+            if len(valid_data) < 3:
+                return None
+
+            # Sample to target_rows for faster training and visualization
+            settings = Settings()
+            target_rows = settings.get("profiling.tree_training.target_rows", 1000)
+            if len(valid_data) > target_rows:
+                sample_indices = np.random.choice(len(valid_data), size=target_rows, replace=False)
+                valid_data = valid_data[sorted(sample_indices)]
+
+            # Build labels
+            metric_values = valid_data[metric_col].to_numpy()
+            labels = labeler.label(metric_values)
+            class_names = labeler.get_class_names()
+
+            if labels.dtype.kind in ("U", "S", "O"):
+                label_to_int = {label: i for i, label in enumerate(class_names)}
+                numeric_labels = np.array([label_to_int[label] for label in labels])
+            else:
+                numeric_labels = labels.astype(int)
+
+            # Analyze using registry (falls back to tree if analyzer unavailable)
+            registry = create_analyzer_registry(settings)
+            registry.set_shared_state(
+                valid_data,
+                numeric_labels,
+                settings=settings,
+                outcome_col=metric_col,
+                context={
+                    "exclude_cols": current_exclusions,
+                    "max_predictors": max_predictors,
+                    "max_correlation": max_correlation,
+                },
+            )
+            analyzer_name = settings.get("profiling.influence_analyzer", "tree")
+            registry.analyze_single(analyzer_name)
+
+            used_name = registry.last_analyzer_name or analyzer_name
+            analyzer = registry.get_analyzer(used_name)
+            trained_model = getattr(analyzer, "trained_model", None)
+            if trained_model is None:
+                return None
+
+            tree = trained_model.model
+            tree.feature_names_ = trained_model.feature_names
+            tree.original_predictors_ = trained_model.original_predictors
+            tree.class_names_ = class_names
+            tree.training_data_ = valid_data
+            tree.training_labels_ = labels
+            tree.training_metric_ = metric_col
             return tree
 
         except Exception:

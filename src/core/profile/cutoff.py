@@ -7,7 +7,7 @@ Classifies data points into two categories based on a cutoff threshold:
 
 Also provides utilities for suggesting and searching for optimal cutoffs.
 
-© Copyright 2025--2025 Hewlett Packard Enterprise Development LP
+© Copyright 2025--2026 Hewlett Packard Enterprise Development LP
 """
 
 from typing import Any, Callable
@@ -16,8 +16,34 @@ import polars as pl
 from scipy import stats
 
 from .base import ClassSelector, ClassificationResult, ClassifierTrainer
+from .predictor_selection import select_predictors
 from src.core.stats.distribution import _is_unimodal, _is_amodal, _find_modes
 from src.core.config.settings import Settings
+
+
+DEFAULT_MIN_CLASS_FRACTION = 0.02
+
+
+def _resolve_min_class_size(
+    n_labels: int,
+    settings: Settings,
+    default_fraction: float = DEFAULT_MIN_CLASS_FRACTION,
+) -> int:
+    """Compute the minimum allowed class size for cutoff search."""
+    if n_labels <= 0:
+        return 0
+
+    min_fraction = settings.get(
+        "profiling.cutoff_search.min_class_fraction",
+        default_fraction,
+    )
+    try:
+        min_fraction = float(min_fraction)
+    except (TypeError, ValueError):
+        min_fraction = default_fraction
+
+    min_fraction = min(max(min_fraction, 0.0), 0.49)
+    return max(1, int(np.ceil(min_fraction * n_labels)))
 
 
 class CutoffClassSelector(ClassSelector):
@@ -157,7 +183,7 @@ class CutoffClassSelector(ClassSelector):
         Returns:
             Array of "FAST" and "SLOW" string labels
         """
-        result = self.label(data, metric_col)
+        result = self.classify(data, metric_col)
         return result.labels
 
 
@@ -287,12 +313,13 @@ def search_optimal_cutoff(
         Optimal cutoff value, or None if no valid models found
     """
     try:
+        settings = Settings()
         perf = data[metric_col].drop_nulls().to_numpy()
         if len(perf) == 0:
             return None
 
-        # Select predictors once
-        predictors = trainer.select_predictors(
+        # Select candidate predictors once to ensure we have trainable features
+        predictors = select_predictors(
             data, metric_col, exclusions, max_predictors=100, max_correlation=0.99
         )
         if not predictors:
@@ -311,18 +338,22 @@ def search_optimal_cutoff(
             selector = class_selector_factory(cutoff)
             try:
                 labels = selector.classify_binary(data, metric_col)
-                label_counts = np.bincount(labels)
+                _, label_counts = np.unique(labels, return_counts=True)
 
-                # Skip if classes are too imbalanced (minimum 5% in each class)
-                min_class_size = int(0.05 * len(labels))
-                if any(count < min_class_size for count in label_counts):
+                # Skip if classes are too imbalanced.
+                min_class_size = _resolve_min_class_size(len(labels), settings)
+                if any(int(count) < min_class_size for count in label_counts):
                     continue
             except Exception:
                 continue
 
             # Train tree with pre-selected predictors
             trained = trainer.train(
-                data, labels, exclude_cols=exclusions, predictors=predictors
+                data,
+                labels,
+                exclude_cols=exclusions,
+                max_predictors=min(100, len(predictors)),
+                max_correlation=0.99,
             )
 
             if trained is not None:
@@ -377,6 +408,7 @@ def search_optimal_cutoff_with_classifier(
         exclusions = []
 
     try:
+        settings = Settings()
         # Get valid metric values
         valid_mask = data[metric_col].is_not_null()
         valid_data = data.filter(valid_mask)
@@ -421,8 +453,8 @@ def search_optimal_cutoff_with_classifier(
 
                 label_counts = np.bincount(labels)
 
-                # Skip if classes are too imbalanced (minimum 5% in each class)
-                min_class_size = int(0.05 * len(labels))
+                # Skip if classes are too imbalanced.
+                min_class_size = _resolve_min_class_size(len(labels), settings)
                 if any(count < min_class_size for count in label_counts):
                     continue
             except Exception:
@@ -430,7 +462,11 @@ def search_optimal_cutoff_with_classifier(
 
             # Train tree with pre-selected predictors
             trained = trainer.train(
-                valid_data, labels, exclude_cols=list(exclude_cols), predictors=predictors
+                valid_data,
+                labels,
+                exclude_cols=list(exclude_cols),
+                max_predictors=min(100, len(predictors)),
+                max_correlation=0.99,
             )
 
             if trained is not None:

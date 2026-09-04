@@ -93,6 +93,34 @@ class PerformanceLabeler(ABC):
         pass
 
 
+class RegressionLabeler(PerformanceLabeler):
+    """
+    Passthrough labeler for regression mode.
+
+    Instead of assigning discrete performance classes, this labeler returns
+    the raw continuous metric values as "labels".  It signals to the analysis
+    pipeline that regression (not classification) should be used.
+    """
+
+    def __init__(self, values: np.ndarray, lower_is_better: bool = True):
+        self.lower_is_better = lower_is_better
+
+    def label(self, values: np.ndarray) -> np.ndarray:
+        """Return raw metric values (continuous) as outcome."""
+        return values.astype(float)
+
+    def get_class_names(self) -> List[str]:
+        """No discrete classes in regression mode."""
+        return []
+
+    def get_cutoffs(self) -> Optional[List[float]]:
+        """No cutoffs in regression mode."""
+        return None
+
+    def get_strategy_name(self) -> str:
+        return "None (Regression)"
+
+
 class CutoffBasedLabeler(PerformanceLabeler):
     """
     Labeler that assigns classes based on cutoff points.

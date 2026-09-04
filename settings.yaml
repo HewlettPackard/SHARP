@@ -50,6 +50,7 @@ profiling:
   max_correlation: 0.99  # Maximum correlation threshold for predictor inclusion
   max_predictors: 200  # Maximum number of predictors to consider in analysis (increased from 100 due to 10-16x speedup in selection)
   max_search: 100  # Maximum iterations for optimal cutoff search algorithm
+  influence_analyzer: "tree"  # Analyzer key selected in the Profile tab (defaults to decision tree)
 
   # Required metadata fields for profiling reproduction (--repro flag)
   required_md_fields:
