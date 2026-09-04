@@ -111,3 +111,17 @@ profiling:
     min_class_size: 300  # Classes with fewer samples than this are never downsampled (preserve rare cases)
     cv_threshold: 0.15  # Coefficient of variation threshold: classes below this are "concentrated" and safe to downsample
     base_sample_ratio: 0.20  # For concentrated classes, keep this fraction of samples (20% → 5x reduction)
+
+  # Column enrichment: synthetic columns for multi-source / temporal patterns
+  enrichment:
+    enabled: auto                           # "auto", true, or false — auto enables when multi-source detected
+    aggregates:
+      enabled: auto                         # Enable AggregateEnricher (auto = when source columns found)
+      functions: [max, std, mean]           # Aggregate functions to generate
+    interactions:
+      enabled: false                        # InteractionEnricher (off by default — opt-in for advanced users)
+      top_k: 30                             # Pre-screen top K columns by correlation for interaction pairs
+    temporal:
+      enabled: auto                         # TemporalEnricher (auto = when timestamp column present)
+      diff: true                            # Include first-difference columns
+      rolling_std_window: 10                # Rolling standard deviation window size

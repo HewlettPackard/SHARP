@@ -8,6 +8,8 @@ model_assumptions).
 © Copyright 2026--2026 Hewlett Packard Enterprise Development LP
 """
 
+from typing import Any
+
 from src.core.profile.base import InfluenceFactor
 from src.core.stats.narrative import format_sig_figs
 
@@ -44,6 +46,7 @@ def generate_influence_narrative(
     for factor in factors:
         narrative_parts = _build_narrative_parts(
             factor=factor,
+            class_names=class_names,
             include_model_assumptions=include_model_assumptions,
         )
 
@@ -54,6 +57,7 @@ def generate_influence_narrative(
 
 def _build_narrative_parts(
     factor: InfluenceFactor,
+    class_names: list[str] | None,
     include_model_assumptions: bool,
 ) -> list[str]:
     parts: list[str] = []
@@ -78,6 +82,10 @@ def _build_narrative_parts(
     bayes_part = _format_bayesian_confidence(factor)
     if bayes_part:
         parts.append(bayes_part)
+
+    enrichment_part = _format_enrichment(factor, class_names)
+    if enrichment_part:
+        parts.append(enrichment_part)
 
     assumptions_part = _format_assumptions(
         factor=factor,
@@ -191,6 +199,106 @@ def _format_bayesian_confidence(factor: InfluenceFactor) -> str:
         f"**Bayesian confidence{model_text}**: standardized effect = {coef_str}{ci_text}; "
         f"P(effect > 0) = {prob_str} in {mode or 'current'} mode"
     )
+
+
+def _format_enrichment(factor: InfluenceFactor, class_names: list[str] | None) -> str:
+    """
+    Format enrichment narrative for synthetic/enriched factors.
+
+    Enriched factors (aggregates, interactions, temporal features) provide
+    insights that raw columns alone cannot reveal. The enrichment narrative
+    explains what the synthetic column represents and why it's important.
+
+    Args:
+        factor: InfluenceFactor with optional enrichment metadata
+
+    Returns:
+        Narrative string explaining the enrichment, or empty string if not enriched
+    """
+    if not factor.metadata:
+        return ""
+
+    enrichment_narrative = factor.metadata.get("enrichment_narrative")
+    if not enrichment_narrative:
+        return ""
+
+    enrichment_narrative = _apply_outcome_effect(enrichment_narrative, factor.metadata, class_names)
+
+    enriched_from = factor.metadata.get("enriched_from")
+    if enriched_from:
+        return f"**Multi-source insight** (synthetic from {enriched_from}): {enrichment_narrative}"
+
+    return f"**Multi-source insight**: {enrichment_narrative}"
+
+
+def _apply_worse_label(text: str, class_names: list[str] | None) -> str:
+    worse_label = _resolve_worse_label(class_names)
+    if not worse_label:
+        return text
+
+    replacements = {
+        "worse performance": f"{worse_label} performance",
+        "slow performance": f"{worse_label} performance",
+        "SLOW performance": f"{worse_label} performance",
+    }
+    for needle, replacement in replacements.items():
+        if needle in text:
+            text = text.replace(needle, replacement)
+    return text
+
+
+def _apply_outcome_effect(
+    text: str,
+    metadata: dict[str, Any],
+    class_names: list[str] | None,
+) -> str:
+    effect = metadata.get("enrichment_outcome_effect")
+    if not isinstance(effect, str):
+        return text
+
+    label = _resolve_effect_label(effect, class_names)
+    speed_label = "faster" if effect == "better" else "slower"
+    replacements = {
+        "worse performance": f"{speed_label} performance",
+        "slow performance": f"{speed_label} performance",
+        "SLOW performance": f"{speed_label} performance",
+        "better performance": f"{speed_label} performance",
+        "FAST performance": f"{speed_label} performance",
+    }
+    for needle, replacement in replacements.items():
+        if needle in text:
+            text = text.replace(needle, replacement)
+    return text
+
+
+def _resolve_effect_label(effect: str, class_names: list[str] | None) -> str:
+    if class_names:
+        if effect == "worse":
+            for name in class_names:
+                if name.lower() == "slow":
+                    return name
+        if effect == "better":
+            for name in class_names:
+                if name.lower() == "fast":
+                    return name
+    return "worse" if effect == "worse" else "better"
+
+
+def _resolve_worse_label(class_names: list[str] | None) -> str | None:
+    if not class_names:
+        return None
+
+    for name in class_names:
+        if name.lower() == "slow":
+            return name
+
+    if len(class_names) == 2:
+        for name in class_names:
+            if name.lower() == "fast":
+                other = class_names[1] if class_names[0] == name else class_names[0]
+                return other
+
+    return class_names[-1]
 
 
 def _format_assumptions(

@@ -17,10 +17,88 @@ from sklearn.metrics import r2_score
 from sklearn.preprocessing import StandardScaler
 
 from src.core.metrics.factors import get_factor_info
+from src.core.profile.base import InfluenceFactor
 from src.core.stats.narrative import format_sig_figs
-from src.core.config.settings import Settings
 from src.core.profile.labeler import PerformanceLabeler
 from src.gui.utils.profile.distribution import get_class_colors
+
+
+def factor_key(factor: InfluenceFactor) -> str:
+    """
+    Generate a unique key for a factor, disambiguating raw vs enriched variants.
+
+    For enriched factors, returns "name::enriched_from" to prevent collisions
+    when multiple synthetic variants of the same column exist.
+    For encoded factors, returns "name::encoded_name" if different from name.
+    For raw factors, returns just the name.
+
+    Args:
+        factor: InfluenceFactor instance
+
+    Returns:
+        Unique factor key string
+    """
+    metadata = factor.metadata or {}
+    enriched_from = metadata.get("enriched_from")
+    if isinstance(enriched_from, str) and enriched_from:
+        return f"{factor.name}::{enriched_from}"
+    encoded_name = metadata.get("encoded_name")
+    if isinstance(encoded_name, str) and encoded_name and encoded_name != factor.name:
+        return f"{factor.name}::{encoded_name}"
+    return factor.name
+
+
+def factor_label(factor: InfluenceFactor, name_counts: dict[str, int]) -> str:
+    """
+    Format a display label for a factor, showing disambiguation when needed.
+
+    When multiple factors share the same base name, appends "(from suffix)"
+    to disambiguate enriched or encoded variants.
+
+    Args:
+        factor: InfluenceFactor instance
+        name_counts: Dict mapping factor name to count of factors with that name
+
+    Returns:
+        Display label string
+    """
+    label = factor.name
+    if name_counts.get(factor.name, 0) > 1:
+        metadata = factor.metadata or {}
+        enriched_from = metadata.get("enriched_from")
+        encoded_name = metadata.get("encoded_name")
+        suffix = None
+        if isinstance(enriched_from, str) and enriched_from:
+            suffix = enriched_from
+        elif isinstance(encoded_name, str) and encoded_name and encoded_name != factor.name:
+            suffix = encoded_name
+        if suffix:
+            label = f"{label} (from {suffix})"
+    return label
+
+
+def get_factor_by_key(
+    factors: list[InfluenceFactor],
+    factor_key_str: str | None,
+) -> InfluenceFactor | None:
+    """
+    Resolve a factor by its unique key.
+
+    Handles both simple names and composite keys (name::suffix).
+
+    Args:
+        factors: List of InfluenceFactor instances
+        factor_key_str: Unique factor key or name, or None
+
+    Returns:
+        Matching InfluenceFactor, or None if not found
+    """
+    if not factor_key_str:
+        return None
+    for fac in factors:
+        if factor_key(fac) == factor_key_str:
+            return fac
+    return None
 
 
 def _create_error_figure(message: str, color: str = '#999') -> Figure:
@@ -116,7 +194,8 @@ def _calculate_mcfadden_r2(X: np.ndarray, y_binary: np.ndarray) -> float:
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
 
-    log_model = LogisticRegression(max_iter=1000, solver='lbfgs', penalty=None)
+    # Use C=np.inf instead of penalty=None (sklearn 1.8+ deprecation)
+    log_model = LogisticRegression(max_iter=1000, solver='lbfgs', C=np.inf)
     log_model.fit(X_scaled, y_binary)
 
     # Compute McFadden's pseudo R²: 1 - (log L_fitted / log L_null)

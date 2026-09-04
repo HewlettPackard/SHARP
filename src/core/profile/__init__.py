@@ -31,8 +31,17 @@ from .cutoff import (
 )
 from .decision_tree import DecisionTreeTrainer, DecisionTreeRegressorTrainer, TreeFactorAnalyzer
 from .data_model import DataModelInfo, detect_data_model
-from .analyzers.registry import InfluenceAnalyzerRegistry, create_analyzer_registry
+from .analyzers.registry import InfluenceAnalyzerRegistry, DataContext, create_analyzer_registry
 from .analyzers import *
+from .column_enrichment import (
+    ColumnEnricher,
+    AggregateEnricher,
+    InteractionEnricher,
+    TemporalEnricher,
+    EnrichedInfluenceAnalyzer,
+    create_enrichers_from_settings,
+    is_enriched_column,
+)
 from .labeler import (
     PerformanceLabeler,
     RegressionLabeler,
@@ -64,10 +73,11 @@ __all__ = [
     # Concrete implementations
     "CutoffClassSelector",
     "DecisionTreeTrainer",
-    "DecisionTreeRegressorTrainer",
     "TreeFactorAnalyzer",
     "TrainedModelInfluenceAnalyzer",
     "TreeInfluenceAnalyzer",
+    "LaggedCCFInfluenceAnalyzer",
+    "GrangerInfluenceAnalyzer",
     "auto_max_lag",
     "max_lag_correlation",
     "sparse_lag_screening",
@@ -89,9 +99,16 @@ __all__ = [
     # Data model
     "DataModelInfo",
     "detect_data_model",
+    # Column enrichment (Phase 7)
+    "ColumnEnricher",
+    "AggregateEnricher",
+    "InteractionEnricher",
+    "TemporalEnricher",
+    "EnrichedInfluenceAnalyzer",
+    "create_enrichers_from_settings",
+    "is_enriched_column",
     # Labelers
     "PerformanceLabeler",
-    "RegressionLabeler",
     "CutoffBasedLabeler",
     "BinaryLabeler",
     "TertileLabeler",

@@ -1639,6 +1639,73 @@ profiling:
     # R3: Row relevance filter (no configuration needed)
 ```
 
+### 5. Column Enrichment (Advanced Feature)
+
+SHARP can optionally generate synthetic columns that surface insights not directly observable in raw metrics. Enrichers are **decorators** (not modifications) of the analysis pipeline:
+
+#### Enricher Types
+
+**AggregateEnricher** — Surfaces source-general trends
+- Computes max, std, mean of each metric across sources per timestamp
+- Columns: `cache_misses__agg_max__`, `cache_misses__agg_std__`, etc.
+- Use: Detect imbalance ("Is one host much slower?") and universal elevation ("All sources slow together")
+
+**InteractionEnricher** — Surfaces joint effects
+- Computes top-K pairwise interactions: products and ratios of pre-screened columns
+- Columns: `cache_misses__ix__context_switches`, `cache_misses__ratio__instructions`
+- Use: Detect combined effects ("high cache misses + high syscalls → severe slowdown")
+
+**TemporalEnricher** — Surfaces volatility and rate-of-change
+- Computes first differences and rolling volatility
+- Columns: `latency__tmp_diff__` (row-to-row change), `latency__tmp_rstd_10__` (10-row rolling std)
+- Use: Identify instability ("spikes in latency variance precede failures")
+
+#### Design Philosophy
+
+- **Transparent**: All synthetic columns are clearly marked with `__agg__`, `__ix__`, or `__tmp__` prefixes
+- **Traceable**: Each synthetic column knows which original columns it came from (`trace_to_originals()`)
+- **Optional**: Everything works without enrichment; it's purely additive
+- **Narrative-capable**: Each enricher produces human-readable explanations of what its factors mean
+
+#### Configuration
+
+```yaml
+profiling:
+  enrichment:
+    enabled: auto                       # auto | true | false
+    aggregates:
+      enabled: auto                     # auto | true | false
+      functions: [max, std, mean]
+    interactions:
+      enabled: false                    # opt-in (default false)
+      top_k: 30
+    temporal:
+      enabled: auto                     # auto | true | false
+      diff: true
+      rolling_std_window: 10
+```
+
+#### Enabling and Auto-Activation
+
+- **Explicit**: Set `profiling.enrichment.enabled: true` to always enrich, or `false` to disable.
+- **Auto mode** (default):
+  - Aggregates enable when multi-source columns are detected.
+  - Temporal features enable when data is sequential and long enough for rolling windows.
+  - Interactions are off by default and must be explicitly enabled.
+- **Exclusions respected**: Predictors in the exclude list are not used to derive synthetic factors.
+
+#### How to Interpret Enriched Factors
+
+- **Synthetic naming**: Enriched columns use suffixes such as `__agg_*__`, `__ix__`, `__ratio__`, `__tmp_*__`.
+- **Decision tree**: The tree is trained on enriched data. Nodes may show synthetic feature names when a derived column is used for splitting.
+- **Factor list**: Enriched factors are resolved back to their original metric names. The narrative includes `synthetic from ...` to show which derived column drove the result.
+- **Narratives**: Enrichment narratives explain what the synthetic column represents and use `faster`/`slower` based on the outcome direction and `lower_is_better`.
+- **Plots**: Scatter and distribution plots remain on the original metric to keep interpretation intuitive, even when the model used a synthetic feature.
+
+- Enriched factors appear with `[aggregated]`, `[interaction]`, or `[temporal]` badges
+- Narratives explain what each enriched factor represents
+- User doesn't select or configure enrichers; activation is automatic
+
 ## See Also
 
 - [Backend Configuration Schema](schemas/backend.md) - Backend YAML structure

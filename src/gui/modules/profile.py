@@ -981,6 +981,10 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
                     "exclude_cols": current_exclusions,
                     "max_predictors": max_predictors,
                     "max_correlation": max_correlation,
+                    # Explicit: EnrichedInfluenceAnalyzer defaults outcome_mode to
+                    # "regression", which would silently override the tree
+                    # analyzer's own "classification" default if left unset.
+                    "outcome_mode": "classification",
                 },
             )
             analyzer_name = settings.get("profiling.influence_analyzer", "tree")
@@ -992,11 +996,18 @@ def profile_server(input: Inputs, output: Outputs, session: Session) -> None:
             if trained_model is None:
                 return None
 
+            # When enrichment is active, the tree may reference synthetic
+            # columns (e.g. "cpu__agg_max__") that only exist in the enriched
+            # frame, not in valid_data.
+            tree_data = getattr(analyzer, "last_enriched_data", None)
+            if tree_data is None:
+                tree_data = valid_data
+
             tree = trained_model.model
             tree.feature_names_ = trained_model.feature_names
             tree.original_predictors_ = trained_model.original_predictors
             tree.class_names_ = class_names
-            tree.training_data_ = valid_data
+            tree.training_data_ = tree_data
             tree.training_labels_ = labels
             tree.training_metric_ = metric_col
             return tree

@@ -22,6 +22,7 @@ from src.core.profile.analyzers.hybrid import HybridCausalInfluenceAnalyzer
 from src.core.profile.analyzers.pcmci import PCMCIInfluenceAnalyzer
 from src.core.profile.analyzers.te import TransferEntropyInfluenceAnalyzer
 from src.core.profile.analyzers.consensus import ConsensusInfluenceAnalyzer
+from src.core.profile.column_enrichment import EnrichedInfluenceAnalyzer
 from src.core.config.settings import Settings
 
 
@@ -314,13 +315,40 @@ class InfluenceAnalyzerRegistry:
 
 
 def create_analyzer_registry(settings: Settings | None = None) -> InfluenceAnalyzerRegistry:
-    """Factory to build the analyzer registry with defaults."""
+    """Factory to build the analyzer registry with defaults.
+
+    If column enrichment is enabled (default), wraps analyzers with
+    EnrichedInfluenceAnalyzer for automatic synthetic column generation.
+    """
     registry = InfluenceAnalyzerRegistry()
-    registry.register(TreeInfluenceAnalyzer())
-    registry.register(LaggedCCFInfluenceAnalyzer())
-    registry.register(GrangerInfluenceAnalyzer())
-    registry.register(HybridCausalInfluenceAnalyzer())
-    registry.register(PCMCIInfluenceAnalyzer())
-    registry.register(TransferEntropyInfluenceAnalyzer())
+
+    # Check if enrichment is enabled (default: auto, which means True)
+    enrichment_enabled = True
+    if settings is not None:
+        enrichment_setting = settings.get("profiling.enrichment.enabled", "auto")
+        # Explicitly disabled only if set to False or "false"
+        enrichment_enabled = enrichment_setting not in (False, "false")
+
+    # Register all analyzers
+    analyzers = [
+        TreeInfluenceAnalyzer(),
+        LaggedCCFInfluenceAnalyzer(),
+        GrangerInfluenceAnalyzer(),
+        HybridCausalInfluenceAnalyzer(),
+        PCMCIInfluenceAnalyzer(),
+        TransferEntropyInfluenceAnalyzer(),
+    ]
+
+    for analyzer in analyzers:
+        if enrichment_enabled:
+            # Wrap with enrichment decorator (enrichers will be auto-created at analysis time)
+            enriched = EnrichedInfluenceAnalyzer(inner=analyzer)
+            registry.register(enriched)
+        else:
+            # Register directly without enrichment
+            registry.register(analyzer)
+
+    # Consensus runs all 5 sub-analyzers internally; never wrap with enrichment.
     registry.register(ConsensusInfluenceAnalyzer())
+
     return registry

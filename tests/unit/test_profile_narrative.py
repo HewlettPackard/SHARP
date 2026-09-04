@@ -469,3 +469,108 @@ class TestRegressionCases:
         narrative = result["highly_significant"]
         # Should express extreme significance somehow
         assert "significance" in narrative.lower() and len(narrative) > 0
+
+
+class TestEnrichmentNarrative:
+    """Tests for enrichment narrative integration."""
+
+    def test_enrichment_narrative_included(self):
+        """Enrichment narratives are included in factor narratives."""
+        factor = InfluenceFactor(
+            name="cpu_agg_max",
+            strength=0.82,
+            rank=1,
+            method="tree",
+            metadata={
+                "enriched_from": "cpu_agg_max__",
+                "enrichment_narrative": (
+                    "The worst-case CPU across all hosts strongly "
+                    "predicts SLOW performance. Investigate which host "
+                    "has the highest CPU."
+                ),
+                "original_columns": ["cpu"],
+            },
+        )
+        result = generate_influence_narrative([factor])
+        assert "cpu_agg_max" in result
+        narrative = result["cpu_agg_max"]
+        # Check that enrichment section is included
+        assert "multi-source insight" in narrative.lower()
+        assert "worst-case" in narrative.lower()
+        assert "synthetic" in narrative.lower()
+
+    def test_enrichment_with_synthetic_marker(self):
+        """Enrichment narrative includes reference to synthetic column name."""
+        factor = InfluenceFactor(
+            name="memory_agg_std",
+            strength=0.65,
+            method="granger",
+            metadata={
+                "enriched_from": "memory__agg_std__",
+                "enrichment_narrative": (
+                    "Sources are imbalanced in memory. Some sources have "
+                    "much higher memory usage than others."
+                ),
+            },
+        )
+        result = generate_influence_narrative([factor])
+        narrative = result["memory_agg_std"]
+        # Should mention that it's synthetic and from what
+        assert "synthetic from memory__agg_std__" in narrative
+
+    def test_enrichment_without_synthetic_marker(self):
+        """Enrichment narrative works even without explicit enriched_from field."""
+        factor = InfluenceFactor(
+            name="interaction_factor",
+            strength=0.71,
+            method="tree",
+            metadata={
+                "enrichment_narrative": (
+                    "The interaction between CPU and memory usage "
+                    "jointly predicts performance."
+                ),
+            },
+        )
+        result = generate_influence_narrative([factor])
+        narrative = result["interaction_factor"]
+        # Should include enrichment insight without enriched_from
+        assert "multi-source insight" in narrative.lower()
+        assert "interaction" in narrative.lower()
+
+    def test_no_enrichment_narrative_no_enrichment_section(self):
+        """Factors without enrichment metadata have no enrichment section."""
+        factor = InfluenceFactor(
+            name="plain_factor",
+            strength=0.60,
+            method="tree",
+            metadata={"model_assumptions": ["Based on tree thresholds"]},
+        )
+        result = generate_influence_narrative([factor])
+        narrative = result["plain_factor"]
+        # Should not have enrichment section
+        assert "multi-source insight" not in narrative.lower()
+
+    def test_enrichment_narrative_multiple_factors(self):
+        """Multiple factors, some enriched and some not, are handled correctly."""
+        factors = [
+            InfluenceFactor(
+                name="cpu_agg_max",
+                strength=0.85,
+                method="tree",
+                metadata={
+                    "enriched_from": "cpu__agg_max__",
+                    "enrichment_narrative": "Aggregate CPU signal.",
+                },
+            ),
+            InfluenceFactor(
+                name="plain_io",
+                strength=0.60,
+                method="tree",
+            ),
+        ]
+        result = generate_influence_narrative(factors)
+        assert len(result) == 2
+        # First should have enrichment
+        assert "multi-source insight" in result["cpu_agg_max"].lower()
+        # Second should not
+        assert "multi-source insight" not in result["plain_io"].lower()
