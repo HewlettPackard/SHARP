@@ -47,7 +47,7 @@ This should take about one second and write a CSV file plus accompanying Markdow
 
 ## Graphical user interface
 
-SHARP includes a Shiny-based GUI for browsing run logs, visualizing distributions, and comparing experiments. Start it with `uv run gui` and open the configured address in your browser. Background on the analysis workflow is documented [here](./docs/gui.md).
+SHARP includes a web GUI for browsing run logs, visualizing distributions, and comparing experiments. Start it with `uv run gui` and open `http://localhost:8282` in your browser. Background on the analysis workflow is documented [here](./docs/gui.md).
 
 ## Hardware support
 

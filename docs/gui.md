@@ -1,18 +1,122 @@
 # SHARP GUI Documentation
 
-The SHARP GUI is a Python Shiny application for interactive benchmarking analysis. It helps answer questions like: "Why is my application slow sometimes?", "What system factors correlate with poor performance?", and "Did my optimization actually help?"
+The SHARP GUI is a FastAPI + HTMX web application for interactive benchmarking analysis. It helps answer questions like: "Why is my application slow sometimes?", "What system factors correlate with poor performance?", and "Did my optimization actually help?"
 
 ## Running the GUI
 
 ```bash
-# From the project root
-uv run shiny run src/gui/app.py
+# From the project root (default port 8282)
+uv run gui
 
 # Or with specific options
-uv run shiny run src/gui/app.py --port 8080 --host 0.0.0.0
+uv run gui --port 8080 --host 0.0.0.0
+
+# Disable auto-reload (production)
+uv run gui --no-reload
 ```
 
-The GUI will be available at `http://localhost:8000` by default.
+The GUI will be available at `http://localhost:8282` by default.
+
+## Architecture
+
+This UI follows a simple request/response model:
+
+1. Your browser sends a request (for example, opening a page or submitting a form).
+2. A route handler receives that request.
+3. A service function does the real work (load files, compute statistics, run workflows).
+4. A component function builds HTML for the page.
+5. The browser renders that HTML using CSS and a small amount of JavaScript.
+
+You can think of it as:
+
+- **Routes** = traffic controllers
+- **Services** = workers that do the heavy lifting
+- **Components** = page builders
+- **Contracts** = strict data shapes for API inputs/outputs
+
+### Directory Roles
+
+- `src/gui/app.py`
+  Builds the FastAPI app, mounts static assets, and registers all routes.
+
+- `src/gui/routes/`
+  HTTP endpoints.
+  Files named `ui_*` return HTML pages/fragments for browser navigation.
+  Files named `api_*` return JSON responses under `/api/v1/...`.
+
+- `src/gui/services/`
+  Business logic layer.
+  Reads runlogs, applies filters, computes statistics, launches workflows, and tracks background jobs.
+
+- `src/gui/components/`
+  Server-side HTML composition using `dominate`.
+  These functions build the visible page structure (forms, tables, panels, cards, modals).
+
+- `src/gui/contracts/schemas.py`
+  Pydantic models that validate and document API request/response payloads.
+
+- `src/gui/models/`
+  Typed state/data objects used by route handlers and services.
+
+- `src/gui/static/`
+  Frontend assets served directly to the browser.
+  `app.css` controls styling, and `app.js` handles light client interactions.
+
+- `src/gui/utils/`
+  Shared utility helpers used by services/components.
+
+- `src/gui/modules/`
+  Not part of the current architecture. Current code paths use `routes/`, `services/`, and `components/`.
+
+### UI Routes vs API Routes
+
+- **UI routes** (`/ui/...`)
+  Return HTML for screens and partial updates.
+  Example: `GET /ui/summary` renders the Summary page.
+
+- **API routes** (`/api/v1/...`)
+  Return JSON with validated schemas.
+  Good for programmatic clients and backend integration boundaries.
+  Profile and mitigation API routes are active and currently call `src/gui/services/*`; Future phase will migrate them behind `src/api` while preserving the HTTP contracts documented in `docs/api.md`.
+
+### Beginner Frontend Primer
+
+- **HTML**: The structure of a page (headings, forms, buttons, tables).
+- **CSS**: The visual style (spacing, colors, layout, typography).
+- **JavaScript**: Small behaviors in the browser (auto-submit forms, sliders, selectors).
+- **DOM**: The browser's in-memory tree of page elements that JavaScript can read/update.
+- **HTMX**: Lets the browser request server-rendered HTML snippets and swap them into the page without building a full single-page app.
+
+### Mental Map: Where To Look By Tab
+
+When debugging or extending a tab, follow this order:
+
+1. **Route** (entrypoint for the request)
+2. **Service** (computation and data handling)
+3. **Component** (final HTML rendering)
+4. **Contracts** (if API payloads are involved)
+
+Quick pointers:
+
+- **Summary tab**
+  `routes/ui_summary.py` -> `services/summary.py` -> `components/summary.py`
+
+- **Measure tab**
+  `routes/ui_measure.py` -> `services/measure.py` and `services/measure_jobs.py` -> `components/measure.py`
+
+- **Explore tab**
+  `routes/ui_explore.py` -> `services/explore.py` and `services/distribution.py` -> `components/explore.py`
+
+- **Compare tab**
+  `routes/ui_compare.py` and `routes/api_compare.py` -> `services/compare.py` -> `components/compare.py`
+
+- **Profile tab**
+  `routes/ui_profile.py` and `routes/api_profile.py` -> `services/profile.py` and `services/profile_jobs.py` -> `components/profile.py`
+
+- **Shared shell/layout for all tabs**
+  `components/layout.py` plus `static/app.css` and `static/app.js`
+
+If you are new to this codebase, start by tracing one happy-path request end-to-end (Route -> Service -> Component) for a single tab before jumping across tabs.
 
 ## Tabs Overview
 
@@ -175,13 +279,19 @@ GUI settings in `settings.yaml`:
 
 ```yaml
 gui:
+  host: 0.0.0.0   # Bind address
+  port: 8282      # HTTP port
   distribution:
-    left_color: "#2ca02c"   # "Better" class color (fast runs)
-    right_color: "#ff7f0e"  # "Worse" class color (slow runs)
-  default_experiment: "misc"
+    fast_color: '#a1e736'  # "Better" class color (fast runs)
+    slow_color: '#dd560e'  # "Worse" class color (slow runs)
+    palette: bright        # Color palette for multi-group labelers
+  explore:
+    max_scatter_points: 2000
+  overview:
+    recent_runs_count: 25
 
 profiling:
-  max_predictors: 100       # Maximum predictors for tree training
+  max_predictors: 200       # Maximum predictors for tree training
   max_correlation: 0.99     # Exclude predictors with higher correlation to outcome
 ```
 

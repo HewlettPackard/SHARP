@@ -4,3 +4,4 @@ Date,Version,Comment
 2026-03-18,4.0.0,"Complete rewrite: Python GUI, richer config, increased portability"
 2026-04-27,4.1.0,Enhance profiling capabilities and UI
 2026-09-04,4.2.0,Causal analysis of factors in VGO
+2026-10-01,4.3.0,GUI disaggregation and REST APIs
