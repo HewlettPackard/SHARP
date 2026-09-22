@@ -462,12 +462,13 @@ def _find_modes(x: np.ndarray, bins: int = 20) -> list[float]:
         return [np.median(x_clean)]
 
 
-def _test_normality(x_clean: np.ndarray) -> str | None:
+def _test_normality(x_clean: np.ndarray, max_samples: int = 5000) -> str | None:
     """
     Test for normality and log-normality, returning narrative text.
 
     Args:
         x_clean: Clean numeric array (no NaNs)
+        max_samples: Maximum samples for Shapiro-Wilk (inaccurate above 5000)
 
     Returns:
         Narrative string describing normality test results, or None if test cannot be performed
@@ -476,15 +477,25 @@ def _test_normality(x_clean: np.ndarray) -> str | None:
     if n < 20:
         return None
 
+    # Subsample before running Shapiro-Wilk. The test is O(n²) in practice and
+    # scipy's own docs warn it is inaccurate for N > 5000. A random subsample of
+    # 5000 points is statistically sufficient to characterize normality. The seed
+    # is fixed so the same input always produces the same result.
+    if n > max_samples:
+        rng = np.random.default_rng(42)
+        x_test = rng.choice(x_clean, size=max_samples, replace=False)
+    else:
+        x_test = x_clean
+
     try:
-        _, p_value = stats.shapiro(x_clean)
+        _, p_value = stats.shapiro(x_test)
 
         if p_value >= 0.05:
             return f"Distribution is consistent with normality (Shapiro-Wilk p={p_value:.4f})."
 
         # Not normal - check for log-normality
-        if np.all(x_clean > 0):
-            log_x = np.log(x_clean)
+        if np.all(x_test > 0):
+            log_x = np.log(x_test)
             _, p_value_log = stats.shapiro(log_x)
 
             if p_value_log >= 0.05:

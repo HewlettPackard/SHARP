@@ -1,3 +1,4 @@
+# © Copyright 2025--2025 Hewlett Packard Enterprise Development LP
 """Read and write Profile settings sections in runlog markdown files.
 
 This module handles the raw markdown document I/O for the optional
@@ -21,6 +22,7 @@ def build_profile_settings_payload(
     influence_analyzer: str | None,
     outcome_metric: str | None = None,
     excluded_predictors: list[str] | None = None,
+    max_correlation: float | None = None,
 ) -> dict[str, Any]:
     """Build a raw profile-settings payload suitable for markdown persistence.
 
@@ -51,6 +53,9 @@ def build_profile_settings_payload(
 
     if influence_analyzer:
         settings["profiling.default_influence_analyzer"] = influence_analyzer
+
+    if max_correlation is not None:
+        settings["profiling.default_max_correlation"] = round(float(max_correlation), 4)
 
     return settings
 

@@ -25,8 +25,13 @@ class Runner:
     - Return code and error handling
     """
 
-    def __init__(self, timeout: int | None = None, verbose: bool = False,
-                 stdin_fd: int = -1) -> None:
+    def __init__(
+        self,
+        timeout: int | None = None,
+        verbose: bool = False,
+        stdin_fd: int = -1,
+        fail_on_nonzero: bool = False,
+    ) -> None:
         """
         Initialize runner.
 
@@ -34,10 +39,32 @@ class Runner:
             timeout: Global timeout in seconds (default: 24 hours)
             verbose: Print command lines before execution
             stdin_fd: File descriptor for stdin (default: closed)
+            fail_on_nonzero: Treat any nonzero exit code as a runtime error
         """
         self.timeout = timeout or (60 * 60 * 24)  # Default: 24 hours
         self.verbose = verbose
         self.stdin_fd = stdin_fd if stdin_fd >= 0 else None
+        self.fail_on_nonzero = fail_on_nonzero
+
+    def _read_output_excerpt(
+        self,
+        output_file: Any,
+        max_chars: int = 4000,
+    ) -> str:
+        """Read a tail excerpt from captured command output."""
+        try:
+            output_file.seek(0)
+            raw = output_file.read()
+            if isinstance(raw, bytes):
+                text = raw.decode("utf-8", errors="ignore")
+            else:
+                text = str(raw)
+            text = text.strip()
+            if len(text) > max_chars:
+                return text[-max_chars:]
+            return text
+        except Exception:
+            return "(unable to read command output)"
 
     def run_commands(self, commands: List[str], env: dict[str, str] | None = None) -> "Tuple[bool, List[tempfile._TemporaryFileWrapper[Any]], float]":
         """
@@ -149,6 +176,17 @@ class Runner:
                                 f"Command killed by signal {signal_num}: {commands[cmd_index]}"
                             )
                         case _:
+                            if self.fail_on_nonzero:
+                                stderr_excerpt = ""
+                                if cmd_index < len(output_files):
+                                    stderr_excerpt = self._read_output_excerpt(output_files[cmd_index])
+                                message = (
+                                    f"Command {cmd_index} exited with code {returncode}: {commands[cmd_index]}"
+                                )
+                                if stderr_excerpt:
+                                    message += f"\n\nCaptured stderr/stdout:\n{stderr_excerpt}"
+                                raise RuntimeError(message)
+
                             # Non-zero but not catastrophic - check for common issues
                             warning_msg = f"Command {cmd_index} exited with code {returncode}: {commands[cmd_index]}"
 

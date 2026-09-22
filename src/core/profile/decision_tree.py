@@ -79,10 +79,11 @@ class DecisionTreeTrainer(ClassifierTrainer):
             exclude_cols = []
 
         try:
-            # Select predictors if not provided
-            if predictors is None:
-                # Need a metric column for predictor selection
-                # Use a dummy metric based on labels
+            # Select predictors: when a candidate list is provided treat it as
+            # the pool but still apply max_predictors / max_correlation limits,
+            # matching old-GUI behaviour where max_predictors=100 was always
+            # respected regardless of the incoming candidate set.
+            if predictors is None or len(predictors) > max_predictors:
                 predictors = predictor_selection.select_predictors_from_labels(
                     data,
                     labels,

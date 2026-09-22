@@ -25,7 +25,6 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any
 
 from src.core.config.schema import BenchmarkConfig
 from src.core.packaging.errors import BuildError

@@ -1,3 +1,4 @@
+# © Copyright 2025--2025 Hewlett Packard Enterprise Development LP
 """
 Unit tests for RunLogger - experiment logging to CSV and Markdown.
 

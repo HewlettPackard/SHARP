@@ -53,16 +53,16 @@ class TestGrangerAnalyzerBasics:
         np.random.seed(200)
         analyzer = GrangerInfluenceAnalyzer()
         n = 200
-        
+
         # Generate time strings spanning multiple minutes
         times = [f"14:{30 + i // 60:02d}:{i % 60:02d}.000" for i in range(n)]
-        
+
         # Generate realistic data with some autocorrelation and noise
         x_vals = np.zeros(n)
         x_vals[0] = np.random.randn()
         for t in range(1, n):
             x_vals[t] = 0.5 * x_vals[t - 1] + np.random.randn() * 0.5
-        
+
         y_vals = np.zeros(n)
         for t in range(2, n):
             y_vals[t] = 0.3 * x_vals[t - 1] + np.random.randn() * 0.5

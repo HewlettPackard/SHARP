@@ -9,6 +9,7 @@ with metrics extraction, callback triggering, and convergence detection.
 
 import pytest
 import os
+import subprocess
 import tempfile
 import warnings
 from pathlib import Path
@@ -266,6 +267,41 @@ def test_build_local_command(command_composer_setup) -> None:
     # Verify builder has expected attributes
     assert builder.args == "hello world"
     assert len(setup["hosts"]) > 0
+
+
+def test_composed_perf_temps_chain_is_shell_parseable() -> None:
+    """Composed perf+temps+bintime+strace command should be valid /bin/sh syntax."""
+    backend_options = {
+        "perf": {
+            "run": "perf stat -e cache-misses,cycles $CMD $ARGS",
+            "composable": True,
+        },
+        "temps": {
+            "run": "$CMD $ARGS; status=$?; /usr/bin/sensors; exit $status",
+            "composable": True,
+        },
+        "bintime": {
+            "run": "/usr/bin/time -f \"bin-time output %e %S %F %R %M %P %c %w\" bash -c '$CMD $ARGS'",
+            "composable": True,
+        },
+        "strace": {
+            "run": "/usr/bin/strace -c $CMD $ARGS",
+            "composable": True,
+        },
+    }
+    benchmark_spec = {
+        "task": "matmul-prof",
+        "entry_point": "/usr/bin/python3",
+        "args": ["benchmarks/micro/cpu/matmul.py", "5000"],
+    }
+
+    composer = CommandComposer(backend_options, benchmark_spec, ["localhost"])
+    commands = composer.compose(["perf", "temps", "bintime", "strace"], copies=1)
+
+    assert len(commands) == 1
+    cmd = commands[0]
+    syntax = subprocess.run(["/bin/sh", "-n", "-c", cmd], capture_output=True, text=True)
+    assert syntax.returncode == 0, f"Invalid shell syntax in composed command: {cmd}\n{syntax.stderr}"
 
 
 def test_runner_initialization() -> None:
@@ -669,3 +705,68 @@ def test_orchestrator_mpl_generates_multiple_commands(orchestrator_flow_setup) -
 
     # Should have 2 commands because mpl=2
     assert len(first_iteration_commands) == 2
+
+
+def test_check_backends_no_warnings_when_check_passes(orchestrator_setup, tmp_path) -> None:
+    """_check_backends should produce no warnings when the check command exits 0."""
+    options = orchestrator_setup["options"]
+    options["backend_options"]["local"]["check"] = "true"  # always exits 0
+
+    orchestrator = ExecutionOrchestrator(options=options, experiment_name="test_exp")
+    orchestrator._check_backends()
+
+    assert orchestrator._backend_warnings == []
+
+
+def test_check_backends_accumulates_warning_when_check_fails(orchestrator_setup, tmp_path) -> None:
+    """_check_backends should accumulate a warning when the check command exits non-zero."""
+    options = orchestrator_setup["options"]
+    options["backend_options"]["local"]["check"] = "false"  # always exits 1
+    options["backend_options"]["local"]["check_message"] = "Tool not found."
+
+    orchestrator = ExecutionOrchestrator(options=options, experiment_name="test_exp")
+    orchestrator._check_backends()
+
+    assert len(orchestrator._backend_warnings) == 1
+    assert "Tool not found." in orchestrator._backend_warnings[0]
+
+
+def test_check_backends_uses_default_message_when_no_check_message(orchestrator_setup) -> None:
+    """_check_backends should fall back to a generated message when check_message is absent."""
+    options = orchestrator_setup["options"]
+    options["backend_options"]["local"]["check"] = "false"
+
+    orchestrator = ExecutionOrchestrator(options=options, experiment_name="test_exp")
+    orchestrator._check_backends()
+
+    assert len(orchestrator._backend_warnings) == 1
+    assert "local" in orchestrator._backend_warnings[0]
+
+
+def test_check_backends_skipped_when_no_check_field(orchestrator_setup) -> None:
+    """_check_backends should produce no warnings when no check field is defined."""
+    orchestrator = ExecutionOrchestrator(
+        options=orchestrator_setup["options"], experiment_name="test_exp"
+    )
+    orchestrator._check_backends()
+
+    assert orchestrator._backend_warnings == []
+
+
+def test_experiment_result_includes_warnings_on_success(orchestrator_setup) -> None:
+    """ExperimentResult.warnings should contain any backend check failures."""
+    options = orchestrator_setup["options"]
+    options["backend_options"]["local"]["check"] = "false"
+    options["backend_options"]["local"]["check_message"] = "Sensor missing."
+
+    orchestrator = ExecutionOrchestrator(options=options, experiment_name="test_exp")
+    orchestrator.runner = MockRunner()
+    orchestrator.metric_extractor.extract = Mock(
+        side_effect=lambda _, outer_metrics={}: RunData({"outer_time": ["1.0"]})
+    )
+
+    result = orchestrator.run()
+
+    assert result.success
+    assert len(result.warnings) == 1
+    assert "Sensor missing." in result.warnings[0]

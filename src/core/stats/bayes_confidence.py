@@ -1,3 +1,4 @@
+# © Copyright 2025--2025 Hewlett Packard Enterprise Development LP
 """Bayesian confidence utilities for factor columns.
 
 Adds approximate Bayesian effect summaries for each requested column:

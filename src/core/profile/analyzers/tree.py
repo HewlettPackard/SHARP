@@ -72,6 +72,18 @@ class TreeInfluenceAnalyzer(TrainedModelInfluenceAnalyzer):
         exclude_cols = exclude_cols or []
         settings_obj = settings if settings is not None else Settings()
 
+        # Downsample large datasets before tree training.
+        # Decision trees find splits based on distribution shape, not raw count,
+        # so training on a representative sample gives equivalent results while
+        # keeping training time bounded. The seed is deterministic (derived from
+        # the row count) so the same data always produces the same sample.
+        target_rows = settings_obj.get("profiling.tree_training.target_rows", 1000)
+        if len(data) > target_rows:
+            rng = np.random.default_rng(len(data))
+            indices = sorted(rng.choice(len(data), size=target_rows, replace=False))
+            data = data[indices]
+            labels = labels[indices]
+
         # Remember the original outcome column name before resolve
         original_outcome_col = outcome_col
 

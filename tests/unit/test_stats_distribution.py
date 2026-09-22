@@ -381,6 +381,65 @@ def test_small_sample():
     assert result is None
 
 
+def test_normality_subsamples_large_data(monkeypatch):
+    """_test_normality passes at most max_samples rows to Shapiro-Wilk."""
+    from scipy import stats as scipy_stats
+
+    captured = []
+    original_shapiro = scipy_stats.shapiro
+
+    def capturing_shapiro(x):
+        captured.append(len(x))
+        return original_shapiro(x)
+
+    monkeypatch.setattr("src.core.stats.distribution.stats.shapiro", capturing_shapiro)
+
+    rng = np.random.default_rng(0)
+    large_data = rng.normal(100, 10, 10_000)
+    _test_normality(large_data, max_samples=500)
+
+    # Every Shapiro-Wilk call must have received at most 500 rows
+    assert captured, "shapiro should have been called at least once"
+    assert all(n <= 500 for n in captured), (
+        f"Shapiro-Wilk received {max(captured)} rows, expected ≤500"
+    )
+
+
+def test_normality_subsampling_is_deterministic():
+    """_test_normality returns the same result on repeated calls (fixed seed)."""
+    rng = np.random.default_rng(7)
+    large_data = rng.normal(50, 5, 10_000)
+
+    result1 = _test_normality(large_data, max_samples=500)
+    result2 = _test_normality(large_data, max_samples=500)
+
+    assert result1 == result2, "Same input must always produce the same normality narrative"
+
+
+def test_normality_no_subsampling_when_below_limit(monkeypatch):
+    """_test_normality passes all rows when input is below max_samples."""
+    from scipy import stats as scipy_stats
+
+    captured = []
+    original_shapiro = scipy_stats.shapiro
+
+    def capturing_shapiro(x):
+        captured.append(len(x))
+        return original_shapiro(x)
+
+    monkeypatch.setattr("src.core.stats.distribution.stats.shapiro", capturing_shapiro)
+
+    rng = np.random.default_rng(0)
+    small_data = rng.normal(100, 10, 200)
+    _test_normality(small_data, max_samples=500)
+
+    assert captured, "shapiro should have been called"
+    # First call is on the original data — must be exactly 200, not a subsample
+    assert captured[0] == 200, (
+        f"Expected 200 rows passed to shapiro, got {captured[0]}"
+    )
+
+
 # ============================================================================
 # characterize_distribution tests
 # ============================================================================

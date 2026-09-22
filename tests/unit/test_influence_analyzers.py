@@ -261,3 +261,117 @@ def test_trained_model_analyzer_is_abstract():
     """TrainedModelInfluenceAnalyzer cannot be instantiated directly."""
     with pytest.raises(TypeError):
         TrainedModelInfluenceAnalyzer()
+
+
+# ============================================================================
+# Tree downsampling tests
+# ============================================================================
+
+def _make_large_dataframe(n_rows: int = 2000) -> tuple[pl.DataFrame, np.ndarray]:
+    """Build a synthetic DataFrame with a predictable signal."""
+    rng = np.random.default_rng(42)
+    predictor = rng.normal(0, 1, n_rows)
+    noise = rng.normal(0, 0.1, n_rows)
+    outcome = predictor + noise
+    labels = (outcome > np.median(outcome)).astype(int)
+    return pl.DataFrame({"predictor": predictor, "outcome": outcome}), labels
+
+
+def test_tree_downsamples_when_exceeding_target_rows(monkeypatch):
+    """TreeInfluenceAnalyzer trains on at most target_rows rows when data is large."""
+    data, labels = _make_large_dataframe(2000)
+    settings = {"profiling.tree_training.target_rows": 100}
+
+    captured: list[int] = []
+    analyzer = TreeInfluenceAnalyzer()
+    original_train = analyzer._trainer.train
+
+    def capturing_train(d, lbl, **kwargs):
+        captured.append(len(d))
+        return original_train(d, lbl, **kwargs)
+
+    monkeypatch.setattr(analyzer._trainer, "train", capturing_train)
+
+    factors = analyzer.analyze(
+        data, labels, exclude_cols=[], outcome_col="outcome", settings=settings
+    )
+
+    assert captured, "trainer.train should have been called"
+    assert captured[0] <= 100, (
+        f"Tree was trained on {captured[0]} rows; expected ≤100 (target_rows=100)"
+    )
+    assert isinstance(factors, list), "analyze() should return a list"
+
+
+def test_tree_no_downsampling_when_below_target(monkeypatch):
+    """TreeInfluenceAnalyzer trains on all rows when data is below target_rows."""
+    data, labels = _make_large_dataframe(50)
+    settings = {"profiling.tree_training.target_rows": 200}
+
+    captured: list[int] = []
+    analyzer = TreeInfluenceAnalyzer()
+    original_train = analyzer._trainer.train
+
+    def capturing_train(d, lbl, **kwargs):
+        captured.append(len(d))
+        return original_train(d, lbl, **kwargs)
+
+    monkeypatch.setattr(analyzer._trainer, "train", capturing_train)
+
+    analyzer.analyze(
+        data, labels, exclude_cols=[], outcome_col="outcome", settings=settings
+    )
+
+    assert captured, "trainer.train should have been called"
+    assert captured[0] == 50, (
+        f"Tree was trained on {captured[0]} rows; all 50 should be used (no downsampling)"
+    )
+
+
+def test_tree_downsampling_is_deterministic():
+    """TreeInfluenceAnalyzer produces identical factors when called twice on the same data."""
+    data, labels = _make_large_dataframe(2000)
+    settings = {"profiling.tree_training.target_rows": 100}
+
+    analyzer1 = TreeInfluenceAnalyzer()
+    factors1 = analyzer1.analyze(
+        data, labels, exclude_cols=[], outcome_col="outcome", settings=settings
+    )
+
+    analyzer2 = TreeInfluenceAnalyzer()
+    factors2 = analyzer2.analyze(
+        data, labels, exclude_cols=[], outcome_col="outcome", settings=settings
+    )
+
+    assert len(factors1) == len(factors2), "Same data must yield the same number of factors"
+    for f1, f2 in zip(factors1, factors2):
+        assert f1.name == f2.name, f"Factor names diverged: {f1.name} vs {f2.name}"
+        assert f1.strength == pytest.approx(f2.strength, rel=1e-6), (
+            f"Factor strengths diverged for {f1.name}: {f1.strength} vs {f2.strength}"
+        )
+
+
+def test_tree_downsampling_respects_custom_target_rows(monkeypatch):
+    """profiling.tree_training.target_rows setting controls the row cap."""
+    data, labels = _make_large_dataframe(2000)
+
+    captured: list[int] = []
+    analyzer = TreeInfluenceAnalyzer()
+    original_train = analyzer._trainer.train
+
+    def capturing_train(d, lbl, **kwargs):
+        captured.append(len(d))
+        return original_train(d, lbl, **kwargs)
+
+    monkeypatch.setattr(analyzer._trainer, "train", capturing_train)
+
+    # Use a non-default cap of 150
+    settings = {"profiling.tree_training.target_rows": 150}
+    analyzer.analyze(
+        data, labels, exclude_cols=[], outcome_col="outcome", settings=settings
+    )
+
+    assert captured, "trainer.train should have been called"
+    assert captured[0] <= 150, (
+        f"Tree was trained on {captured[0]} rows; expected ≤150"
+    )

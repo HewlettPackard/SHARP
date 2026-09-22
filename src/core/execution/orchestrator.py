@@ -68,6 +68,7 @@ class ExperimentResult:
     convergence_info: Dict[str, Any] = field(default_factory=dict)
     error_message: str | None = None
     output_paths: Dict[str, str] = field(default_factory=dict)  # csv, markdown paths
+    warnings: List[str] = field(default_factory=list)  # non-fatal backend check failures
 
 
 class ExecutionOrchestrator:
@@ -161,6 +162,7 @@ class ExecutionOrchestrator:
 
         self.timeout = options.get("timeout")
         self.verbose = options.get("verbose", False)
+        self.fail_on_nonzero = options.get("fail_on_nonzero", False)
         self.start = options.get("start", "normal")  # cold, warm, or normal
         self.mode = options.get("mode", "w")  # File write mode: "w" (truncate) or "a" (append)
         self.skip_sys_specs = options.get("skip_sys_specs", False)
@@ -179,7 +181,11 @@ class ExecutionOrchestrator:
         self.repeater = repeater_factory(repeater_config)
 
         # Initialize runtime components
-        self.runner = Runner(timeout=self.timeout, verbose=self.verbose)
+        self.runner = Runner(
+            timeout=self.timeout,
+            verbose=self.verbose,
+            fail_on_nonzero=self.fail_on_nonzero,
+        )
 
         metrics = options.get("metrics", {})
         self.metric_extractor = MetricExtractor(metrics)
@@ -209,6 +215,7 @@ class ExecutionOrchestrator:
         self.logger.add_invariant("concurrency", self.mpl, "int", "Concurrent copies (MPL)")
         self.iteration_count = 0
         self.collected_metrics: List[Dict[str, Any]] = []
+        self._backend_warnings: List[str] = []
 
     def run(self, callbacks: ProgressCallbacks | None = None,
             max_iterations: int | None = None) -> ExperimentResult:
@@ -229,8 +236,12 @@ class ExecutionOrchestrator:
         max_iterations = max_iterations or 1000
         self.iteration_count = 0
         self.collected_metrics = []
+        self._backend_warnings = []
 
         try:
+            # Check backend prerequisites before the first iteration.
+            self._check_backends()
+
             # Create command composer (reuse for all iterations)
             composer = CommandComposer(
                 self.backend_options,
@@ -325,7 +336,8 @@ class ExecutionOrchestrator:
                 output_paths={
                     "csv": self.logger.get_csv_path(),
                     "markdown": self.logger.get_markdown_path(),
-                }
+                },
+                warnings=list(self._backend_warnings),
             )
 
         except Exception as e:
@@ -335,7 +347,8 @@ class ExecutionOrchestrator:
                 success=False,
                 iteration_count=self.iteration_count,
                 metrics=self.collected_metrics,
-                error_message=str(e)
+                error_message=str(e),
+                warnings=list(self._backend_warnings),
             )
 
     def _log_run_data(self, rundata: RunData) -> None:
@@ -377,6 +390,49 @@ class ExecutionOrchestrator:
         if index < len(values):
             return str(values[index])
         return str(values[-1])
+
+    def _check_backends(self) -> None:
+        """Run each backend's optional 'check' command once before the first iteration.
+
+        A backend may declare:
+          check: <shell command>          # exits 0 if the tool is available
+          check_message: <human string>   # shown to the user on failure
+
+        Failing checks are non-fatal: they accumulate in self._backend_warnings and
+        are surfaced through ExperimentResult.warnings.  A Python warning is also
+        issued so CLI users see it on stderr.
+        """
+        for backend_name in self.backend_names:
+            backend_config = self.backend_options.get(backend_name, {})
+            check_cmd = backend_config.get("check", "")
+            if not check_cmd:
+                continue
+            try:
+                result = subprocess.run(
+                    check_cmd,
+                    shell=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+                if result.returncode != 0:
+                    msg = str(backend_config.get("check_message") or "").strip()
+                    if not msg:
+                        msg = (
+                            f"Backend '{backend_name}' prerequisite check failed "
+                            f"(command: {check_cmd!r}). "
+                            "Some metrics from this backend may not be collected."
+                        )
+                    self._backend_warnings.append(msg)
+                    warnings.warn(msg)
+            except subprocess.TimeoutExpired:
+                msg = f"Backend '{backend_name}' prerequisite check timed out; skipping."
+                self._backend_warnings.append(msg)
+                warnings.warn(msg)
+            except Exception as exc:
+                msg = f"Backend '{backend_name}' prerequisite check error: {exc}"
+                self._backend_warnings.append(msg)
+                warnings.warn(msg)
 
     def _execute_reset(self) -> None:
         """

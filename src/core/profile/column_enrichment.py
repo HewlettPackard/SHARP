@@ -639,11 +639,16 @@ class EnrichedInfluenceAnalyzer(InfluenceAnalyzer):
         return {}
 
     def _has_timestamp_column(self, data: pl.DataFrame, settings: Any, context: dict[str, Any]) -> bool:
-        """Check whether data contains a timestamp column for temporal enrichment."""
+        """Check whether data has a configured timestamp column for temporal enrichment.
+
+        Only enables temporal enrichment when a timestamp column is explicitly
+        configured via settings or passed in the analysis context.  A column
+        that merely happens to be named "timestamp" is not sufficient —
+        otherwise any dataset with such a column silently multiplies predictor
+        count with _diff/_rstd synthetics and slows every analyzer.
+        """
         timestamp_col = context.get("timestamp_col")
         if isinstance(timestamp_col, str) and timestamp_col in data.columns:
-            return True
-        if "timestamp" in data.columns:
             return True
         if settings is None:
             return False

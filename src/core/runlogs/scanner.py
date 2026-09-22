@@ -62,6 +62,11 @@ def scan_runlogs(runlogs_dir: str | None = None, limit: int | None = None) -> li
         if len(parts) < 2:
             continue
 
+        # Skip hidden helper directories (e.g. .profile-combined) which hold
+        # derived files such as combined-profile settings, not real runlogs.
+        if any(part.startswith(".") for part in parts[:-1]):
+            continue
+
         experiment = parts[0]
         task = md_file.stem
 
