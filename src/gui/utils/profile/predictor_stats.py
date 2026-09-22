@@ -15,7 +15,7 @@ from src.core.profile import predictor_selection
 
 
 # Default predictors to exclude from tree training
-DEFAULT_EXCLUDED_PREDICTORS = ["repeat", "inner_time", "outer_time", "perf_time"]
+DEFAULT_EXCLUDED_PREDICTORS = ["repeat", "inner_time", "outer_time", "perf_time", "task"]
 
 
 def compute_predictor_stats(

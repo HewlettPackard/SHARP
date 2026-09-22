@@ -1,0 +1,24 @@
+/* Default theme — warm parchment (matches the base app.css :root; included
+   last so other themes can simply override these variables) */
+:root {
+    --canvas: #f5f1e8;
+    --panel: rgba(255, 252, 246, 0.88);
+    --panel-strong: #fffdf8;
+    --ink: #1f1f1b;
+    --muted: #6b665d;
+    --line: rgba(31, 31, 27, 0.12);
+    --accent: #0f766e;
+    --accent-soft: rgba(15, 118, 110, 0.12);
+    --shadow: 0 16px 50px rgba(54, 49, 36, 0.12);
+    --bg: #fff;
+    --font-body: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+    --font-ui: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+}
+
+body {
+    font-family: var(--font-body);
+    background:
+        radial-gradient(circle at top left, rgba(220, 180, 80, 0.18), transparent 28%),
+        radial-gradient(circle at top right, rgba(15, 118, 110, 0.12), transparent 24%),
+        linear-gradient(180deg, #fbf8f1 0%, var(--canvas) 100%);
+}

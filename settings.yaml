@@ -1,7 +1,7 @@
 # SHARP Global Settings
 # Configuration file for runtime defaults and paths
 #
-# © Copyright 2022--2025 Hewlett Packard Enterprise Development LP
+# © Copyright 2022--2026 Hewlett Packard Enterprise Development LP
 
 cli:
   default_backend: local  # Backend used when -b/--backend not specified
@@ -21,10 +21,9 @@ data:
   runlogs_dir: runlogs  # Directory where experiment results are stored
 
 gui:
-  # Server configuration
-  host: 0.0.0.0  # GUI server bind address (0.0.0.0 = all interfaces)
-  port: 8282  # GUI server port
-  theme: cosmo  # Shiny theme name (cosmo, flatly, darkly, spacelab, etc.)
+  # Server configuration for the GUI (uv run gui)
+  host: 0.0.0.0    # Bind address (0.0.0.0 = all interfaces)
+  port: 8282       # HTTP port
 
   # Distribution plot visualization settings
   distribution:
@@ -101,11 +100,9 @@ profiling:
     r2_exclude_warmup: false                # Exclude warmup/cooldown rows (optional)
     r2_warmup_fraction: null                # Fraction of rows to drop at start (if not null, use this)
     r2_use_changepoints: false              # Auto-detect warmup via changepoint detection
-
-  # Decision tree training parameters
   tree_training:
     completeness_threshold: 0.95  # Minimum data completeness ratio for tree training
-    target_rows: 5000  # Target number of rows for balanced training dataset (increased from 1000 due to predictor selection and class-aware downsampling speedups)
+    target_rows: 2000  # Target number of rows for balanced training dataset
 
     # Class-aware downsampling parameters for efficient training
     min_class_size: 300  # Classes with fewer samples than this are never downsampled (preserve rare cases)

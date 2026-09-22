@@ -1,0 +1,51 @@
+/* High-contrast theme — pure black/white, WCAG AA accessible */
+:root {
+    --canvas: #ffffff;
+    --panel: #ffffff;
+    --panel-strong: #ffffff;
+    --ink: #000000;
+    --muted: #444444;
+    --line: rgba(0, 0, 0, 0.25);
+    --accent: #0050e6;
+    --accent-soft: rgba(0, 80, 230, 0.08);
+    --shadow: 0 4px 16px rgba(0, 0, 0, 0.20);
+    --bg: #fff;
+    --font-body: system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-ui: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+body {
+    font-family: var(--font-body);
+    background: #ffffff;
+}
+
+.shell-header {
+    background: #ffffff;
+    border-bottom: 2px solid #000;
+}
+
+.shell-panel {
+    border: 1px solid #000;
+    box-shadow: none;
+}
+
+.field-input, select.field-input {
+    border: 1.5px solid #000;
+    border-radius: 4px;
+}
+
+.btn-primary {
+    background: #0050e6;
+    border: 2px solid #003dba;
+}
+
+.btn-secondary {
+    border: 2px solid #000;
+    color: #000;
+}
+
+.shell-tab.is-active {
+    border-bottom: 3px solid #000;
+    color: #000;
+    background: transparent;
+}

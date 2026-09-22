@@ -17,14 +17,14 @@ auto-detect mode.
 Restore path: on task switch, ``profile.py`` reads markdown once, snapshots
 the resulting ``ProfileSettings``, and applies those presets one time to the
 static controls (metric/filter/labeler/analyzer). The helpers here stay pure
-so they can be called safely from reactive effects and ``@render.ui`` without
-adding extra reactive dependencies. In practice, Shiny timing still matters:
+so they can be called safely from route handlers and render functions without
+adding extra reactive dependencies. In practice, request timing still matters:
 input updates involve browser round-trips, so restore code uses snapshot-based
 reads and resolved/clamped values (for example, filter sliders and manual
 cutoffs) to avoid stale-input races and preserve the saved state across
 intermediate invalidations.
 
-See also: ``src.gui.utils.profile.settings_persistence`` for the
+See also: ``src.core.runlogs.profile_settings`` for the
 save-path helpers.
 
 © Copyright 2026--2026 Hewlett Packard Enterprise Development LP
@@ -87,6 +87,9 @@ class ProfileSettings:
     default_influence_analyzer: str | None
     """Influence analyzer to pre-select in the Profile controls."""
 
+    default_max_correlation: float | None = None
+    """Max-correlation threshold used in the exclude-predictors modal slider."""
+
     @classmethod
     def empty(cls) -> 'ProfileSettings':
         """Return a no-op ProfileSettings (absent or unparseable section)."""
@@ -98,6 +101,7 @@ class ProfileSettings:
             default_filter_value=None,
             default_num_perf_groups=None,
             default_cutoff_values=[],
+            default_max_correlation=None,
             default_influence_analyzer=None,
         )
 
@@ -232,6 +236,18 @@ def extract_profile_settings_from_md(md_path: str) -> ProfileSettings:
         )
     )
 
+    _raw_max_corr = _first_present(
+        raw,
+        "profiling.default_max_correlation",
+        "default_max_correlation",
+    )
+    try:
+        default_max_correlation: float | None = float(_raw_max_corr) if _raw_max_corr is not None else None
+        if default_max_correlation is not None:
+            default_max_correlation = max(0.0, min(1.0, default_max_correlation))
+    except (TypeError, ValueError):
+        default_max_correlation = None
+
     # All remaining keys become dot-key settings overrides
     _SPECIAL_KEYS = {
         "default_outcome_metric",
@@ -250,6 +266,8 @@ def extract_profile_settings_from_md(md_path: str) -> ProfileSettings:
         "profiling.default_cutoff_values",
         "profiling.default_cutoffs",
         "profiling.default_influence_analyzer",
+        "profiling.default_max_correlation",
+        "default_max_correlation",
     }
     overrides = {k: v for k, v in raw.items() if k not in _SPECIAL_KEYS}
 
@@ -262,6 +280,7 @@ def extract_profile_settings_from_md(md_path: str) -> ProfileSettings:
         default_num_perf_groups=default_num_perf_groups,
         default_cutoff_values=default_cutoff_values,
         default_influence_analyzer=default_influence_analyzer,
+        default_max_correlation=default_max_correlation,
     )
 
 

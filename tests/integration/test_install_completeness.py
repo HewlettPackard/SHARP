@@ -183,6 +183,23 @@ def test_install(setup_test, name, backend, fn, args):
                 f"  3. Re-run tests: pytest {__file__}::{name}\n"
             )
 
+        # Check passwordless SSH to localhost is configured (BatchMode disables password prompts)
+        ssh_check = subprocess.run(
+            ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "localhost", "echo", "test"],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        if ssh_check.returncode != 0:
+            pytest.skip(
+                f"SSH backend test skipped: passwordless SSH to localhost not configured.\n"
+                f"To enable this test:\n"
+                f"  1. Generate SSH key: ssh-keygen -t ed25519\n"
+                f"  2. Authorize localhost: cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys\n"
+                f"  3. Verify: ssh -o BatchMode=yes localhost echo test\n"
+                f"  4. Re-run tests: pytest {__file__}::{name}\n"
+            )
+
     # Use parameterized test name as part of task name for uniqueness
     unique_task = f"{helper.task_name}_{name}"
     # sys_spec.yaml is auto-loaded, backend opts may be empty for local

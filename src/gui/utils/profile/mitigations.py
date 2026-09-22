@@ -6,7 +6,7 @@ Handles rendering of mitigation selector and info cards.
 © Copyright 2025--2025 Hewlett Packard Enterprise Development LP
 """
 
-from shiny import ui
+from src.gui.utils import ui_kit as ui
 
 from src.core.metrics.factors import get_factor_info, get_mitigation_info
 
@@ -19,7 +19,7 @@ def render_mitigation_selector(factor_name: str | None) -> ui.TagChild:
         factor_name: Name of the selected factor
 
     Returns:
-        Shiny UI element with mitigation dropdown or placeholder message
+        HTML element with mitigation dropdown or placeholder message
     """
     if not factor_name:
         return ui.p(
@@ -81,7 +81,7 @@ def render_mitigation_info_card(mitigation_name: str | None) -> ui.TagChild:
         mitigation_name: Name of the selected mitigation
 
     Returns:
-        Shiny UI card with mitigation details or placeholder message
+        HTML card with mitigation details or placeholder message
     """
     if not mitigation_name or not mitigation_name.strip():
         return ui.p(

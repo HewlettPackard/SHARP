@@ -53,6 +53,7 @@ workflow:
     assert result.returncode == 0, f"Workflow failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
 
 
+@pytest.mark.xdist_group("serial")
 def test_workflow_with_experiment_field():
     """Test that experiment field from workflow config is used."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -96,6 +97,7 @@ workflow:
         assert runlogs_dir.exists(), f"Expected runlogs/{runlogs_dir} directory"
 
 
+@pytest.mark.xdist_group("serial")
 def test_workflow_hybrid_composition(tmp_path):
     """Test workflow with hybrid composition: file includes + inline overrides."""
     # Create a base task config

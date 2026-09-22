@@ -8,7 +8,7 @@ from typing import Any
 
 import numpy as np
 import polars as pl
-from shiny import ui
+from src.gui.utils import ui_kit as ui
 
 from src.core.profile.base import AnalyzerVisualizer, CausalDirection, InfluenceFactor
 from src.core.profile.narrative import generate_influence_narrative

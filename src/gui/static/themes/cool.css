@@ -1,0 +1,45 @@
+/* Cool theme — crisp blue-grey, modern dashboard feel */
+:root {
+    --canvas: #f0f4f8;
+    --panel: rgba(255, 255, 255, 0.90);
+    --panel-strong: #ffffff;
+    --ink: #1a2230;
+    --muted: #5a6a80;
+    --line: rgba(26, 34, 48, 0.12);
+    --accent: #3b82f6;
+    --accent-soft: rgba(59, 130, 246, 0.10);
+    --shadow: 0 16px 50px rgba(26, 34, 48, 0.10);
+    --bg: #fff;
+    --font-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+body {
+    font-family: var(--font-body);
+    background:
+        radial-gradient(circle at top left, rgba(59, 130, 246, 0.10), transparent 30%),
+        radial-gradient(circle at bottom right, rgba(99, 102, 241, 0.08), transparent 30%),
+        linear-gradient(180deg, #f5f8fc 0%, var(--canvas) 100%);
+}
+
+.shell-header {
+    background: rgba(248, 251, 255, 0.80);
+}
+
+.btn-primary {
+    background: var(--accent);
+}
+
+.btn-primary:hover {
+    background: #2563eb;
+}
+
+.brand-link {
+    color: var(--accent);
+}
+
+.shell-tab.is-active {
+    background: var(--accent-soft);
+    color: var(--accent);
+    border-color: transparent;
+}

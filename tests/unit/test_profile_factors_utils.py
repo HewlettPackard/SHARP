@@ -1,3 +1,4 @@
+# © Copyright 2025--2025 Hewlett Packard Enterprise Development LP
 """Tests for profile factor UI helpers."""
 
 from src.core.profile.base import InfluenceFactor

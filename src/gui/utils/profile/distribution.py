@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 import numpy as np
 import polars as pl
-from shiny import ui
+from src.gui.utils import ui_kit as ui
 from typing import Any, List
 
 from src.core.stats.distribution import create_distribution_plot, characterize_distribution
@@ -212,7 +212,7 @@ def render_distribution_narrative(
         metric_col: Name of the metric column
 
     Returns:
-        Shiny UI element with narrative text
+        HTML element with narrative text
     """
     if data is None or data.is_empty():
         return ui.div()

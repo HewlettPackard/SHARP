@@ -1,25 +1,55 @@
-"""
-Entry point for SHARP GUI from command line.
+# © Copyright 2026--2026 Hewlett Packard Enterprise Development LP
+"""Entry point for the SHARP GUI (uv run gui)."""
 
-Starts the Shiny application with appropriate settings.
+import argparse
+import sys
 
-© Copyright 2025--2025 Hewlett Packard Enterprise Development LP
-"""
+import uvicorn
 
-from shiny import run_app
 from ..core.config.settings import Settings
 
 
-def main() -> None:
-    """Launch the SHARP GUI with settings from settings.yaml."""
+def main(argv: list[str] | None = None) -> None:
+    """Launch the SHARP GUI using configured host and port.
+
+    CLI flags override settings.yaml values:
+      --host HOST   Bind address (default: gui.host from settings, 0.0.0.0)
+      --port PORT   HTTP port   (default: gui.port from settings, 8282)
+      --no-reload   Disable auto-reload on source changes
+    """
     settings = Settings()
 
-    # Run the app with reload for development
-    run_app(  # type: ignore
+    parser = argparse.ArgumentParser(
+        prog="gui",
+        description="Launch the SHARP GUI.",
+    )
+    parser.add_argument(
+        "--host",
+        default=settings.get("gui.host", "0.0.0.0"),
+        help="Bind address (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=settings.get("gui.port", 8282),
+        help="HTTP port (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--no-reload",
+        dest="reload",
+        action="store_false",
+        default=True,
+        help="Disable auto-reload on source changes",
+    )
+
+    args = parser.parse_args(argv if argv is not None else sys.argv[1:])
+
+    uvicorn.run(
         "src.gui.app:app",
-        host=settings.get("gui.host", "0.0.0.0"),
-        port=settings.get("gui.port", 8000),
-        reload=True
+        host=args.host,
+        port=args.port,
+        reload=args.reload,
+        reload_dirs=["src"] if args.reload else None,
     )
 
 

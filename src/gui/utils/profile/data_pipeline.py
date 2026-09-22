@@ -1,3 +1,4 @@
+# © Copyright 2025--2025 Hewlett Packard Enterprise Development LP
 """Data pipeline computations for the Profile module.
 
 Contains the metric-independent and metric-dependent data reduction logic
@@ -87,6 +88,10 @@ def compute_outcome_correlations(
     else:
         candidate_cols = [c for c in data.columns if c not in exclude_cols]
 
+    # If no candidates remain after filtering, return empty results
+    if not candidate_cols:
+        return {}, []
+
     # Batch compute n_unique for candidates only
     n_unique_expr = [pl.col(c).n_unique().alias(c) for c in candidate_cols]
     n_unique_counts = data.select(n_unique_expr).row(0)
@@ -119,33 +124,3 @@ def compute_outcome_correlations(
     ]
 
     return correlations, stats_rows
-
-
-def apply_auto_exclusions(
-    stats_rows: list[dict[str, Any]],
-    current_exclusions: set[str],
-    modal_filters: dict[str, Any] | None,
-    settings: Any | None = None,
-) -> set[str] | None:
-    """Compute auto-exclusions from predictor stats.
-
-    Returns the updated exclusion set if it changed, or None if no update
-    is needed (e.g. user has already applied manual filters).
-    """
-    user_has_applied = (modal_filters or {}).get("user_has_applied", False)
-    if user_has_applied:
-        return None
-
-    max_correlation = (modal_filters or {}).get("max_corr")
-    if max_correlation is None:
-        if settings is None:
-            from src.core.config.settings import Settings
-            settings = Settings()
-        max_correlation = settings.get("profiling.max_correlation", 0.99)
-
-    auto_excluded = get_auto_excluded_predictors(stats_rows, max_correlation)
-    new_exclusions = current_exclusions | auto_excluded
-
-    if new_exclusions != current_exclusions:
-        return new_exclusions
-    return None

@@ -7,6 +7,8 @@ and file state detection for profiling workflow.
 © Copyright 2025--2026 Hewlett Packard Enterprise Development LP
 """
 
+import hashlib
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, Tuple
 import polars as pl
@@ -16,6 +18,89 @@ from src.core.runlogs import (
     parse_markdown_metadata,
     load_table,
 )
+
+
+def load_and_merge_tasks(
+    task_csv_pairs: list[tuple[str, str]],
+) -> tuple[pl.DataFrame, str]:
+    """Load and merge multiple task CSV files into a single DataFrame.
+
+    For a single task returns ``(df, csv_path)`` with no changes.
+
+    For multiple tasks each CSV is loaded, assigned a ``task`` column (taken
+    from the CSV itself when already present, otherwise set to the task name
+    from *task_csv_pairs*), then concatenated via an outer union that fills
+    missing columns with ``null``.  The merged DataFrame is written to a
+    deterministic temp file (keyed on the sorted pair list) so that downstream
+    routes can load it with a plain ``load_table`` call. If the file already
+    exists, it is reused (avoiding redundant merge + save operations).
+
+    The ``task`` column is always placed first.
+
+    Args:
+        task_csv_pairs: Non-empty list of ``(task_name, csv_path)`` tuples.
+
+    Returns:
+        ``(merged_df, path)`` where *path* is the original CSV path for a
+        single task, or the temp merged CSV path for multiple tasks.
+    """
+    if not task_csv_pairs:
+        raise ValueError("task_csv_pairs must not be empty")
+
+    if len(task_csv_pairs) == 1:
+        _, csv_path = task_csv_pairs[0]
+        return load_table(csv_path), csv_path
+
+    key = hashlib.sha256(
+        str(sorted(task_csv_pairs)).encode()
+    ).hexdigest()[:16]
+    temp_path = Path(tempfile.gettempdir()) / f"sharp_merged_{key}.csv"
+
+    # If merged file already exists, load and return it
+    if temp_path.exists():
+        return load_table(str(temp_path)), str(temp_path)
+
+    # Merge all CSVs
+    frames: list[pl.DataFrame] = []
+    for task_name, csv_path in task_csv_pairs:
+        df = load_table(csv_path)
+        if "task" not in df.columns:
+            df = df.with_columns(pl.lit(task_name).alias("task"))
+        # Prepend task column when it isn't already first
+        if df.columns[0] != "task":
+            df = df.select(["task"] + [c for c in df.columns if c != "task"])
+        frames.append(df)
+
+    merged = pl.concat(frames, how="diagonal_relaxed")
+    merged.write_csv(temp_path)
+
+    return merged, str(temp_path)
+
+
+def combined_profile_md_path(task_csv_pairs: list[tuple[str, str]]) -> Path:
+    """Return a canonical, order-independent markdown path for a combined profile.
+
+    Combined-profile settings must not live in any single task's markdown, since
+    that is order-dependent (which task is "first") and pollutes the individual
+    run.  Instead they are persisted to a dedicated file whose name is derived
+    from the *sorted set* of task names, so the same combination of tasks always
+    maps to the same file regardless of the order they were selected in.
+
+    The file lives in a hidden ``.profile-combined`` directory inside the
+    experiment folder (the parent of the task CSVs) so the runlog scanner does
+    not surface it as a task.
+
+    Args:
+        task_csv_pairs: Non-empty list of ``(task_name, csv_path)`` tuples, all
+            from the same experiment.
+
+    Returns:
+        Absolute-or-relative :class:`Path` to the combined-profile markdown file.
+    """
+    exp_dir = Path(task_csv_pairs[0][1]).parent
+    tasks = sorted({task_name for task_name, _ in task_csv_pairs})
+    key = hashlib.sha256("\x00".join(tasks).encode()).hexdigest()[:16]
+    return exp_dir / ".profile-combined" / f"{key}.md"
 from src.core.config.settings import Settings
 
 

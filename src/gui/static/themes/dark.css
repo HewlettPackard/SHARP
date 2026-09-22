@@ -1,0 +1,43 @@
+/* Dark theme — true dark, low-glare, OLED-friendly */
+:root {
+    --canvas: #111110;
+    --panel: rgba(28, 27, 24, 0.92);
+    --panel-strong: #1e1d1a;
+    --ink: #e8e4dc;
+    --muted: #8a8479;
+    --line: rgba(232, 228, 220, 0.10);
+    --accent: #34d399;
+    --accent-soft: rgba(52, 211, 153, 0.14);
+    --shadow: 0 16px 50px rgba(0, 0, 0, 0.45);
+    --bg: #1c1b18;
+    --font-body: system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-ui: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+body {
+    font-family: var(--font-body);
+    background: var(--canvas);
+}
+
+.field-input, select.field-input {
+    background: #252420;
+    color: var(--ink);
+    border-color: rgba(232, 228, 220, 0.15);
+}
+
+.shell-header {
+    background: rgba(20, 19, 17, 0.85);
+}
+
+.shell-panel {
+    border-color: rgba(232, 228, 220, 0.10);
+}
+
+.btn-primary {
+    background: var(--accent);
+    color: #111;
+}
+
+.btn-primary:hover {
+    background: #10b981;
+}

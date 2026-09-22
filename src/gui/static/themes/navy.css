@@ -1,0 +1,46 @@
+/* Navy theme — deep navy with gold accent, professional */
+:root {
+    --canvas: #0d1b2a;
+    --panel: rgba(18, 32, 48, 0.92);
+    --panel-strong: #152030;
+    --ink: #eef0f4;
+    --muted: #8a9bb0;
+    --line: rgba(238, 240, 244, 0.10);
+    --accent: #f5a623;
+    --accent-soft: rgba(245, 166, 35, 0.14);
+    --shadow: 0 16px 50px rgba(0, 0, 0, 0.50);
+    --bg: #152030;
+    --font-body: system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-ui: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+body {
+    font-family: var(--font-body);
+    background:
+        radial-gradient(circle at top right, rgba(245, 166, 35, 0.08), transparent 30%),
+        linear-gradient(180deg, #0e1f30 0%, var(--canvas) 100%);
+}
+
+.shell-header {
+    background: rgba(10, 20, 35, 0.88);
+}
+
+.field-input, select.field-input {
+    background: #1a2d42;
+    color: var(--ink);
+    border-color: rgba(238, 240, 244, 0.15);
+}
+
+.btn-primary {
+    background: var(--accent);
+    color: #0d1b2a;
+    font-weight: 600;
+}
+
+.btn-primary:hover {
+    background: #e09010;
+}
+
+.brand-link {
+    color: var(--accent);
+}

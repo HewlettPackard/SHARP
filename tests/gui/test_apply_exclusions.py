@@ -7,7 +7,6 @@ Tests the checkbox reading and exclusion logic in apply_exclusions.
 """
 
 import pytest
-from unittest.mock import MagicMock, patch
 
 from src.gui.utils.profile.exclusions import (
     apply_exclusions,
@@ -142,13 +141,12 @@ class TestApplyExclusions:
         predictor_modal_filters = MockReactiveValue({"max_corr": 0.93})
 
         # Patch ui.modal_remove to avoid Shiny dependency
-        with patch('src.gui.utils.profile.exclusions.ui.modal_remove'):
-            apply_exclusions(
-                mock_input,
-                excluded_predictors,
-                predictor_stats_full,
-                predictor_modal_filters
-            )
+        apply_exclusions(
+            mock_input,
+            excluded_predictors,
+            predictor_stats_full,
+            predictor_modal_filters
+        )
 
         # After apply: should reflect user's choices
         result = set(excluded_predictors.get())
@@ -171,13 +169,12 @@ class TestApplyExclusions:
         predictor_stats_full = MockReactiveValue(predictor_stats)
         predictor_modal_filters = MockReactiveValue({"max_corr": 0.93})  # Same threshold
 
-        with patch('src.gui.utils.profile.exclusions.ui.modal_remove'):
-            apply_exclusions(
-                mock_input,
-                excluded_predictors,
-                predictor_stats_full,
-                predictor_modal_filters
-            )
+        apply_exclusions(
+            mock_input,
+            excluded_predictors,
+            predictor_stats_full,
+            predictor_modal_filters
+        )
 
         result = set(excluded_predictors.get())
         assert "outer_time" in result, "outer_time visible and checked"
@@ -201,13 +198,12 @@ class TestApplyExclusions:
         predictor_stats_full = MockReactiveValue(predictor_stats)
         predictor_modal_filters = MockReactiveValue({"max_corr": 0.99})  # OLD threshold
 
-        with patch('src.gui.utils.profile.exclusions.ui.modal_remove'):
-            apply_exclusions(
-                mock_input,
-                excluded_predictors,
-                predictor_stats_full,
-                predictor_modal_filters
-            )
+        apply_exclusions(
+            mock_input,
+            excluded_predictors,
+            predictor_stats_full,
+            predictor_modal_filters
+        )
 
         result = set(excluded_predictors.get())
         # User's visible choices should be respected

@@ -15,13 +15,14 @@ if [[ $FAST_MODE -eq 1 ]]; then
     # Fast mode: unit tests only
     echo "Running unit tests only (fast mode)..."
     echo "Progress will be shown test-by-test with skip reasons..."
-    HWLOC_COMPONENTS=-gl uv run pytest tests/unit/ --tb=short -rs
+    HWLOC_COMPONENTS=-gl uv run pytest tests/unit/ -n auto --tb=short -rs
 else
     # Normal mode: run all tests with pytest
+    # -n auto = run in parallel using all available CPU cores (pytest-xdist)
     # -v = verbose (show each test name and skip reasons as they run)
     # -rs = show summary of skipped tests at end
     # --tb=short = concise tracebacks for failures
     echo "Running full test suite with pytest..."
     echo "Tests shown with skip reasons where applicable..."
-    HWLOC_COMPONENTS=-gl uv run pytest tests/ -v --tb=short -rs
+    HWLOC_COMPONENTS=-gl uv run pytest tests/ -n auto -v --tb=short -rs
 fi

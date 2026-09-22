@@ -2,7 +2,12 @@
 backend_options:
   temps:
     profiling: true
-    run: (bash -c '$CMD $ARGS'; /usr/bin/sensors) 2>&1
+    check: command -v sensors
+    check_message: >-
+      Temperature collection requires the 'sensors' command from the
+      lm-sensors package (e.g. sudo apt install lm-sensors).
+      Temperature metrics will not be collected in this run.
+    run: $CMD $ARGS; status=$?; /usr/bin/sensors; exit $status
 metrics:
   auto:
     description: CPU package/core temperature at this package id

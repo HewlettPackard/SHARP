@@ -1,327 +1,203 @@
 """
 Settings modal UI utilities for SHARP GUI.
 
-Provides functions to create and manage the settings modal dialog.
+Provides render_settings_modal() which returns a self-contained <dialog>
+fragment.  It is served by GET /ui/settings/modal (HTMX) and submitted
+via POST /ui/settings/save.
 
 © Copyright 2025--2026 Hewlett Packard Enterprise Development LP
 """
 
-from typing import Any
-
-from shiny import ui, reactive
-from ruamel.yaml import YAML
+import dominate.tags as t
+from dominate.dom_tag import dom_tag
+from dominate.util import raw
 
 from src.core.config.settings import Settings
 
+# <dialog> is not in dominate.tags — define it locally (same pattern as profile.py)
+class _dialog(dom_tag):  # noqa: N801
+    tagname = "dialog"
 
-def create_settings_modal() -> Any:
-    """
-    Create the settings modal dialog with all configurable settings.
 
-    Returns:
-        Shiny modal UI element
+# Ordered list of (value, label, accent_hex) for the theme picker
+_THEMES: list[tuple[str, str, str]] = [
+    ("default",       "Default (Warm Parchment)", "#0f766e"),
+    ("dark",          "Dark",                     "#34d399"),
+    ("cool",          "Cool (Blue)",               "#3b82f6"),
+    ("navy",          "Navy / Gold",               "#f5a623"),
+    ("high-contrast", "High Contrast",             "#0050e6"),
+]
+
+
+def render_settings_modal() -> str:
+    """Return a <dialog> fragment containing the settings form.
+
+    The dialog uses the existing profile-modal CSS classes and is opened
+    programmatically via showModal() after being swapped into
+    #settings-modal-root by HTMX.
     """
     settings = Settings()
 
-    return ui.modal(
-        ui.tags.h3("Settings", style="margin-top: 0;"),
-
-        # Theme setting
-        ui.input_select(
-            "settings_theme",
-            "Theme",
-            choices={
-                "bootstrap": "Bootstrap",
-                "cerulean": "Cerulean",
-                "cosmo": "Cosmo",
-                "cyborg": "Cyborg",
-                "darkly": "Darkly",
-                "flatly": "Flatly",
-                "journal": "Journal",
-                "litera": "Litera",
-                "lumen": "Lumen",
-                "lux": "Lux",
-                "materia": "Materia",
-                "minty": "Minty",
-                "morph": "Morph",
-                "pulse": "Pulse",
-                "quartz": "Quartz",
-                "sandstone": "Sandstone",
-                "simplex": "Simplex",
-                "sketchy": "Sketchy",
-                "slate": "Slate",
-                "solar": "Solar",
-                "spacelab": "Spacelab",
-                "superhero": "Superhero",
-                "united": "United",
-                "vapor": "Vapor",
-                "yeti": "Yeti",
-                "zephyr": "Zephyr",
-            },
-            selected=settings.get("gui.theme", "spacelab"),
-        ),
-
-        # Recent experiments count
-        ui.input_numeric(
-            "settings_recent_count",
-            "Number of Recent Experiments to Display",
-            value=settings.get("gui.overview.recent_runs_count", 25),
-            min=1,
-            max=100,
-        ),
-
-        # Distribution plot colors row
-        ui.tags.h5("Distribution Plot Colors", class_="mt-3 mb-2"),
-        ui.row(
-            ui.column(
-                3,
-                ui.input_text(
-                    "settings_divider_color",
-                    "Cutoff Color",
-                    value=settings.get("gui.distribution.divider_color", "#1f77b4"),
-                ),
-                ui.tags.script(f"""
-                    $(document).ready(function() {{
-                        $('#settings_divider_color').attr('type', 'color');
-                        $('#settings_divider_color').addClass('form-control-color');
-                    }});
-                """),
-            ),
-            ui.column(
-                3,
-                ui.input_text(
-                    "settings_fast_color",
-                    "Fast Color",
-                    value=settings.get("gui.distribution.fast_color", "#2ca02c"),
-                ),
-                ui.tags.script(f"""
-                    $(document).ready(function() {{
-                        $('#settings_fast_color').attr('type', 'color');
-                        $('#settings_fast_color').addClass('form-control-color');
-                    }});
-                """),
-            ),
-            ui.column(
-                3,
-                ui.input_text(
-                    "settings_slow_color",
-                    "Slow Color",
-                    value=settings.get("gui.distribution.slow_color", "#ff7f0e"),
-                ),
-                ui.tags.script(f"""
-                    $(document).ready(function() {{
-                        $('#settings_slow_color').attr('type', 'color');
-                        $('#settings_slow_color').addClass('form-control-color');
-                    }});
-                """),
-            ),
-            ui.column(
-                3,
-                ui.input_select(
-                    "settings_palette",
-                    "Palette",
-                    choices={
-                        "tab10": "Tab10",
-                        "deep": "Deep",
-                        "muted": "Muted",
-                        "pastel": "Pastel",
-                        "bright": "Bright",
-                        "dark": "Dark",
-                        "colorblind": "Colorblind",
-                        "viridis": "Viridis",
-                        "Set2": "Set2",
-                        "Set3": "Set3",
-                    },
-                    selected=settings.get("gui.distribution.palette", "dark"),
-                ),
-            ),
-        ),
-
-        # Transparency and max scatter points row
-        ui.tags.h5("Visualization Settings", class_="mt-3 mb-2"),
-        ui.row(
-            ui.column(
-                6,
-                ui.input_numeric(
-                    "settings_alpha",
-                    "Transparency (0-1)",
-                    value=settings.get("gui.distribution.alpha", 0.4),
-                    min=0,
-                    max=1,
-                    step=0.05,
-                ),
-            ),
-            ui.column(
-                6,
-                ui.input_numeric(
-                    "settings_max_scatter_points",
-                    "Max Scatter Points",
-                    value=settings.get("gui.explore.max_scatter_points", 2000),
-                    min=100,
-                    max=50000,
-                    step=100,
-                ),
-            ),
-        ),
-
-        # Profiling parameters row
-        ui.tags.h5("Profiling Parameters", class_="mt-3 mb-2"),
-        ui.row(
-            ui.column(
-                4,
-                ui.input_numeric(
-                    "settings_max_predictors",
-                    "Max Predictors",
-                    value=settings.get("profiling.max_predictors", 100),
-                    min=10,
-                    max=1000,
-                ),
-            ),
-            ui.column(
-                4,
-                ui.input_numeric(
-                    "settings_max_correlation",
-                    "Max Correlation",
-                    value=settings.get("profiling.max_correlation", 0.99),
-                    min=0.5,
-                    max=1,
-                    step=0.01,
-                ),
-            ),
-            ui.column(
-                4,
-                ui.input_numeric(
-                    "settings_max_search",
-                    "Max Search",
-                    value=settings.get("profiling.max_search", 100),
-                    min=10,
-                    max=1000,
-                ),
-            ),
-        ),
-
-        # Buttons
-        ui.tags.div(
-            ui.input_action_button("settings_cancel", "Cancel", class_="btn btn-secondary"),
-            ui.input_action_button("settings_accept", "Accept", class_="btn btn-primary"),
-            style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;",
-        ),
-        easy_close=True,
-        footer=None,
+    dialog = _dialog(
+        id="settings-modal",
+        cls="profile-modal settings-modal",
     )
 
-
-def save_settings(input: Any, settings_path: Any) -> None:
-    """
-    Save settings from input values to settings.yaml.
-
-    Args:
-        input: Shiny input object with settings values
-        settings_path: Path to settings.yaml file
-    """
-    try:
-        # Debug: print input values
-        print(f"Saving settings to: {settings_path}")
-        print(f"Theme: {input.settings_theme()}")
-        print(f"Recent count: {input.settings_recent_count()}")
-        print(f"Divider color: {input.settings_divider_color()}")
-        print(f"Fast color: {input.settings_fast_color()}")
-        print(f"Slow color: {input.settings_slow_color()}")
-        print(f"Palette: {input.settings_palette()}")
-        print(f"Alpha: {input.settings_alpha()}")
-        print(f"Max scatter: {input.settings_max_scatter_points()}")
-        print(f"Max predictors: {input.settings_max_predictors()}")
-        print(f"Max correlation: {input.settings_max_correlation()}")
-        print(f"Max search: {input.settings_max_search()}")
-
-        # Load YAML with ruamel.yaml to preserve comments
-        yaml_handler = YAML()
-        yaml_handler.preserve_quotes = True
-        yaml_handler.default_flow_style = False
-        with open(settings_path, 'r') as f:
-            config = yaml_handler.load(f) or {}
-
-        # Ensure nested structure exists
-        if 'gui' not in config:
-            config['gui'] = {}
-        if 'overview' not in config['gui']:
-            config['gui']['overview'] = {}
-        if 'distribution' not in config['gui']:
-            config['gui']['distribution'] = {}
-        if 'explore' not in config['gui']:
-            config['gui']['explore'] = {}
-        if 'profiling' not in config:
-            config['profiling'] = {}
-
-        # Update values
-        config['gui']['theme'] = input.settings_theme()
-        config['gui']['overview']['recent_runs_count'] = input.settings_recent_count()
-        config['gui']['distribution']['divider_color'] = input.settings_divider_color()
-        config['gui']['distribution']['fast_color'] = input.settings_fast_color()
-        config['gui']['distribution']['slow_color'] = input.settings_slow_color()
-        config['gui']['distribution']['palette'] = input.settings_palette()
-        config['gui']['distribution']['alpha'] = input.settings_alpha()
-        config['gui']['explore']['max_scatter_points'] = input.settings_max_scatter_points()
-        config['profiling']['max_predictors'] = input.settings_max_predictors()
-        config['profiling']['max_correlation'] = input.settings_max_correlation()
-        config['profiling']['max_search'] = input.settings_max_search()
-
-        # Write back to YAML (preserves comments and formatting)
-        with open(settings_path, 'w') as f:
-            yaml_handler.dump(config, f)
-
-        print("Settings saved successfully!")
-    except Exception as e:
-        print(f"Error in save_settings: {type(e).__name__}: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        raise
-
-
-def register_settings_handlers(input: Any, output: Any, session: Any, shiny_ui: Any) -> None:
-    """
-    Register reactive handlers for settings modal.
-
-    Args:
-        input: Shiny input object
-        output: Shiny output object
-        session: Shiny session object
-        shiny_ui: Shiny UI module
-    """
-
-    # Show settings modal when gear icon is clicked
-    @reactive.effect
-    def _show_settings_modal() -> None:
-        trigger = input.show_settings_modal()
-        if trigger is not None and trigger > 0:
-            modal = create_settings_modal()
-            shiny_ui.modal_show(modal)
-
-    # Handle settings cancel button
-    @reactive.effect
-    @reactive.event(input.settings_cancel)
-    def _on_settings_cancel() -> None:
-        shiny_ui.modal_remove()
-
-    # Handle settings accept button
-    @reactive.effect
-    @reactive.event(input.settings_accept)
-    def _on_settings_accept() -> None:
-        try:
-            settings = Settings()
-            save_settings(input, settings.config_path)
-
-            # Close modal first
-            shiny_ui.modal_remove()
-
-            # Show notification
-            shiny_ui.notification_show("Settings saved. Reloading...", type="message", duration=2)
-
-            # Reload page after a brief delay
-            shiny_ui.insert_ui(
-                ui.tags.script("setTimeout(function() { window.location.reload(); }, 500);"),
-                selector="body",
-                where="beforeEnd",
+    with dialog:
+        # ── Header ──────────────────────────────────────────────────────────
+        with t.div(cls="profile-modal-header"):
+            t.h3("Settings", cls="profile-modal-title")
+            t.button(
+                raw("&times;"),
+                type="button",
+                cls="profile-modal-close",
+                **{"data-close-modal": "settings-modal"},
             )
-        except Exception as e:
-            shiny_ui.notification_show(f"Error saving settings: {str(e)}", type="error", duration=5)
+
+        # ── Body / form ──────────────────────────────────────────────────────
+        with t.div(cls="profile-modal-body"):
+            with t.form(
+                id="settings-form",
+                action="/ui/settings/save",
+                method="post",
+                cls="settings-form",
+            ):
+                # ── Theme ────────────────────────────────────────────────────
+                t.label("Theme", _for="settings_theme", cls="field-label")
+                with t.div(cls="settings-theme-grid"):
+                    current_theme = settings.get("gui.theme", "default")
+                    for val, label, accent in _THEMES:
+                        checked = (val == current_theme)
+                        radio_id = f"theme-{val}"
+                        with t.label(
+                            _for=radio_id,
+                            cls="settings-theme-card" + (" is-selected" if checked else ""),
+                        ):
+                            t.input_(
+                                type="radio",
+                                id=radio_id,
+                                name="settings_theme",
+                                value=val,
+                                checked=checked or None,
+                                cls="settings-theme-radio",
+                            )
+                            t.span(cls="settings-theme-swatch", style=f"background:{accent}")
+                            t.span(label, cls="settings-theme-label")
+
+                # ── Overview ─────────────────────────────────────────────────
+                t.h5("Overview", cls="settings-section-heading")
+                with t.div(cls="field-row"):
+                    with t.div():
+                        t.label("Recent Experiments", _for="settings_recent_count", cls="field-label")
+                        t.input_(
+                            type="number",
+                            id="settings_recent_count",
+                            name="settings_recent_count",
+                            value=str(settings.get("gui.overview.recent_runs_count", 25)),
+                            min="1", max="100",
+                            cls="field-input",
+                        )
+
+                # ── Distribution plot colours ─────────────────────────────────
+                t.h5("Distribution Plot Colours", cls="settings-section-heading")
+                with t.div(cls="field-row field-row-3"):
+                    for field_id, label_text, key, default in [
+                        ("settings_divider_color", "Cutoff Line", "gui.distribution.divider_color", "#1f77b4"),
+                        ("settings_fast_color",    "Fast/Better", "gui.distribution.fast_color",    "#a1e736"),
+                        ("settings_slow_color",    "Slow/Worse",  "gui.distribution.slow_color",    "#dd560e"),
+                    ]:
+                        with t.div():
+                            t.label(label_text, _for=field_id, cls="field-label")
+                            t.input_(
+                                type="color",
+                                id=field_id,
+                                name=field_id,
+                                value=settings.get(key, default),
+                                cls="field-input settings-color-input",
+                            )
+
+                t.label("Colour Palette (multi-group)", _for="settings_palette", cls="field-label")
+                with t.select(
+                    id="settings_palette",
+                    name="settings_palette",
+                    cls="field-input",
+                ):
+                    current_palette = settings.get("gui.distribution.palette", "bright")
+                    for val, label_text in [
+                        ("bright",     "Bright"),
+                        ("tab10",      "Tab10"),
+                        ("deep",       "Deep"),
+                        ("muted",      "Muted"),
+                        ("pastel",     "Pastel"),
+                        ("dark",       "Dark"),
+                        ("colorblind", "Colorblind"),
+                        ("viridis",    "Viridis"),
+                        ("Set2",       "Set2"),
+                        ("Set3",       "Set3"),
+                    ]:
+                        t.option(
+                            label_text,
+                            value=val,
+                            selected=(val == current_palette) or None,
+                        )
+
+                # ── Visualisation ─────────────────────────────────────────────
+                t.h5("Visualisation", cls="settings-section-heading")
+                with t.div(cls="field-row"):
+                    with t.div():
+                        t.label("Scatter Transparency (0–1)", _for="settings_alpha", cls="field-label")
+                        t.input_(
+                            type="number",
+                            id="settings_alpha",
+                            name="settings_alpha",
+                            value=str(settings.get("gui.distribution.alpha", 0.4)),
+                            min="0", max="1", step="0.05",
+                            cls="field-input",
+                        )
+                    with t.div():
+                        t.label("Max Scatter Points", _for="settings_max_scatter", cls="field-label")
+                        t.input_(
+                            type="number",
+                            id="settings_max_scatter",
+                            name="settings_max_scatter",
+                            value=str(settings.get("gui.explore.max_scatter_points", 2000)),
+                            min="100", max="50000", step="100",
+                            cls="field-input",
+                        )
+
+                # ── Profiling ─────────────────────────────────────────────────
+                t.h5("Profiling", cls="settings-section-heading")
+                with t.div(cls="field-row field-row-3"):
+                    for field_id, label_text, key, default, step in [
+                        ("settings_max_predictors",  "Max Predictors",     "profiling.max_predictors",  200,  "1"),
+                        ("settings_max_correlation", "Max Correlation",    "profiling.max_correlation", 0.99, "0.01"),
+                        ("settings_max_search",      "Max Search Iters",   "profiling.max_search",      100,  "1"),
+                    ]:
+                        with t.div():
+                            t.label(label_text, _for=field_id, cls="field-label")
+                            t.input_(
+                                type="number",
+                                id=field_id,
+                                name=field_id,
+                                value=str(settings.get(key, default)),
+                                step=step,
+                                cls="field-input",
+                            )
+
+        # ── Footer ───────────────────────────────────────────────────────────
+        with t.div(cls="profile-modal-footer settings-modal-footer"):
+            t.button(
+                "Cancel",
+                type="button",
+                cls="btn btn-secondary",
+                **{"data-close-modal": "settings-modal"},
+            )
+            t.button(
+                "Save & Reload",
+                type="submit",
+                form="settings-form",
+                cls="btn btn-primary",
+            )
+
+    return str(dialog)
+

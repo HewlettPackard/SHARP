@@ -11,7 +11,7 @@ import polars as pl
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.axes import Axes
-from shiny import ui
+from src.gui.utils import ui_kit as ui
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from sklearn.metrics import r2_score
 from sklearn.preprocessing import StandardScaler
@@ -233,15 +233,31 @@ def _plot_scatter_with_regression(ax: Axes, factor_clean: np.ndarray, metric_cle
         factor_name: Factor column name
         metric: Metric column name
     """
+    import matplotlib.cm as cm
+    import matplotlib.colors as mcolors
+
     # Get unique class names and their colors
     unique_labels = list(np.unique(labels))
-    colors = get_class_colors(unique_labels)
+    is_regression_mode = len(unique_labels) > 10
 
-    # Plot scatter by class
-    for label, color in zip(unique_labels, colors):
-        mask = labels == label
-        ax.scatter(factor_clean[mask], metric_clean[mask],
-                  c=color, label=label, alpha=0.6, s=50)
+    if is_regression_mode:
+        # In regression mode labels are raw floats — one per point.
+        # Use a continuous colormap keyed on the metric value instead of a
+        # per-point legend that would be unreadably long.
+        float_vals = labels.astype(float)
+        norm = mcolors.Normalize(vmin=float_vals.min(), vmax=float_vals.max())
+        cmap = cm.viridis
+        scatter = ax.scatter(factor_clean, metric_clean,
+                             c=float_vals, cmap=cmap, norm=norm,
+                             alpha=0.6, s=50)
+        plt.colorbar(scatter, ax=ax, label=metric, shrink=0.8)
+    else:
+        colors = get_class_colors(unique_labels)
+        for label, color in zip(unique_labels, colors):
+            mask = labels == label
+            ax.scatter(factor_clean[mask], metric_clean[mask],
+                      c=color, label=label, alpha=0.6, s=50)
+        ax.legend()
 
     # Add regression line
     x_line = np.linspace(factor_clean.min(), factor_clean.max(), 100)
@@ -250,7 +266,6 @@ def _plot_scatter_with_regression(ax: Axes, factor_clean: np.ndarray, metric_cle
 
     ax.set_xlabel(factor_name, fontsize=12)
     ax.set_ylabel(metric, fontsize=12)
-    ax.legend()
     ax.grid(True, alpha=0.3)
 
 
@@ -263,7 +278,7 @@ def render_factor_info_card(factor_name: str, display_name: str | None = None) -
         display_name: Optional display label shown in UI headings
 
     Returns:
-        Shiny UI card with factor description, references, and mitigations
+        HTML card with factor description, references, and mitigations
     """
     factor_info = get_factor_info(factor_name)
     if not factor_info:
@@ -380,7 +395,7 @@ def render_factor_comparison_table(
         display_name: Optional display label for headings
 
     Returns:
-        Shiny UI table with group statistics
+        HTML table with group statistics
     """
     if data is None or data.is_empty():
         return ui.p('No data available', style='color: #999; font-style: italic;')

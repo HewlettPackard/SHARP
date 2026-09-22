@@ -23,13 +23,16 @@ dependencies = [
     "statsmodels>=0.14.0",
     "polars>=1.0.0",
     "durations>=0.3.0",
-    "shiny>=1.0.0",
-    "shinyswatch>=0.7.0",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.34.0",
+    "python-multipart>=0.0.20",
+    "dominate>=2.9.1",
     "plotly>=5.0.0",
     "graphviz>=0.20.0",
     "pillow>=12.0.0",
     "seaborn>=0.13.0",
     "supertree>=0.5.5",
+    "markdown>=3.10.2",
 ]
 
 [project.scripts]
@@ -66,6 +69,14 @@ filterwarnings = [
     "ignore::RuntimeWarning:numpy",
     "ignore::RuntimeWarning:statsmodels",
     "ignore::RuntimeWarning:scipy",
+    # scipy RuntimeWarning from moment calculation on near-constant data
+    "ignore:Precision loss occurred in moment calculation.*:RuntimeWarning",
+    # Third-party library (dominate) uses deprecated asyncio.get_event_loop()
+    "ignore:There is no current event loop:DeprecationWarning:dominate",
+    # Expected UserWarnings: orchestrator backend-check warnings are tested behaviour
+    "ignore::UserWarning:src.core.execution.orchestrator",
+    # Expected UserWarnings: TE analyzer skips under certain data conditions
+    "ignore:Transfer Entropy skipped.*:UserWarning:src.core.profile.analyzers.te",
     "ignore:ArviZ is undergoing a major refactor.*:FutureWarning:arviz",
     "ignore:verbose is deprecated since functions should not print results.*:FutureWarning:statsmodels.tsa.stattools",
 ]
@@ -86,10 +97,12 @@ dev = [
     "pytest>=7.0.0",
     "mypy>=1.0.0",
     "types-pyyaml>=6.0.12.20250915",
+    "httpx>=0.28.0",
     # Flask/Werkzeug needed for test fixtures (tests/fixtures/distributions/)
     "flask>=2.2.0",
     "werkzeug>=3.0.0",
     "pip-audit>=2.7.0",
+    "pytest-xdist>=3.0.0",
 ]
 # Note: Function-specific dependencies (numba for CUDA, mpi4py for MPI)
 # are now bundled into AppImages/Docker images, not needed in dev deps.

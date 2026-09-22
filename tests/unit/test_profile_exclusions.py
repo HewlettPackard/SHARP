@@ -13,7 +13,7 @@ Tests the complex semantics of apply_exclusions() to ensure:
 import pytest
 import polars as pl
 import numpy as np
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import Mock
 
 from src.gui.utils.profile.exclusions import (
     apply_exclusions,
@@ -21,7 +21,6 @@ from src.gui.utils.profile.exclusions import (
     DEFAULT_EXCLUDED_PREDICTORS,
     _collect_auto_excluded_predictors,
     _filter_modal_predictors,
-    _build_predictor_table_rows,
 )
 from src.gui.utils.profile.predictor_stats import compute_predictor_stats
 
@@ -89,8 +88,7 @@ class TestExclusionSemantics:
 
         # First apply: exclude pred_high_corr
         excluded.get = Mock(return_value=[])
-        with patch("src.gui.utils.profile.exclusions.ui.modal_remove"):
-            apply_exclusions(input_obj, excluded, stats_full, filters)
+        apply_exclusions(input_obj, excluded, stats_full, filters)
         first_result = excluded.set.call_args[0][0]
         assert "pred_high_corr" in first_result
         assert "pred_medium_corr" not in first_result
@@ -115,8 +113,7 @@ class TestExclusionSemantics:
         })
 
         # Second apply: add pred_medium_corr
-        with patch("src.gui.utils.profile.exclusions.ui.modal_remove"):
-            apply_exclusions(input_obj, excluded, stats_full, filters)
+        apply_exclusions(input_obj, excluded, stats_full, filters)
         second_result = excluded.set.call_args[0][0]
 
         # Verify both are excluded
@@ -216,22 +213,3 @@ class TestExclusionSemantics:
         # Verify defaults are preserved
         for default in DEFAULT_EXCLUDED_PREDICTORS:
             assert default in new_exclusions, f"Default {default} was lost"
-
-    def test_row_render_marks_excluded_predictors_checked(self):
-        """First render should show exclusions as checked checkboxes.
-
-        Regression: if row checkboxes are created without value=, the initial
-        modal paint can show all checkboxes unchecked even when exclusions
-        already exist in predictor_modal_filters['checkbox_state'].
-        """
-        rows = [
-            {"name": "outer_time", "non_na_count": 10, "correlation": 0.1},
-            {"name": "cpu_clock", "non_na_count": 10, "correlation": 0.2},
-        ]
-
-        rendered = _build_predictor_table_rows(rows, excluded_names={"outer_time"})
-        html = "\n".join(str(r) for r in rendered)
-
-        assert 'id="exclude_outer_time"' in html
-        assert 'id="exclude_cpu_clock"' in html
-        assert 'id="exclude_outer_time" type="checkbox" checked="checked"' in html

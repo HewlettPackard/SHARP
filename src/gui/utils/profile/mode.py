@@ -1,3 +1,4 @@
+# © Copyright 2025--2025 Hewlett Packard Enterprise Development LP
 """Outcome mode helpers for profile analysis.
 
 Provides a single place to derive classification vs regression mode from

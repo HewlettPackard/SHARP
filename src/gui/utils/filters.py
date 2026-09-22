@@ -1,14 +1,7 @@
 """
-Reusable data filtering utilities for Shiny GUI.
+Reusable data filtering utilities for the GUI.
 
-Provides static filter UI generation and filter application logic
-for use across Profile, Explore, and Compare tabs.
-
-Each tab creates a pair of pre-rendered widgets (slider + selectize) via
-``static_filter_ui(prefix)``.  When the selected filter metric changes,
-``update_filter_widget()`` shows the appropriate widget and updates its
-range/choices.  ``get_active_filter_value()`` reads whichever widget is
-currently visible.
+Provides filter application logic for use across Profile, Explore, and Compare tabs.
 
 © Copyright 2025--2026 Hewlett Packard Enterprise Development LP
 """
@@ -16,11 +9,9 @@ currently visible.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Union, List, Any, cast
-import json
+from typing import Union, List, Any
 
 import polars as pl
-from shiny import ui, Session
 import re
 
 
@@ -53,85 +44,6 @@ def _time_to_seconds(time_str: str) -> float:
         return 0.0
 
 
-def format_seconds_as_time(seconds: float) -> str:
-    """Convert total seconds to HH:MM:SS format (public API for UI display)."""
-    hours = int(seconds // 3600)
-    minutes = int((seconds % 3600) // 60)
-    secs = int(seconds % 60)
-    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
-
-
-def get_time_filter_display(
-    data: pl.DataFrame | None,
-    filter_metric: str | None,
-    filter_value: Union[List[Any], int, float, str, dict[str, Any], None]
-) -> str:
-    """
-    Get formatted time range display for UI (only for time columns).
-
-    Args:
-        data: DataFrame containing the filter metric
-        filter_metric: Name of the column being filtered
-        filter_value: Current filter value from the slider
-
-    Returns:
-        Formatted string like "Selected: 00:01:23 → 00:05:45" or empty string
-    """
-    try:
-        if not filter_metric or not filter_metric.strip():
-            return ""
-
-        if data is None or filter_metric not in data.columns:
-            return ""
-
-        # Only show time display if this is actually a time column
-        if not is_time_column(data[filter_metric]):
-            return ""
-
-        if filter_value and isinstance(filter_value, (list, tuple)) and len(filter_value) == 2:
-            if isinstance(filter_value[0], (int, float)):
-                start_time = format_seconds_as_time(filter_value[0])
-                end_time = format_seconds_as_time(filter_value[1])
-                return f"Selected: {start_time} → {end_time}"
-    except Exception:
-        pass
-    return ""
-
-
-def _seconds_to_time(seconds: float) -> str:
-    """Convert total seconds back to HH:MM:SS.mmm format (for internal use)."""
-    hours = int(seconds // 3600)
-    minutes = int((seconds % 3600) // 60)
-    secs = seconds % 60
-    return f"{hours:02d}:{minutes:02d}:{secs:06.3f}"
-
-
-
-def get_filter_value(input_obj: Any, filter_input_id: str) -> Union[List[Any], int, float, str, dict[str, Any], None]:
-    """
-    Extract filter value from Shiny inputs, handling both time and non-time filters.
-
-    For time filters, the slider returns [min_seconds, max_seconds] directly.
-    For other filters, returns the direct input value.
-
-    Args:
-        input_obj: Shiny input object (input from server function)
-        filter_input_id: Base ID for the filter input (e.g., "profile_filter_value")
-
-    Returns:
-        Filter value - list [start, end] for time/range filters, or standard value for other filter types
-    """
-    try:
-        # Access input dynamically via getattr; returns a callable
-        input_accessor = getattr(input_obj, filter_input_id, None)
-        if input_accessor is None:
-            return None
-        val = input_accessor()
-        return cast(Union[List[Any], int, float, str, dict[str, Any], None], val)
-    except Exception:
-        return None
-
-
 def is_time_column(col: pl.Series) -> bool:
     """Check if a column contains time values in HH:MM:SS format."""
     if col.dtype != pl.Utf8:
@@ -143,160 +55,6 @@ def is_time_column(col: pl.Series) -> bool:
     # Check if all samples match time format
     is_time = all(_is_time_format(v) for v in sample)
     return is_time
-
-
-# ---------------------------------------------------------------------------
-# Static filter widgets
-# ---------------------------------------------------------------------------
-
-def static_filter_ui(prefix: str) -> ui.TagChild:
-    """Create pre-rendered filter widgets (slider + selectize), both hidden.
-
-    Call once in the tab's UI definition.  Use ``update_filter_widget()``
-    to show the appropriate widget when a filter metric is selected.
-
-    Args:
-        prefix: Tab-specific prefix (e.g. ``"profile_filter_value"``).
-    """
-    slider_id = f"{prefix}_slider"
-    select_id = f"{prefix}_select"
-    return ui.div(
-        ui.div(
-            ui.input_slider(slider_id, "Filter value", min=0, max=1, value=[0, 1]),
-            id=f"{prefix}_slider_wrap",
-            style="display: none;",
-        ),
-        ui.div(
-            ui.input_selectize(select_id, "Filter value", choices=[], selected=[], multiple=True),
-            id=f"{prefix}_select_wrap",
-            style="display: none;",
-        ),
-    )
-
-
-def _show_hide_js(prefix: str, show: str | None) -> ui.Tag:
-    """Return a <script> tag that shows one filter widget and hides the other."""
-    slider_wrap = f"{prefix}_slider_wrap"
-    select_wrap = f"{prefix}_select_wrap"
-    slider_display = "block" if show == "slider" else "none"
-    select_display = "block" if show == "select" else "none"
-    js = (
-        f"document.getElementById({json.dumps(slider_wrap)}).style.display="
-        f"{json.dumps(slider_display)};"
-        f"document.getElementById({json.dumps(select_wrap)}).style.display="
-        f"{json.dumps(select_display)};"
-    )
-    return ui.tags.script(js)
-
-
-def update_filter_widget(
-    data: pl.DataFrame | None,
-    filter_metric: str | None,
-    prefix: str,
-    *,
-    preset_value: Any = None,
-    session: Session | None = None,
-) -> ui.Tag:
-    """Show the correct filter widget and update its value/range.
-
-    Returns a ``<script>`` tag that toggles visibility.  The caller must
-    include the return value in a ``@render.ui`` placeholder or use
-    ``ui.insert_ui`` to inject the script.
-
-    For non-reactive callers the returned script can be ignored; the
-    ``ui.update_*`` calls take effect via the session message queue.
-
-    Args:
-        data: DataFrame with the filter column.
-        filter_metric: Selected filter column name (empty/None hides both).
-        prefix: Same prefix passed to ``static_filter_ui()``.
-        preset_value: Optional pre-resolved value to apply.
-        session: Shiny session (inferred if omitted).
-    """
-    slider_id = f"{prefix}_slider"
-    select_id = f"{prefix}_select"
-
-    if not filter_metric or not filter_metric.strip() or data is None or data.is_empty():
-        return _show_hide_js(prefix, None)
-
-    if filter_metric not in data.columns:
-        return _show_hide_js(prefix, None)
-
-    col = data[filter_metric]
-    keep = isinstance(preset_value, _KeepCurrent)
-
-    # Time format columns → slider
-    if is_time_column(col):
-        time_values = col.drop_nulls().to_list()
-        if not time_values:
-            return _show_hide_js(prefix, None)
-        seconds_values = [_time_to_seconds(t) for t in time_values]
-        min_secs = min(seconds_values)
-        max_secs = max(seconds_values)
-        if keep:
-            ui.update_slider(slider_id, min=min_secs, max=max_secs, step=1, session=session)
-        else:
-            slider_value = preset_value if preset_value is not None else [min_secs, max_secs]
-            ui.update_slider(slider_id, min=min_secs, max=max_secs, value=slider_value, step=1, session=session)
-        return _show_hide_js(prefix, "slider")
-
-    # Categorical → selectize
-    if col.dtype == pl.Categorical or col.dtype == pl.Utf8:
-        unique_vals = sorted([str(v) for v in col.unique().to_list() if v is not None])
-        if not unique_vals:
-            return _show_hide_js(prefix, None)
-        if keep:
-            ui.update_selectize(select_id, choices=unique_vals, session=session)
-        else:
-            selected = preset_value if preset_value is not None else unique_vals
-            ui.update_selectize(select_id, choices=unique_vals, selected=selected, session=session)
-        return _show_hide_js(prefix, "select")
-
-    # Numeric → slider
-    if col.dtype in (pl.Float64, pl.Float32, pl.Int64, pl.Int32):
-        values = col.drop_nulls().to_numpy()
-        if len(values) == 0:
-            return _show_hide_js(prefix, None)
-        min_val = float(values.min())
-        max_val = float(values.max())
-
-        step = 1 if col.dtype in (pl.Int64, pl.Int32) else None
-        if keep:
-            ui.update_slider(slider_id, min=min_val, max=max_val, step=step, session=session)
-        else:
-            if col.dtype in (pl.Int64, pl.Int32) and col.n_unique() > 0 and len(values) / col.n_unique() > 3:
-                slider_value = preset_value if preset_value is not None else min_val
-            else:
-                slider_value = preset_value if preset_value is not None else [min_val, max_val]
-            ui.update_slider(slider_id, min=min_val, max=max_val, value=slider_value, step=step, session=session)
-        return _show_hide_js(prefix, "slider")
-
-    return _show_hide_js(prefix, None)
-
-
-def get_active_filter_value(
-    input_obj: Any,
-    prefix: str,
-) -> Union[List[Any], int, float, str, dict[str, Any], None]:
-    """Read the filter value from whichever widget is currently active.
-
-    Tries the slider first, then the selectize.  Returns ``None`` when
-    neither contains a meaningful value.
-
-    Args:
-        input_obj: Shiny input object.
-        prefix: Same prefix used in ``static_filter_ui()``
-                (e.g. ``"profile_filter_value"``).
-    """
-    # Try slider
-    slider_val = get_filter_value(input_obj, f"{prefix}_slider")
-    if slider_val is not None:
-        return slider_val
-    # Try selectize
-    select_val = get_filter_value(input_obj, f"{prefix}_select")
-    if select_val is not None:
-        return select_val
-    return None
 
 
 def apply_filter(
@@ -364,7 +122,6 @@ def apply_filter(
                 return_dtype=pl.Float64
             )
 
-            # Debug: show sample values
             # Compute actual data range if available
             try:
                 seconds_clean = seconds_col.drop_nulls().drop_nans()

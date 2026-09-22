@@ -224,7 +224,8 @@ class ProfilingExecutor:
             result_dict = {
                 "success": result.success,
                 "error_message": result.error_message if not result.success else None,
-                "output_paths": result.output_paths if result.success else {}
+                "output_paths": result.output_paths if result.success else {},
+                "warnings": result.warnings,
             }
 
             if self.on_complete:
