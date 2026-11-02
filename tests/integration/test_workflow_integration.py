@@ -3,13 +3,22 @@ Integration tests for workflow execution.
 
 Tests the complete workflow functionality end-to-end.
 
-© Copyright 2025--2025 Hewlett Packard Enterprise Development LP
+© Copyright 2025--2026 Hewlett Packard Enterprise Development LP
 """
 
-import pytest
+import csv
+import subprocess
 import tempfile
 from pathlib import Path
-import subprocess
+
+import pytest
+
+
+def _assert_workflow_output(runlogs_dir: Path) -> None:
+    with (runlogs_dir / "sleep.csv").open(newline="") as stream:
+        rows = list(csv.DictReader(stream))
+    assert rows
+    assert all(float(row["inner_time"]) > 0 for row in rows)
 
 
 def test_workflow_basic_execution(tmp_path):
@@ -20,6 +29,7 @@ def test_workflow_basic_execution(tmp_path):
         task_file.write_text(f"""
 options:
   task: sleep
+  directory: "{tmp_path}/runlogs"
   repeater: COUNT
   repeats: 2
 include:
@@ -51,6 +61,7 @@ workflow:
 
     # Check it succeeded
     assert result.returncode == 0, f"Workflow failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+    _assert_workflow_output(tmp_path / "runlogs" / "workflow_test")
 
 
 @pytest.mark.xdist_group("serial")
@@ -61,9 +72,10 @@ def test_workflow_with_experiment_field():
 
         # Create task config without experiment field
         task_file = tmp_path / "task.yaml"
-        task_file.write_text("""
+        task_file.write_text(f"""
 options:
   task: sleep
+  directory: "{tmp_path}/runlogs"
   repeater: COUNT
   repeats: 1
 include:
@@ -92,9 +104,9 @@ workflow:
 
         assert result.returncode == 0
 
-        # Check that runlogs/my_workflow_exp directory was created
-        runlogs_dir = Path(__file__).parent.parent.parent / "runlogs" / "my_workflow_exp"
-        assert runlogs_dir.exists(), f"Expected runlogs/{runlogs_dir} directory"
+        # Verify this run produced successful benchmark measurements.
+        runlogs_dir = tmp_path / "runlogs" / "my_workflow_exp"
+        _assert_workflow_output(runlogs_dir)
 
 
 @pytest.mark.xdist_group("serial")
@@ -102,9 +114,10 @@ def test_workflow_hybrid_composition(tmp_path):
     """Test workflow with hybrid composition: file includes + inline overrides."""
     # Create a base task config
     base_task = tmp_path / "base_task.yaml"
-    base_task.write_text("""
+    base_task.write_text(f"""
 options:
   task: sleep
+  directory: "{tmp_path}/runlogs"
   repeater: COUNT
   repeats: 5
 include:
@@ -134,6 +147,7 @@ workflow:
     options:
       repeater: COUNT
       repeats: 3
+      directory: "{tmp_path}/runlogs"
 """)
 
     # Run workflow
@@ -147,9 +161,9 @@ workflow:
     # Check it succeeded
     assert result.returncode == 0, f"Workflow failed:\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
 
-    # Verify runlogs directory was created
-    runlogs_dir = Path(__file__).parent.parent.parent / "runlogs" / "hybrid_test"
-    assert runlogs_dir.exists(), f"Expected runlogs/hybrid_test directory"
+    # Verify this run produced successful benchmark measurements.
+    runlogs_dir = tmp_path / "runlogs" / "hybrid_test"
+    _assert_workflow_output(runlogs_dir)
 
 
 if __name__ == "__main__":

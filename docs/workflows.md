@@ -11,6 +11,11 @@ A workflow is a YAML file that defines a sequence of tasks to be executed one af
 
 Workflows stop on the first task failure (sequential execution semantics).
 
+Each task is dispatched with launcher options before the benchmark name, so
+experiment names, backends, configuration files, and inline overrides are parsed
+as launcher options rather than passed to the benchmark. Hybrid task overrides
+take precedence over the included task configuration.
+
 ## Basic Workflow Structure
 
 ```yaml

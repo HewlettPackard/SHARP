@@ -5,9 +5,10 @@ SHARP workflow execution - run multiple experiments in sequence.
 Current implementation: simple sequential workflow execution.
 Future: DAG workflows with dependencies and parallelism.
 
-© Copyright 2025--2025 Hewlett Packard Enterprise Development LP
+© Copyright 2025--2026 Hewlett Packard Enterprise Development LP
 """
 
+import json
 import sys
 from pathlib import Path
 from typing import Union, Any
@@ -209,10 +210,6 @@ def run_workflow(
             if task_data and 'options' in task_data and 'task' in task_data['options']:
                 task_name = task_data['options']['task']
 
-            # Add task name if found
-            if task_name:
-                task_argv.append(task_name)
-
             # Add experiment name from workflow config if provided
             # (task config file's experiment field takes precedence in launch.py)
             if workflow_config.experiment:
@@ -221,10 +218,17 @@ def run_workflow(
             # Add the file path
             task_argv.extend(['-f', str(resolved_path)])
 
+            overrides: dict[str, Any] = {}
+            if workflow_task.options is not None:
+                overrides["options"] = workflow_task.options
+            if workflow_task.backends is not None:
+                overrides["backends"] = workflow_task.backends
+            if overrides:
+                task_argv.extend(['-j', json.dumps(overrides)])
+
         # For inline tasks: build full argv from task definition
         else:
-            # Add task name (required for inline tasks)
-            task_argv.append(workflow_task.task)
+            task_name = workflow_task.task
 
             # Add backends
             if workflow_task.backends:
@@ -233,7 +237,6 @@ def run_workflow(
 
             # Add options as JSON
             if workflow_task.options:
-                import json
                 task_argv.extend(['-j', json.dumps(workflow_task.options)])
 
             # Add experiment name from workflow config if provided
@@ -244,6 +247,10 @@ def run_workflow(
         # Add verbose flag if needed
         if verbose:
             task_argv.append('--verbose')
+
+        # The launcher treats everything after the benchmark as benchmark arguments.
+        if task_name:
+            task_argv.append(task_name)
 
         # Run task
         exit_code = launch.main(task_argv)

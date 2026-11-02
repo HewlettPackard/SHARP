@@ -3,7 +3,7 @@ Unit tests for workflow execution module.
 
 Tests the minimal sequential workflow support (Phase 4).
 
-© Copyright 2025--2025 Hewlett Packard Enterprise Development LP
+© Copyright 2025--2026 Hewlett Packard Enterprise Development LP
 """
 
 import pytest
@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 import yaml
 
-from src.cli import workflow
+from src.cli import launch, workflow
 from src.core.config.schema import WorkflowConfig
 
 
@@ -153,6 +153,37 @@ workflow:
 
 class TestRunWorkflow:
     """Test workflow execution."""
+
+    @pytest.mark.parametrize("kind", ["include", "inline", "hybrid"])
+    def test_task_arguments_are_parsed_as_launcher_options(self, tmp_path, kind):
+        task_file = tmp_path / "task.yaml"
+        task_file.write_text("options:\n  task: sleep\n  repeats: 5\n")
+        task = {"task": "sleep", "backends": ["local"], "options": {"repeats": 2}}
+        if kind != "inline":
+            task["include"] = "task.yaml"
+        if kind == "include":
+            task = {"include": "task.yaml"}
+
+        config = {
+            "version": "1.0.0",
+            "experiment": "workflow_test",
+            "workflow": [task],
+        }
+        with patch("src.cli.launch.main", return_value=0) as run:
+            assert workflow.run_workflow(config, verbose=True, base_dir=tmp_path) == 0
+
+        args = launch.parse_args(run.call_args.args[0])
+        assert args.experiment == "workflow_test"
+        assert args.verbose
+        assert args.benchmark == "sleep"
+        assert args.benchmark_args == []
+        merged = launch.build_config_from_sources(args)
+        options = merged if kind == "inline" else merged["options"]
+        assert options["repeats"] == (5 if kind == "include" else 2)
+        if kind != "inline":
+            assert args.config == [str(task_file)]
+        if kind != "include":
+            assert args.backend == ["local"] or merged.get("backends") == ["local"]
 
     @patch('src.cli.launch.main')
     def test_run_simple_workflow_with_includes(self, mock_launch_main, tmp_path):
