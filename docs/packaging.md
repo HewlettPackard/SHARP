@@ -14,6 +14,26 @@ SHARP provides tools to package benchmarks into portable, self-contained artifac
 | **Docker** | Container image with all dependencies | Cluster deployment, CI/CD, isolation |
 | **AppImage** | Single portable Linux executable | Desktop benchmarking, systems without Docker |
 
+## SHARP Package Version
+
+SHARP's own package version is defined only by `__version__` in
+[`src/__init__.py`](../src/__init__.py). Hatchling reads this value through the
+dynamic version configuration in [`pyproject.toml`](../pyproject.toml); the CLI
+and runlog metadata use the same value. uv watches this source file through
+`tool.uv.cache-keys`, so version edits also trigger an editable-package metadata
+rebuild on the next `uv run` or `uv sync`.
+
+When bumping the version, edit that constant, then run:
+
+```bash
+uv lock
+uv run pytest tests/unit/test_version.py
+```
+
+Commit the updated source and lockfile together. The version tests check package
+metadata and runtime reporting for consistency; they do not enforce agreement
+with Git release tags.
+
 ## Unified Requirements Syntax
 
 SHARP 4.0 introduces a unified `requires` field for declaring dependencies that works consistently across both AppImage and Docker builds:

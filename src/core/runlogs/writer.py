@@ -5,7 +5,7 @@ Records experiment metadata and run results to:
 - CSV file: columnar data (shared metadata + per-run metrics)
 - Markdown file: human-readable metadata, field descriptions, system specs
 
-© Copyright 2022--2025 Hewlett Packard Enterprise Development LP
+© Copyright 2022--2026 Hewlett Packard Enterprise Development LP
 """
 
 import csv
@@ -16,12 +16,12 @@ import platform
 import re
 import subprocess
 import time
-import tomllib
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Union
-from src.core.config.include_resolver import get_project_root
+
+from src import __version__
 from src.core.config.settings import Settings
 
 
@@ -155,18 +155,6 @@ class RunLogger:
         Returns:
             Preamble text for markdown file
         """
-        # Try to get SHARP version from pyproject.toml
-        version = "unknown"
-        try:
-            # Find project root (assuming writer.py is in src/core/runlogs/)
-            pyproject_path = get_project_root() / "pyproject.toml"
-            if pyproject_path.exists():
-                with open(pyproject_path, "rb") as f:
-                    pyproject_data = tomllib.load(f)
-                    version = pyproject_data.get("project", {}).get("version", "unknown")
-        except Exception:
-            pass  # Use "unknown" if can't read version
-
         # Try to get git hash for reproducibility
         git_hash = ""
         try:
@@ -197,7 +185,7 @@ class RunLogger:
         if description:
             preamble += f"\nDescription: {description}\n"
 
-        preamble += f"\nSHARP version: {version}\n"
+        preamble += f"\nSHARP version: {__version__}\n"
         if git_hash:
             preamble += f"SHARP's source code version used was from git hash: {git_hash}\n"
 

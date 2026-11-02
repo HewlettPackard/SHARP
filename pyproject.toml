@@ -1,6 +1,6 @@
 [project]
 name = "sharp"
-version = "4.0.0"
+dynamic = ["version"]
 description = "Scalable Heterogeneous Architecture for Reproducible Performance"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -46,11 +46,15 @@ gui = "src.gui.__main__:main"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.version]
+path = "src/__init__.py"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
 
 [tool.uv]
 managed = true
+cache-keys = [{ file = "pyproject.toml" }, { file = "src/__init__.py" }]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

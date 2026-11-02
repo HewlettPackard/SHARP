@@ -12,22 +12,17 @@ Usage:
   sharp --version
   sharp help [subcommand]
 
-© Copyright 2025--2025 Hewlett Packard Enterprise Development LP
+© Copyright 2025--2026 Hewlett Packard Enterprise Development LP
 """
 
 import sys
 
+from src import __version__
+
 
 def print_version() -> None:
     """Print SHARP version information."""
-    # Import here to avoid circular dependencies
-    try:
-        from importlib.metadata import version
-        sharp_version = version("sharp")
-    except Exception:
-        sharp_version = "4.0.0"
-
-    print(f"SHARP version {sharp_version}")
+    print(f"SHARP version {__version__}")
 
 
 def print_usage() -> None:
